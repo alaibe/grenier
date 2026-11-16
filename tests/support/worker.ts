@@ -31,6 +31,7 @@ export async function startWorker(options: { listen?: boolean } = {}): Promise<{
       compatibilityDate: "2026-11-01",
       d1Databases: { DB: "grenier-team-test" },
       durableObjects: { TEAM: { className: "TeamCounter", useSQLite: true } },
+      r2Buckets: { VAULT: "grenier-team-vault" },
       ...(options.listen ? { host: "127.0.0.1", port: 0 } : {}),
     }),
   );

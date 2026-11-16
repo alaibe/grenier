@@ -38,3 +38,4 @@ export {
   TeamError,
   teamApi,
 } from "./sync.ts";
+export { type VaultSnapshot, vaultPull, vaultPush } from "./vault.ts";

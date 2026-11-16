@@ -9,5 +9,6 @@
     { "binding": "DB", "database_name": "grenier-team", "database_id": "local", "migrations_dir": "migrations" }
   ],
   "durable_objects": { "bindings": [{ "name": "TEAM", "class_name": "TeamCounter" }] },
+  "r2_buckets": [{ "binding": "VAULT", "bucket_name": "grenier-team-vault" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamCounter"] }]
 }

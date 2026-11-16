@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./policy": "./src/policy.ts",
+    "./vault": "./src/vault.ts",
     "./node": "./src/node.ts"
   },
   "dependencies": {

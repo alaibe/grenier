@@ -21,3 +21,4 @@ export {
   sha256,
   unshareable,
 } from "./policy.ts";
+export { newVaultKey, open, seal, VaultError } from "./vault.ts";

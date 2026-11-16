@@ -98,6 +98,13 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
   }
   if (!databaseId) throw new CommandError(`could not find or create the D1 database ${values.name}`);
 
+  const bucket = `${values.name}-vault`;
+  const buckets = await wrangler(["r2", "bucket", "list"]);
+  if (!buckets.includes(bucket)) {
+    out(`Creating the R2 bucket ${bucket}…`);
+    await wrangler(["r2", "bucket", "create", bucket]);
+  }
+
   writeFileSync(
     join(dir, "wrangler.json"),
     `${JSON.stringify(
@@ -109,6 +116,7 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
           { binding: "DB", database_name: values.name, database_id: databaseId, migrations_dir: "migrations" },
         ],
         durable_objects: { bindings: [{ name: "TEAM", class_name: "TeamCounter" }] },
+        r2_buckets: [{ binding: "VAULT", bucket_name: bucket }],
         migrations: [{ tag: "v1", new_sqlite_classes: ["TeamCounter"] }],
       },
       null,

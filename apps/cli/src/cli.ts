@@ -8,6 +8,7 @@ import { resume } from "./commands/resume.ts";
 import { run as runAgent } from "./commands/run.ts";
 import { status } from "./commands/status.ts";
 import { team } from "./commands/team.ts";
+import { vault } from "./commands/vault.ts";
 import { runDaemon, startDaemon, stopDaemon } from "./daemon.ts";
 import { type Io, isReported, UsageError } from "./io.ts";
 
@@ -51,6 +52,8 @@ Commands:
                              Every read of personal data
   review, review approve <id>, review reject <id>
                              Memories AI tools proposed with remember
+  vault init, vault join <key>, vault key, vault sync
+                             End-to-end encrypted sync of memories and sources between your devices
   team budget [--team <n>] [--member <n>]
                              Team-wide and per-member daily limits in dollars (admins set them)
 
@@ -131,6 +134,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
         return 0;
       case "review":
         for (const line of await review(rest, io)) io.out(line);
+        return 0;
+      case "vault":
+        for (const line of await vault(rest, io)) io.out(line);
         return 0;
       default:
         throw new UsageError(`unknown command "${command}"`);

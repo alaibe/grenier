@@ -55,6 +55,12 @@ code.
 - The team server never stores file contents, prompts or keys: answers and summaries pass `unshareable`
   (`@grenier/core/policy`) on both sides, and usage goes up as numbers. Its own migrations are in
   `apps/server/migrations`, applied by Wrangler.
+- Personal data leaves the daemon only through `packages/index/src/personal.ts`: the client's scope filters it, the
+  audit row is written first (no row, no read), and every item is redacted (`redact` in `@grenier/core/policy`) and
+  wrapped in an untrusted-data block. A new read path goes through `deliver` there, and its test belongs in
+  `tests/unit/personal/scopes.test.ts`, against every scope.
+- The vault key never leaves the user's devices: `seal`/`open` (`@grenier/core/vault`) run locally; the server stores
+  bytes it cannot read.
 - No test touches the real `~/.grenier`: set `GRENIER_HOME` to a temporary directory.
 - Prices live only in `packages/log/prices.toml` (overridable under `[prices]` in config.toml). Never write a price
   anywhere else.

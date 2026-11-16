@@ -6,7 +6,12 @@ import { DASHBOARD } from "./dashboard.ts";
 export interface Env {
   DB: D1Database;
   TEAM: DurableObjectNamespace<TeamCounter>;
+  /** Each member's encrypted vault objects. The server never holds the key (rule 5). */
+  VAULT: R2Bucket;
 }
+
+const MAX_VAULT_OBJECT = 25 * 1024 * 1024;
+const VAULT_NAME = /^[\w.-]{1,128}$/;
 
 interface Member {
   id: string;
@@ -336,6 +341,37 @@ export function createApp(): Hono<App> {
       budgets: budget.results,
       today: await counter(c.env).spent(today()),
     });
+  });
+
+  // Vault objects are ciphertext made on the member's devices; they are stored and returned byte for byte.
+  app.get("/api/vault", async (c) => {
+    const prefix = `vault/${c.get("member").id}/`;
+    const listed = await c.env.VAULT.list({ prefix });
+    return c.json({
+      objects: listed.objects.map((object) => ({
+        name: object.key.slice(prefix.length),
+        size: object.size,
+        uploaded: object.uploaded.getTime(),
+      })),
+    });
+  });
+
+  app.put("/api/vault/:name", async (c) => {
+    const name = c.req.param("name");
+    if (!VAULT_NAME.test(name)) return error(400, "a vault object's name takes letters, digits and . _ -");
+    const body = new Uint8Array(await c.req.arrayBuffer());
+    if (body.byteLength === 0 || body.byteLength > MAX_VAULT_OBJECT)
+      return error(413, "a vault object holds 1 byte to 25 MB");
+    await c.env.VAULT.put(`vault/${c.get("member").id}/${name}`, body);
+    return c.json({ stored: name, size: body.byteLength });
+  });
+
+  app.get("/api/vault/:name", async (c) => {
+    const name = c.req.param("name");
+    if (!VAULT_NAME.test(name)) return error(400, "a vault object's name takes letters, digits and . _ -");
+    const object = await c.env.VAULT.get(`vault/${c.get("member").id}/${name}`);
+    if (!object) return error(404, `no vault object ${name}`);
+    return new Response(object.body, { headers: { "content-type": "application/octet-stream" } });
   });
 
   app.notFound(() => error(404, "not found"));

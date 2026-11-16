@@ -4,11 +4,12 @@ import { connect } from "node:net";
 import { join } from "node:path";
 import { watchMarkdown } from "@grenier/connectors";
 import { createGateway } from "@grenier/gateway";
-import { syncOnce, type TeamBudget, teamApi } from "@grenier/index";
+import { syncOnce, type TeamBudget, teamApi, vaultPull, vaultPush } from "@grenier/index";
 import { cacheSavingsOf, loadPrices } from "@grenier/log";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { serve } from "@hono/node-server";
 import { version } from "../package.json";
+import { deviceId, vaultKey } from "./commands/vault.ts";
 import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
 import { CommandError, environment, type Io } from "./io.ts";
 import { desktopNotifier } from "./notify.ts";
@@ -122,6 +123,12 @@ export async function runDaemon(io: Io): Promise<number> {
         savedOf: (row) => cacheSavingsOf(row.model, row.cacheReadTokens ?? 0, prices),
         shareAll: config.cache.share_with_team,
       });
+      const key = vaultKey(paths);
+      if (key) {
+        const device = await deviceId(store);
+        await vaultPush(store, team, key, device);
+        await vaultPull(store, team, key, device);
+      }
       await store.team.set("last_sync", String(Date.now()));
       if (lastError) io.err("grenier: team sync works again");
       lastError = "";

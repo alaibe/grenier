@@ -59,14 +59,17 @@ describe("grenier team deploy", () => {
       "d1 list --json",
       "d1 create grenier-team",
       "d1 list --json",
+      "r2 bucket list",
+      "r2 bucket create",
       "d1 migrations apply",
       "deploy",
       "d1 execute grenier-team",
       "d1 execute grenier-team",
     ]);
-    expect(calls[4]).toEqual({ args: ["d1", "migrations", "apply", "grenier-team", "--remote"], cwd: serverHome });
-    expect(calls[5]?.cwd).toBe(serverHome);
-    const insert = calls[7]?.args.at(-1) ?? "";
+    expect(calls[5]?.args).toEqual(["r2", "bucket", "create", "grenier-team-vault"]);
+    expect(calls[6]).toEqual({ args: ["d1", "migrations", "apply", "grenier-team", "--remote"], cwd: serverHome });
+    expect(calls[7]?.cwd).toBe(serverHome);
+    const insert = calls[9]?.args.at(-1) ?? "";
     expect(insert).toMatch(
       /^INSERT INTO members \(id, name, token_hash, role, created_at\) VALUES \('[\w-]+', 'admin', '[0-9a-f]{64}', 'admin', \d+\)$/,
     );
@@ -79,6 +82,7 @@ describe("grenier team deploy", () => {
         { binding: "DB", database_name: "grenier-team", database_id: "db-123", migrations_dir: "migrations" },
       ],
       durable_objects: { bindings: [{ name: "TEAM", class_name: "TeamCounter" }] },
+      r2_buckets: [{ binding: "VAULT", bucket_name: "grenier-team-vault" }],
     });
     expect(readFileSync(join(serverHome, "server.js"), "utf8")).toBe("export default {};");
 
