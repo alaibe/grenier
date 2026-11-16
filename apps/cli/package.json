@@ -18,8 +18,12 @@
     "better-sqlite3": "13.0.3"
   },
   "devDependencies": {
+    "@grenier/connectors": "workspace:*",
     "@grenier/core": "workspace:*",
+    "@grenier/gateway": "workspace:*",
+    "@grenier/log": "workspace:*",
     "@grenier/store": "workspace:*",
+    "@hono/node-server": "2.1.6",
     "esbuild": "0.28.2"
   }
 }

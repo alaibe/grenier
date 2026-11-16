@@ -1,4 +1,4 @@
-import { ConfigError, defaultConfig, parseConfig } from "@grenier/core";
+import { ConfigError, defaultConfig, parseConfig, parsePrices } from "@grenier/core";
 import { describe, expect, it } from "vitest";
 
 const PLAN_EXAMPLE = `
@@ -37,11 +37,12 @@ function errorOf(text: string): ConfigError {
 describe("defaultConfig", () => {
   it("fills every section with its defaults and sets no budget", () => {
     expect(defaultConfig()).toEqual({
-      proxy: { port: 7788, upstream_anthropic: "https://api.anthropic.com" },
+      proxy: { port: 7788, upstream_anthropic: "https://api.anthropic.com", inject_cache_control: false },
       budgets: {},
-      guards: { loop_repeat_threshold: 3, loop_window: 10, on_loop: "notify" },
+      guards: { loop_repeat_threshold: 3, loop_window: 10, on_loop: "notify", pause_timeout: 600 },
       cache: { embeddings: "local", share_with_team: false },
       team: { url: "", token_env: "GRENIER_TEAM_TOKEN" },
+      prices: {},
     });
   });
 });
@@ -59,7 +60,11 @@ describe("parseConfig", () => {
 
   it("fills the keys a section leaves out", () => {
     const config = parseConfig("[proxy]\nport = 9000\n", "config.toml");
-    expect(config.proxy).toEqual({ port: 9000, upstream_anthropic: "https://api.anthropic.com" });
+    expect(config.proxy).toEqual({
+      port: 9000,
+      upstream_anthropic: "https://api.anthropic.com",
+      inject_cache_control: false,
+    });
     expect(config.guards.loop_window).toBe(10);
   });
 
@@ -105,5 +110,22 @@ describe("parseConfig", () => {
 
   it("refuses a team token_env that is not an environment variable name", () => {
     expect(errorOf('[team]\ntoken_env = "my token"\n').message).toContain("team.token_env:");
+  });
+
+  it("reads price overrides by model", () => {
+    const config = parseConfig(
+      '[prices."my-model"]\ninput = 1\noutput = 2\ncache_write_5m = 1.25\ncache_write_1h = 2\ncache_read = 0.1\n',
+      "config.toml",
+    );
+    expect(config.prices["my-model"]?.output).toBe(2);
+    expect(errorOf('[prices."m"]\ninput = 1\n').message).toContain("prices.m.output:");
+  });
+});
+
+describe("parsePrices", () => {
+  it("reads a models table and refuses a negative price", () => {
+    const text = '[models."m"]\ninput = 1\noutput = 2\ncache_write_5m = 1.25\ncache_write_1h = 2\ncache_read = 0.1\n';
+    expect(parsePrices(text, "prices.toml").m?.input).toBe(1);
+    expect(() => parsePrices(text.replace("input = 1", "input = -1"), "prices.toml")).toThrow("models.m.input:");
   });
 });

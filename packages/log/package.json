@@ -1,0 +1,15 @@
+{
+  "name": "@grenier/log",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Usage and audit records: model prices, cost calculation and reports.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@grenier/core": "workspace:*",
+    "@grenier/store": "workspace:*"
+  }
+}

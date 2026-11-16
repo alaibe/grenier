@@ -1,18 +1,18 @@
 import { readFile } from "node:fs/promises";
 import { defineConfig, type Plugin } from "vitest/config";
 
-function sqlAsText(): Plugin {
+function filesAsText(): Plugin {
   return {
-    name: "sql-as-text",
+    name: "files-as-text",
     async load(id) {
-      if (!id.endsWith(".sql")) return null;
+      if (!id.endsWith(".sql") && !id.endsWith(".toml")) return null;
       return `export default ${JSON.stringify(await readFile(id, "utf8"))};`;
     },
   };
 }
 
 export default defineConfig({
-  plugins: [sqlAsText()],
+  plugins: [filesAsText()],
   test: {
     include: ["tests/unit/**/*.test.ts"],
   },

@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/*.md", "!packages/store/migrations/meta"]
+    "includes": ["**", "!**/*.md", "!packages/store/migrations/meta", "!tests/fixtures"]
   },
   "formatter": {
     "enabled": true,

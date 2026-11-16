@@ -1,0 +1,17 @@
+{
+  "name": "@grenier/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The model-call proxy and the MCP server, as one Hono app.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@grenier/core": "workspace:*",
+    "@grenier/log": "workspace:*",
+    "@grenier/store": "workspace:*",
+    "hono": "4.13.17"
+  }
+}

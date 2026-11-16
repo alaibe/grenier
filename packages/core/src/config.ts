@@ -12,11 +12,38 @@ const secureUrl = z.url({ protocol: /^https?$/ }).refine(
   { message: "must use https (http is only allowed for 127.0.0.1, localhost and [::1])" },
 );
 
+const perMillion = z.number().nonnegative();
+
+/** USD per million tokens. `fast` multiplies every price when a response reports `speed: "fast"`. */
+export const modelPriceSchema = z.strictObject({
+  input: perMillion,
+  output: perMillion,
+  cache_write_5m: perMillion,
+  cache_write_1h: perMillion,
+  cache_read: perMillion,
+  fast: z.number().positive().optional(),
+  /** Prices once a request's input passes `threshold` tokens. */
+  long_context: z
+    .strictObject({
+      threshold: z.int().positive(),
+      input: perMillion,
+      output: perMillion,
+      cache_write_5m: perMillion,
+      cache_write_1h: perMillion,
+      cache_read: perMillion,
+    })
+    .optional(),
+});
+
+export type ModelPrice = z.output<typeof modelPriceSchema>;
+
 const configSchema = z.strictObject({
   proxy: z
     .strictObject({
       port: z.int().min(1).max(65535).default(7788),
       upstream_anthropic: secureUrl.default("https://api.anthropic.com"),
+      /** Adds a cache_control marker to requests that carry none. Off unless turned on; every change is logged. */
+      inject_cache_control: z.boolean().default(false),
     })
     .prefault({}),
   budgets: z
@@ -30,6 +57,8 @@ const configSchema = z.strictObject({
       loop_repeat_threshold: z.int().min(2).default(3),
       loop_window: z.int().min(2).default(10),
       on_loop: z.enum(["notify", "pause"]).default("notify"),
+      /** Seconds a paused session's request waits for `grenier resume` before it is answered with an error. */
+      pause_timeout: z.int().min(1).default(600),
     })
     .refine((guards) => guards.loop_repeat_threshold <= guards.loop_window, {
       message: "loop_repeat_threshold must not exceed loop_window",
@@ -51,6 +80,8 @@ const configSchema = z.strictObject({
         .default("GRENIER_TEAM_TOKEN"),
     })
     .prefault({}),
+  /** Overrides for packages/log/prices.toml, by model id. */
+  prices: z.record(z.string(), modelPriceSchema).default({}),
 });
 
 export type Config = z.output<typeof configSchema>;
@@ -65,6 +96,17 @@ export function defaultConfig(): Config {
 
 /** Parses the text of a config.toml. `source` names the file in error messages. Throws a ConfigError. */
 export function parseConfig(text: string, source: string): Config {
+  return parseToml(text, source, configSchema);
+}
+
+/** Parses a prices.toml: a `[models."<id>"]` table per model. Throws a ConfigError. */
+export function parsePrices(text: string, source: string): Record<string, ModelPrice> {
+  return parseToml(text, source, pricesSchema).models;
+}
+
+const pricesSchema = z.strictObject({ models: z.record(z.string(), modelPriceSchema) });
+
+function parseToml<T extends z.ZodType>(text: string, source: string, schema: T): z.output<T> {
   let raw: unknown;
   try {
     raw = parse(text);
@@ -76,7 +118,7 @@ export function parseConfig(text: string, source: string): Config {
     throw error;
   }
 
-  const result = configSchema.safeParse(raw);
+  const result = schema.safeParse(raw);
   if (result.success) return result.data;
 
   const lines = result.error.issues.map((issue) => {

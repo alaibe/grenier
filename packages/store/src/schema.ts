@@ -110,3 +110,15 @@ export const clients = sqliteTable("clients", {
   createdAt: integer("created_at").notNull(),
   revokedAt: integer("revoked_at"),
 });
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
+export type Usage = typeof usage.$inferSelect;
+export type NewUsage = typeof usage.$inferInsert;
+export type Event = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;
+export type Budget = typeof budgets.$inferSelect;
+export type Answer = typeof answers.$inferSelect;
+export type AnswerSource = typeof answerSources.$inferSelect;
+export type FileSummary = typeof fileSummaries.$inferSelect;
+export type Client = typeof clients.$inferSelect;

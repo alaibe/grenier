@@ -12,6 +12,8 @@ pnpm format && pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e
 ```
 
 Biome formats and lints (`biome.json`); `tsc` only typechecks; `pnpm test:e2e` builds the CLI and runs the built file.
+`pnpm test:agents` runs Claude Code itself through the daemon against a stand-in API; run it by hand when the proxy
+changes (CI has no Claude Code).
 
 ## Comments
 
@@ -20,8 +22,11 @@ code.
 
 ## Layout
 
-- `packages/*` are libraries, `apps/*` are what runs: `apps/cli` is the `grenier` command and, from phase 1, the daemon.
-- Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `fixtures` for recorded data.
+- `packages/*` are libraries, `apps/*` are what runs: `apps/cli` is the `grenier` command and the daemon.
+  `core` holds config and policy (budgets, loop detection), `store` the schema and SQLite, `log` prices, cost and
+  reports, `gateway` the proxy (Hono), `connectors` git.
+- Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `agents` with real agents,
+  `fixtures` for recorded data, `support` for shared helpers.
   Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`).
 - CI is `.forgejo/workflows/ci.yml`, on git.laibe.cc.
 
@@ -40,8 +45,12 @@ code.
   `pnpm db:generate --custom --name <what>`. A shipped migration never changes. A test fails when the migrated
   database and `schema.ts` disagree.
 - Our runner applies the migrations and records them in `schema_migrations`, not Drizzle's migrator: SQL files are
-  imported as text (esbuild's text loader, a Vitest plugin, `types/sql.d.ts`), so they work inside the bundled CLI.
+  imported as text (esbuild's text loader, a Vitest plugin, `types/text.d.ts`), so they work inside the bundled CLI.
 - No test touches the real `~/.grenier`: set `GRENIER_HOME` to a temporary directory.
+- Prices live only in `packages/log/prices.toml` (overridable under `[prices]` in config.toml). Never write a price
+  anywhere else.
+- The proxy never changes a request body unless an opt-in flag is on, and logs every change. It never stores or logs
+  `x-api-key` or `authorization`.
 - Dependencies are exact versions, and pnpm refuses releases younger than 7 days (`pnpm-workspace.yaml`). Install
   scripts run only for the packages listed there.
 - Every package is private until the name is settled (Open decisions, **Name**).

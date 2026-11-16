@@ -13,7 +13,7 @@ await build({
   format: "esm",
   target: "node22",
   external: ["better-sqlite3"],
-  loader: { ".sql": "text" },
+  loader: { ".sql": "text", ".toml": "text" },
   banner: { js: "#!/usr/bin/env node" },
   logLevel: "warning",
 });
