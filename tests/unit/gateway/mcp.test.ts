@@ -68,9 +68,14 @@ describe("the MCP server", () => {
     expect((await client.listTools()).tools.map((tool) => tool.name).sort()).toEqual([
       "ask_codebase",
       "file_summary",
+      "get",
+      "people",
       "record_answer",
       "record_summary",
+      "remember",
       "repo_map",
+      "search",
+      "timeline",
     ]);
   });
 

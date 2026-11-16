@@ -77,7 +77,7 @@ describe("grenier status", () => {
     expect(result.out.split("\n")).toEqual([
       `grenier ${version}`,
       `config    ${join(home, "config.toml")} (not found, using defaults)`,
-      `database  ${join(home, "grenier.db")} (schema 5)`,
+      `database  ${join(home, "grenier.db")} (schema 7)`,
       "proxy     127.0.0.1:7788 → https://api.anthropic.com",
       "daemon    stopped",
     ]);

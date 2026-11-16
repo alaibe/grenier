@@ -1,16 +1,22 @@
 import type {
   Answer,
   AnswerSource,
+  AuditEntry,
   Budget,
   Client,
   Event,
   FileSummary,
+  Item,
   NewAnswer,
   NewEvent,
   NewFileSummary,
+  NewItem,
   NewSession,
+  NewSource,
   NewUsage,
+  ReviewEntry,
   Session,
+  Source,
   TeamRepo,
   Usage,
 } from "./schema.ts";
@@ -28,6 +34,10 @@ export interface Store {
   summaries: SummaryStore;
   clients: ClientStore;
   team: TeamStore;
+  sources: SourceStore;
+  items: ItemStore;
+  audit: AuditStore;
+  review: ReviewStore;
 }
 
 export interface SessionStore {
@@ -123,7 +133,10 @@ export interface ClientStore {
   /** The client holding this token, unless it was revoked. */
   findActive(tokenHash: string): Promise<Client | undefined>;
   list(): Promise<Client[]>;
-  /** Revokes the named client; false when there is no such active client. */
+  /**
+   * Revokes the named client; false when there is no such active client. The revoked entry keeps its id (the audit
+   * log refers to it) but takes the name `<name>~<time>`, so the name can be given to a new client.
+   */
   revoke(name: string, at: number): Promise<boolean>;
 }
 
@@ -133,4 +146,56 @@ export interface TeamStore {
   unshare(repoId: string): Promise<boolean>;
   get(key: string): Promise<string | undefined>;
   set(key: string, value: string): Promise<void>;
+}
+
+export interface SourceStore {
+  add(source: NewSource): Promise<void>;
+  list(): Promise<Source[]>;
+  get(name: string): Promise<Source | undefined>;
+  /** Removes the source and every item it brought. */
+  remove(name: string): Promise<boolean>;
+  saveState(id: string, state: Record<string, unknown>, at: number): Promise<void>;
+}
+
+export interface ItemFilter {
+  /** Only items of these sources: what the reading client's scope allows. */
+  sourceIds: readonly string[];
+  from?: number;
+  to?: number;
+}
+
+export interface ItemStore {
+  /** Adds or replaces an item; false when it was already there with the same content hash. */
+  put(item: NewItem): Promise<boolean>;
+  get(id: string): Promise<Item | undefined>;
+  /** Removes these items; returns how many there were. */
+  remove(ids: readonly string[]): Promise<number>;
+  /** Removes the items of a source whose ids are not in `keep`; returns how many. */
+  prune(sourceId: string, keep: ReadonlySet<string>): Promise<number>;
+  ids(sourceId: string): Promise<string[]>;
+  /** Full-text matches for any of the terms, best first (BM25). */
+  search(terms: readonly string[], filter: ItemFilter, limit: number): Promise<Item[]>;
+  /** Items in time order, optionally matching any of the terms. */
+  timeline(terms: readonly string[], filter: ItemFilter, limit: number): Promise<Item[]>;
+  /** Items whose people include `name` (case-insensitive), newest first. */
+  withPerson(name: string, filter: ItemFilter, limit: number): Promise<Item[]>;
+  count(): Promise<{ sourceId: string; items: number }[]>;
+}
+
+export interface AuditStore {
+  add(entry: {
+    ts: number;
+    clientId: string;
+    tool: string;
+    args: Record<string, unknown>;
+    itemIds: string[];
+  }): Promise<void>;
+  list(filter?: { clientId?: string; since?: number; limit?: number }): Promise<AuditEntry[]>;
+}
+
+export interface ReviewStore {
+  add(entry: { id: string; clientId: string; text: string; tags: string[]; ts: number }): Promise<void>;
+  get(id: string): Promise<ReviewEntry | undefined>;
+  list(state?: ReviewEntry["state"]): Promise<ReviewEntry[]>;
+  decide(id: string, state: "approved" | "rejected", at: number): Promise<boolean>;
 }

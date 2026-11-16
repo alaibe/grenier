@@ -85,6 +85,12 @@ const configSchema = z.strictObject({
       sync_interval: z.int().min(1).max(3600).default(20),
     })
     .prefault({}),
+  sources: z
+    .strictObject({
+      /** Seconds between two pulls of mail and calendar sources; markdown folders are also watched. */
+      sync_interval: z.int().min(30).default(300),
+    })
+    .prefault({}),
   /** Overrides for packages/log/prices.toml, by model id. */
   prices: z.record(z.string(), modelPriceSchema).default({}),
 });

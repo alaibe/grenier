@@ -1,12 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { parseArgs } from "node:util";
 import { createMcpServer } from "@grenier/gateway";
+import { SCOPE_KINDS } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { version } from "../../package.json";
 import { embedderLoader, gitFiles, repoResolver } from "../exploration.ts";
-import { CommandError, environment, type Io, UsageError } from "../io.ts";
+import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
+import { addClient, readerFor } from "../sources.ts";
 
 /** `grenier mcp serve`: the MCP server over stdio, for an agent that launches it in its working directory. */
 export async function serve(io: Io): Promise<number> {
@@ -17,6 +20,8 @@ export async function serve(io: Io): Promise<number> {
     files: gitFiles,
     embedder: embedderLoader(config, paths, io.err),
     resolveRepo: repoResolver(io.cwd),
+    // The client token `grenier mcp install` wrote into the app's config, looked up at each call.
+    reader: () => readerFor(store, io.env.GRENIER_CLIENT_TOKEN),
     version,
   });
   const transport = new StdioServerTransport();
@@ -108,21 +113,40 @@ export function withJsonServer(
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 
-/** `grenier mcp install <client>`: adds Grenier's MCP server (over stdio) to that client's config. */
-export function install(argv: string[], io: Io, where: { home?: string; platform?: NodeJS.Platform } = {}): string {
+/**
+ * `grenier mcp install <client> [--scope …]`: adds Grenier's MCP server (over stdio) to that client's config, with a
+ * client token of its own whose scope says which personal data it may read (none by default). Installing again
+ * revokes the previous token.
+ */
+export async function install(
+  argv: string[],
+  io: Io,
+  where: { home?: string; platform?: NodeJS.Platform } = {},
+): Promise<string> {
   const [client, ...rest] = argv;
-  if (!CLIENTS.includes(client as McpClient) || rest.length > 0) {
-    throw new UsageError(`mcp install takes one of: ${CLIENTS.join(", ")}`);
-  }
+  if (!CLIENTS.includes(client as McpClient)) throw new UsageError(`mcp install takes one of: ${CLIENTS.join(", ")}`);
+  const { values } = parseArgs({ args: rest, strict: true, options: { scope: { type: "string", default: "" } } });
+  const scopes = values.scope
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  const { paths } = environment(io);
+  const token = await withStore(paths, async (store) => {
+    const known = new Set([...SCOPE_KINDS, ...(await store.sources.list()).map((source) => source.name)]);
+    const unknown = scopes.filter((scope) => !known.has(scope));
+    if (unknown.length > 0) throw new CommandError(`unknown scope ${unknown.join(", ")}: use ${[...known].join(", ")}`);
+    await store.clients.revoke(client as string, Date.now());
+    return addClient(store, client as string, scopes);
+  });
   const path = configPath(client as McpClient, where.home ?? homedir(), where.platform ?? process.platform, io.env);
   const [command = process.execPath, ...prefix] = io.self;
   const args = [...prefix, "mcp", "serve"];
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = { GRENIER_CLIENT_TOKEN: token };
   for (const name of ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"]) {
     const value = io.env[name];
     if (value) env[name] = value;
   }
-  const server = { command, args, ...(Object.keys(env).length > 0 ? { env } : {}) };
+  const server = { command, args, env };
   const text = existsSync(path) ? readFileSync(path, "utf8") : "";
 
   writeAtomically(
@@ -131,5 +155,5 @@ export function install(argv: string[], io: Io, where: { home?: string; platform
       ? withCodexServer(text, command, args, env)
       : withJsonServer(text, server, client === "claude-code" ? { type: "stdio" } : {}),
   );
-  return `Added Grenier's MCP server to ${path}. Restart ${client} to load it.`;
+  return `Added Grenier's MCP server to ${path}, reading ${scopes.length > 0 ? scopes.join(", ") : "no personal data"}. Restart ${client} to load it.`;
 }

@@ -1,10 +1,10 @@
 import { closeSync, openSync } from "node:fs";
 import Database from "better-sqlite3";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, type SQL, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, notInArray, type SQL, sql, sum } from "drizzle-orm";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { migrations as allMigrations, type Migration, StoreError } from "./index.ts";
 import * as schema from "./schema.ts";
-import type { BudgetScope, SpendFilter, Store } from "./store.ts";
+import type { BudgetScope, ItemFilter, SpendFilter, Store } from "./store.ts";
 
 type Db = BetterSQLite3Database<typeof schema>;
 
@@ -41,7 +41,23 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     clients,
     teamRepos,
     syncState,
+    sources,
+    items,
+    audit,
+    reviewQueue,
   } = schema;
+
+  const itemConditions = (filter: ItemFilter) =>
+    and(
+      filter.sourceIds.length === 0 ? sql`0` : inArray(items.sourceId, [...filter.sourceIds]),
+      filter.from === undefined ? undefined : gte(items.ts, filter.from),
+      filter.to === undefined ? undefined : lte(items.ts, filter.to),
+    );
+  const ftsQuery = (terms: readonly string[]) =>
+    terms
+      .filter((term) => term.trim() !== "")
+      .map((term) => `"${term.replace(/"/g, '""')}"`)
+      .join(" OR ");
 
   return {
     schemaVersion: async () => schemaVersion(db),
@@ -279,8 +295,139 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       revoke: async (name, at) =>
         db
           .update(clients)
-          .set({ revokedAt: at })
+          .set({ revokedAt: at, name: `${name}~${at}` })
           .where(and(eq(clients.name, name), isNull(clients.revokedAt)))
+          .run().changes > 0,
+    },
+
+    sources: {
+      add: async (source) => {
+        db.insert(sources).values(source).run();
+      },
+      list: async () => db.select().from(sources).orderBy(asc(sources.name)).all(),
+      get: async (name) => db.select().from(sources).where(eq(sources.name, name)).get(),
+      remove: async (name) => db.delete(sources).where(eq(sources.name, name)).run().changes > 0,
+      saveState: async (id, state, at) => {
+        db.update(sources).set({ state, lastSync: at }).where(eq(sources.id, id)).run();
+      },
+    },
+
+    items: {
+      put: async (item) => {
+        const existing = db.select({ contentHash: items.contentHash }).from(items).where(eq(items.id, item.id)).get();
+        if (existing?.contentHash === item.contentHash) return false;
+        const { seq: _seq, ...values } = item;
+        db.insert(items).values(values).onConflictDoUpdate({ target: items.id, set: values }).run();
+        return true;
+      },
+      get: async (id) => db.select().from(items).where(eq(items.id, id)).get(),
+      remove: async (ids) =>
+        ids.length === 0
+          ? 0
+          : db
+              .delete(items)
+              .where(inArray(items.id, [...ids]))
+              .run().changes,
+      prune: async (sourceId, keep) =>
+        db
+          .delete(items)
+          .where(and(eq(items.sourceId, sourceId), keep.size === 0 ? undefined : notInArray(items.id, [...keep])))
+          .run().changes,
+      ids: async (sourceId) =>
+        db
+          .select({ id: items.id })
+          .from(items)
+          .where(eq(items.sourceId, sourceId))
+          .all()
+          .map((row) => row.id),
+      search: async (terms, filter, limit) => {
+        const query = ftsQuery(terms);
+        if (query === "" || filter.sourceIds.length === 0) return [];
+        return db
+          .select({ item: items })
+          .from(sql`items_fts`)
+          .innerJoin(items, sql`${items.seq} = items_fts.rowid`)
+          .where(and(sql`items_fts MATCH ${query}`, itemConditions(filter)))
+          .orderBy(sql`bm25(items_fts)`)
+          .limit(limit)
+          .all()
+          .map((row) => row.item);
+      },
+      timeline: async (terms, filter, limit) => {
+        if (filter.sourceIds.length === 0) return [];
+        const query = ftsQuery(terms);
+        if (query === "") {
+          return db.select().from(items).where(itemConditions(filter)).orderBy(asc(items.ts)).limit(limit).all();
+        }
+        return db
+          .select({ item: items })
+          .from(sql`items_fts`)
+          .innerJoin(items, sql`${items.seq} = items_fts.rowid`)
+          .where(and(sql`items_fts MATCH ${query}`, itemConditions(filter)))
+          .orderBy(asc(items.ts))
+          .limit(limit)
+          .all()
+          .map((row) => row.item);
+      },
+      withPerson: async (name, filter, limit) => {
+        if (filter.sourceIds.length === 0 || name.trim() === "") return [];
+        const pattern = `%${name
+          .trim()
+          .toLowerCase()
+          .replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        return db
+          .select()
+          .from(items)
+          .where(and(sql`lower(${items.people}) LIKE ${pattern} ESCAPE '\\'`, itemConditions(filter)))
+          .orderBy(desc(items.ts))
+          .limit(limit)
+          .all();
+      },
+      count: async () =>
+        db
+          .select({ sourceId: items.sourceId, items: count() })
+          .from(items)
+          .groupBy(items.sourceId)
+          .orderBy(asc(items.sourceId))
+          .all(),
+    },
+
+    audit: {
+      add: async (entry) => {
+        db.insert(audit).values(entry).run();
+      },
+      list: async (filter = {}) =>
+        db
+          .select()
+          .from(audit)
+          .where(
+            and(
+              filter.clientId === undefined ? undefined : eq(audit.clientId, filter.clientId),
+              filter.since === undefined ? undefined : gte(audit.ts, filter.since),
+            ),
+          )
+          .orderBy(desc(audit.ts), desc(audit.id))
+          .limit(filter.limit ?? 1000)
+          .all(),
+    },
+
+    review: {
+      add: async (entry) => {
+        db.insert(reviewQueue).values(entry).run();
+      },
+      get: async (id) => db.select().from(reviewQueue).where(eq(reviewQueue.id, id)).get(),
+      list: async (state) =>
+        db
+          .select()
+          .from(reviewQueue)
+          .where(state === undefined ? undefined : eq(reviewQueue.state, state))
+          .orderBy(asc(reviewQueue.ts))
+          .all(),
+      decide: async (id, state, at) =>
+        db
+          .update(reviewQueue)
+          .set({ state, decidedAt: at })
+          .where(and(eq(reviewQueue.id, id), eq(reviewQueue.state, "pending")))
           .run().changes > 0,
     },
 

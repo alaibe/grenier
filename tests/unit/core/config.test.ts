@@ -47,6 +47,7 @@ describe("defaultConfig", () => {
       guards: { loop_repeat_threshold: 3, loop_window: 10, on_loop: "notify", pause_timeout: 600 },
       cache: { embeddings: "local", share_with_team: false },
       team: { url: "", token_env: "GRENIER_TEAM_TOKEN", sync_interval: 20 },
+      sources: { sync_interval: 300 },
       prices: {},
     });
   });

@@ -17,6 +17,7 @@ export {
   LoopDetector,
   MAX_CODE_LINES,
   MAX_SHARED_TEXT,
+  redact,
   sha256,
   unshareable,
 } from "./policy.ts";

@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, type FSWatcher, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
+import { watchMarkdown } from "@grenier/connectors";
 import { createGateway } from "@grenier/gateway";
 import { syncOnce, type TeamBudget, teamApi } from "@grenier/index";
 import { cacheSavingsOf, loadPrices } from "@grenier/log";
@@ -11,6 +12,7 @@ import { version } from "../package.json";
 import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
 import { CommandError, environment, type Io } from "./io.ts";
 import { desktopNotifier } from "./notify.ts";
+import { syncSources } from "./sources.ts";
 import { teamClient } from "./team.ts";
 
 /** The daemon writes its pid here while it runs. */
@@ -134,11 +136,48 @@ export async function runDaemon(io: Io): Promise<number> {
   const timer = team ? setInterval(() => void sync(), config.team.sync_interval * 1000) : undefined;
   if (team) void sync();
 
+  // Personal-data sources: every one on a timer, and markdown folders as soon as they change.
+  let pulling = false;
+  let again = false;
+  const watchers = new Map<string, FSWatcher>();
+  const pull = async (only?: string): Promise<void> => {
+    if (pulling) {
+      again = true;
+      return;
+    }
+    pulling = true;
+    try {
+      await syncSources(store, io.err, only);
+      for (const source of await store.sources.list()) {
+        const path = source.config.path;
+        if (source.kind !== "markdown" || typeof path !== "string" || watchers.has(source.id)) continue;
+        try {
+          watchers.set(
+            source.id,
+            watchMarkdown(path, () => void pull(source.name)),
+          );
+        } catch (error) {
+          io.err(`grenier: cannot watch ${path}: ${(error as Error).message}`);
+        }
+      }
+    } finally {
+      pulling = false;
+    }
+    if (again) {
+      again = false;
+      return pull();
+    }
+  };
+  const sourceTimer = setInterval(() => void pull(), config.sources.sync_interval * 1000);
+  void pull();
+
   await new Promise<void>((resolve) => {
     process.once("SIGTERM", () => resolve());
     process.once("SIGINT", () => resolve());
   });
   if (timer) clearInterval(timer);
+  clearInterval(sourceTimer);
+  for (const watcher of watchers.values()) watcher.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   rmSync(pidFile(paths.home), { force: true });
   await store.close();

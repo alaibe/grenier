@@ -134,3 +134,69 @@ export function unshareable(text: string): string | null {
   }
   return null;
 }
+
+/** ISO 13616: move the first four characters to the end, letters to numbers, and the remainder mod 97 must be 1. */
+function validIban(candidate: string): boolean {
+  const compact = candidate.replace(/\s+/g, "").toUpperCase();
+  if (compact.length < 15 || compact.length > 34) return false;
+  const rearranged = compact.slice(4) + compact.slice(0, 4);
+  let remainder = 0;
+  for (const char of rearranged) {
+    const value = /\d/.test(char) ? char : String(char.charCodeAt(0) - 55);
+    for (const digit of value) remainder = (remainder * 10 + Number(digit)) % 97;
+  }
+  return remainder === 1;
+}
+
+// Country code, check digits, then the account in groups of four as IBANs are written (or run together).
+const IBAN = /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b/g;
+// A phone number: an optional + or 00 and country code, then groups of digits, 9 to 15 digits in all.
+const PHONE = /(?<![\w+(])(?:\+|00)?\(?\d(?:[\s.\-/]?\(?\d{1,4}\)?){3,8}(?!\w)/g;
+const TOWN = "[A-ZÀ-Ý][A-Za-zÀ-ÿ'\\-]+(?:[ \\-][A-ZÀ-Ý][A-Za-zÀ-ÿ'\\-]+){0,2}";
+const POSTCODE_TOWN = `(?:,?\\s*\\d{4,5}\\s+${TOWN})?`;
+/** The word in either case, letter by letter, so the rest of the pattern can stay case-sensitive. */
+const anyCase = (word: string) => word.replace(/[a-zà-ÿ]/g, (c) => `[${c}${c.toUpperCase()}]`);
+const STREET_WORDS_FIRST = [
+  "rue",
+  "avenue",
+  "av\\.",
+  "boulevard",
+  "bd",
+  "chemin",
+  "place",
+  "impasse",
+  "allée",
+  "allee",
+  "quai",
+  "route",
+  "cours",
+  "via",
+  "calle",
+  "strasse",
+  "straße",
+];
+// "12 rue de la Paix", "3 Hauptstraße": the street word before the name.
+const STREET_FIRST = new RegExp(
+  `\\b\\d{1,5}(?: ?(?:bis|ter|[a-zA-Z]))?,?\\s+(?:${STREET_WORDS_FIRST.map(anyCase).join("|")})\\b[^\\n,;]{1,50}${POSTCODE_TOWN}`,
+  "g",
+);
+// "221B Baker Street": the street word after the name.
+const STREET_LAST = new RegExp(
+  `\\b\\d{1,5}[A-Za-z]?\\s+(?:[A-Z][A-Za-z'\\-]*\\s+){1,4}(?:Street|St\\.|Road|Rd\\.|Avenue|Ave\\.|Lane|Ln\\.|Drive|Dr\\.|Way|Court|Ct\\.|Boulevard|Blvd\\.|Place|Terrace|Square)(?![A-Za-z])${POSTCODE_TOWN}`,
+  "g",
+);
+
+/**
+ * Removes IBANs (checked with their mod-97 digits), phone numbers and street addresses from text before it leaves
+ * the daemon. Heuristics: an address without a street word, or a phone number written with letters, passes through.
+ */
+export function redact(text: string): string {
+  return text
+    .replace(IBAN, (match) => (validIban(match) ? "[IBAN removed]" : match))
+    .replace(STREET_FIRST, "[address removed]")
+    .replace(STREET_LAST, "[address removed]")
+    .replace(PHONE, (match) => {
+      const digits = match.replace(/\D/g, "").length;
+      return digits >= 9 && digits <= 15 ? "[phone removed]" : match;
+    });
+}

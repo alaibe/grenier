@@ -16,6 +16,20 @@ export {
 } from "./cache.ts";
 export { cosine, type Embedder, readSafetensors, StaticEmbedder } from "./embeddings.ts";
 export {
+  approveMemory,
+  getItem,
+  inScope,
+  type PersonalDeps,
+  people,
+  type Reader,
+  type ReadResult,
+  type ReturnedItem,
+  remember,
+  SCOPE_KINDS,
+  searchItems,
+  timeline,
+} from "./personal.ts";
+export {
   type SyncDeps,
   type SyncResult,
   syncOnce,

@@ -256,34 +256,37 @@ Each task lists what must be true before its box is ticked.
 
 ### Phase 1: local cache and guards
 
-- [ ] Proxy passthrough with streaming
+- [x] Proxy passthrough with streaming
   - Done when: Claude Code works unchanged through `grenier run -- claude`; a recorded streaming response is replayed byte for byte in a test.
-- [ ] Usage log and `grenier report`
+- [x] Usage log and `grenier report`
   - Done when: every request writes a usage row with the four token counts; the report groups by day, session and repo; costs come from `prices.toml` only.
-- [ ] Budgets
+- [x] Budgets
   - Done when: a session over its limit gets the error before any upstream call; the agent does not retry it; `grenier budget set` takes effect without a restart.
-- [ ] Loop detection with notify and pause
+- [x] Loop detection with notify and pause
   - Done when: a fixture with the same tool call 3 times raises one loop event; pause holds the next request until `grenier resume`.
-- [ ] Exploration cache: `record_answer`, `ask_codebase`, `file_summary`, `repo_map`
+- [x] Exploration cache: `record_answer`, `ask_codebase`, `file_summary`, `repo_map`
   - Done when: an answer is a `hit` until one of its source files changes, then `stale` with the changed paths listed; hybrid search finds a reworded question.
-- [ ] `grenier mcp install` for Claude Code, Cursor, Codex and Claude Desktop
+- [x] `grenier mcp install` for Claude Code, Cursor, Codex and Claude Desktop
   - Done when: each writes a valid config, and an end-to-end test calls `ask_codebase` over stdio.
-- [ ] Prompt-cache report (observe only)
+- [x] Prompt-cache report (observe only)
   - Done when: the report shows cache-write vs cache-read share per session and flags high-churn sessions.
-- [ ] Benchmark in `bench/`
+- [x] Benchmark in `bench/`
   - Done when: one command runs the same questions on public repos twice, cold then warm, and writes tokens and cost for both runs to a Markdown table.
 
 ### Phase 2: team server on Cloudflare
 
-- [ ] `apps/server` Worker: Hono routes, D1 schema, Vectorize index, Durable Object per team for budget counters
+- [x] `apps/server` Worker: Hono routes, D1 schema, Vectorize index, Durable Object per team for budget counters
+  - Built without Vectorize: search stays on each machine (docs/decisions.md).
 - [ ] `grenier team deploy` and `grenier team join`
   - Done when: a new Cloudflare account goes from nothing to a working team server with one command plus `wrangler login`.
-- [ ] Shared cache: answers and summaries sync up and down; local stays the source of truth while offline
+  - Built and tested against a stand-in for Wrangler and against the Worker in Miniflare; waiting for a run on a real
+    Cloudflare account.
+- [x] Shared cache: answers and summaries sync up and down; local stays the source of truth while offline
   - Done when: an answer recorded on machine A is a `hit` on machine B within one minute.
-- [ ] Team budgets and per-member usage
-- [ ] Dashboard page served by the Worker: usage, hit rate, savings, members, revoke
+- [x] Team budgets and per-member usage
+- [x] Dashboard page served by the Worker: usage, hit rate, savings, members, revoke
   - Done when: a revoked token gets 401 on its next call.
-- [ ] OpenAI-compatible proxy endpoints, for Codex and others
+- [x] OpenAI-compatible proxy endpoints, for Codex and others
 
 ### Phase 3: personal data and desktop app
 

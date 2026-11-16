@@ -38,7 +38,13 @@ export function createGateway(options: GatewayOptions): Hono {
         "Grenier's MCP endpoint needs a client token: Authorization: Bearer <token>.",
       );
     }
-    const server = createMcpServer({ ...options.mcp, store: options.store });
+    const reader = { id: client.id, name: client.name, scopes: client.scopes };
+    const server = createMcpServer({
+      ...options.mcp,
+      store: options.store,
+      // A token revoked mid-request stops at its next tool call.
+      reader: async () => ((await options.store.clients.findActive(client.tokenHash)) ? reader : null),
+    });
     // No session id generator: stateless, one server per request.
     const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
     await server.connect(transport);

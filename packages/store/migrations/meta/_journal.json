@@ -36,6 +36,20 @@
       "when": 1794842056556,
       "tag": "0004_team_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794843795391,
+      "tag": "0005_personal_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794843795912,
+      "tag": "0006_items_fts",
+      "breakpoints": true
     }
   ]
 }

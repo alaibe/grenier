@@ -2,6 +2,7 @@ import { version } from "../package.json";
 import { budget } from "./commands/budget.ts";
 import { cache } from "./commands/cache.ts";
 import { install, serve } from "./commands/mcp.ts";
+import { audit, clients, review, sources } from "./commands/personal.ts";
 import { report } from "./commands/report.ts";
 import { resume } from "./commands/resume.ts";
 import { run as runAgent } from "./commands/run.ts";
@@ -26,8 +27,8 @@ Commands:
   budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]
                              Set limits in dollars ("off" removes one)
   resume <session>           Let a session paused by the loop guard continue
-  mcp install <claude-code|cursor|codex|claude-desktop>
-                             Add Grenier's MCP server to that client's config
+  mcp install <claude-code|cursor|codex|claude-desktop> [--scope <sources or kinds>]
+                             Add Grenier's MCP server to that client's config, with a client token
   mcp serve                  The MCP server over stdio (what the clients launch)
   cache stats                Answers and summaries kept, by repository
   cache clear [--repo <name>]
@@ -40,6 +41,16 @@ Commands:
   team share [--repo <path>], team unshare [--repo <path>]
                              Share a repository's answers and summaries with the team, or stop
   team status, team sync     The team connection; sync now (the daemon syncs on its own)
+  sources add <markdown|ics|caldav|imap> <name> <path, url or host> [--user …] [--password-command "…"]
+                             Add a personal-data source (passwords come from a command or an env var)
+  sources [list], sources sync [name], sources remove <name>
+  clients add <name> --scope <sources or kinds>
+                             A token for an app that reads personal data (kinds: notes, mail, calendar, memory)
+  clients [list], clients revoke <name>
+  audit [--client <name>] [--since 7d]
+                             Every read of personal data
+  review, review approve <id>, review reject <id>
+                             Memories AI tools proposed with remember
   team budget [--team <n>] [--member <n>]
                              Team-wide and per-member daily limits in dollars (admins set them)
 
@@ -99,7 +110,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
       case "mcp":
         if (rest[0] === "serve" && rest.length === 1) return await serve(io);
         if (rest[0] === "install") {
-          io.out(install(rest.slice(1), io));
+          io.out(await install(rest.slice(1), io));
           return 0;
         }
         throw new UsageError("mcp takes: install <client>, or serve");
@@ -108,6 +119,18 @@ export async function run(argv: string[], io: Io): Promise<number> {
         return 0;
       case "team":
         for (const line of await team(rest, io)) io.out(line);
+        return 0;
+      case "sources":
+        for (const line of await sources(rest, io)) io.out(line);
+        return 0;
+      case "clients":
+        for (const line of await clients(rest, io)) io.out(line);
+        return 0;
+      case "audit":
+        for (const line of await audit(rest, io)) io.out(line);
+        return 0;
+      case "review":
+        for (const line of await review(rest, io)) io.out(line);
         return 0;
       default:
         throw new UsageError(`unknown command "${command}"`);
