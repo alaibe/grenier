@@ -25,6 +25,8 @@ export interface QuestionResult {
   question: string;
   cold: RunUsage;
   warm: RunUsage;
+  /** Both runs finished; false when one stopped, at the budget or on an error, so its numbers mean nothing. */
+  complete: boolean;
 }
 
 export interface BenchOptions {
@@ -36,6 +38,8 @@ export interface BenchOptions {
   /** The agent's command for one question, given the MCP config file to load. */
   agent: (question: string, mcpConfig: string) => string[];
   port: number;
+  /** A daily limit in dollars for the benchmark's own Grenier home: the proxy stops the agent when it is reached. */
+  budget?: number;
   /** Where the proxy sends requests; the real API unless a test stands in. */
   upstream?: string;
   env?: NodeJS.ProcessEnv;
@@ -68,6 +72,11 @@ export function sessionIdFrom(stderr: string): string | null {
   return /grenier: session (\S+),/.exec(stderr)?.[1] ?? null;
 }
 
+interface Run {
+  session: string | null;
+  ok: boolean;
+}
+
 const zero = (): RunUsage => ({ inputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 0, cost: 0 });
 
 /** Clones each repository at its commit, then asks every question cold and warm. */
@@ -77,7 +86,11 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
   mkdirSync(home, { recursive: true });
   writeFileSync(
     join(home, "config.toml"),
-    `[proxy]\nport = ${options.port}\n${options.upstream ? `upstream_anthropic = ${JSON.stringify(options.upstream)}\n` : ""}`,
+    [
+      `[proxy]\nport = ${options.port}\n`,
+      options.upstream ? `upstream_anthropic = ${JSON.stringify(options.upstream)}\n` : "",
+      options.budget !== undefined ? `\n[budgets]\ndaily = ${options.budget}\n` : "",
+    ].join(""),
   );
   const env = { ...process.env, ...options.env, GRENIER_HOME: home };
   const [node = process.execPath, ...script] = options.grenier;
@@ -104,16 +117,21 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
       await exec("git", ["-C", dir, "clean", "--quiet", "-fdx"]);
       await grenier(["cache", "clear", "--repo", dir], dir);
 
-      const sessions: Record<"cold" | "warm", (string | null)[]> = { cold: [], warm: [] };
-      for (const phase of ["cold", "warm"] as const) {
-        for (const question of repo.questions) {
+      // Each question runs cold then warm before the next, so a budget that runs out still leaves whole pairs.
+      const runs: { question: string; cold: Run; warm: Run }[] = [];
+      for (const question of repo.questions) {
+        const pair: Partial<Record<"cold" | "warm", Run>> = {};
+        for (const phase of ["cold", "warm"] as const) {
           log(`${repo.name} ${phase}: ${question}`);
           const [command = "", ...args] = options.agent(question, mcpConfig);
-          const run = await grenier(["run", "--", command, ...args], dir).catch((error: { stderr?: string }) => ({
-            stderr: error.stderr ?? "",
-          }));
-          sessions[phase].push(sessionIdFrom(run.stderr));
+          const run: Run = await grenier(["run", "--", command, ...args], dir).then(
+            (done) => ({ session: sessionIdFrom(done.stderr), ok: true }),
+            (error: { stderr?: string }) => ({ session: sessionIdFrom(error.stderr ?? ""), ok: false }),
+          );
+          if (!run.ok) log(`${repo.name} ${phase}: the run did not finish`);
+          pair[phase] = run;
         }
+        runs.push({ question, cold: pair.cold as Run, warm: pair.warm as Run });
       }
 
       const report = JSON.parse(
@@ -133,14 +151,15 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
             }
           : zero();
       };
-      repo.questions.forEach((question, index) => {
+      for (const run of runs) {
         results.push({
           repo: repo.name,
-          question,
-          cold: usageOf(sessions.cold[index] ?? null),
-          warm: usageOf(sessions.warm[index] ?? null),
+          question: run.question,
+          cold: usageOf(run.cold.session),
+          warm: usageOf(run.warm.session),
+          complete: run.cold.ok && run.warm.ok,
         });
-      });
+      }
     }
   } finally {
     await grenier(["stop"], options.workDir).catch(() => {});
@@ -156,8 +175,16 @@ function saving(cold: number, warm: number): string {
   return cold === 0 ? "–" : `${Math.round(((cold - warm) / cold) * 100)}%`;
 }
 
-/** The results as a Markdown table: tokens and cost per question, cold and warm, with totals. */
-export function formatResults(results: readonly QuestionResult[], meta: { date: string; agent: string }): string {
+/**
+ * The results as a Markdown table: tokens and cost per question, cold and warm, with totals. Questions whose runs did
+ * not both finish are listed under the table and left out of it.
+ */
+export function formatResults(
+  all: readonly QuestionResult[],
+  meta: { date: string; agent: string; budget?: number },
+): string {
+  const results = all.filter((result) => result.complete);
+  const stopped = all.filter((result) => !result.complete);
   const sum = (pick: (result: QuestionResult) => RunUsage): RunUsage =>
     results.reduce<RunUsage>((acc, result) => {
       const usage = pick(result);
@@ -176,12 +203,20 @@ export function formatResults(results: readonly QuestionResult[], meta: { date: 
   return [
     `# Benchmark, ${meta.date}`,
     "",
-    `Agent: ${meta.agent}. Each question ran once with Grenier's cache empty (cold) and once after the cold runs had recorded their answers (warm), through the proxy. Tokens count input, cache writes, cache reads and output.`,
+    `Agent: ${meta.agent}. Each question ran once without its answer in Grenier's cache (cold), then once more after the cold run had recorded it (warm), through the proxy. Tokens count input, cache writes, cache reads and output; costs are at API prices from \`prices.toml\`.${meta.budget !== undefined ? ` The run was capped at $${meta.budget}.` : ""}`,
     "",
     "| Repository | Question | Cold tokens | Cold cost | Warm tokens | Warm cost | Saved |",
     "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ...results.map((result) => row(result.repo, result.question, result.cold, result.warm)),
     row("**Total**", "", cold, warm),
     "",
+    ...(stopped.length > 0
+      ? [
+          "Not counted, because a run stopped before the end (the budget was reached, or the agent failed):",
+          "",
+          ...stopped.map((result) => `- ${result.repo}: ${result.question}`),
+          "",
+        ]
+      : []),
   ].join("\n");
 }

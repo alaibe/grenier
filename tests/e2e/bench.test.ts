@@ -44,12 +44,12 @@ beforeAll(async () => {
   git("add", ".");
   git("commit", "-q", "-m", "first");
 
-  // Cold questions come first; answer them as if the agent explored, and later ones as if the cache answered.
+  // Each question runs cold then warm: answer the first as if the agent explored, the second as if the cache answered.
   upstream = createServer((request, response) => {
     request.resume();
     request.on("end", () => {
       served += 1;
-      response.writeHead(200, { "content-type": "text/event-stream" }).end(answer(served <= 2 ? 20_000 : 2_000));
+      response.writeHead(200, { "content-type": "text/event-stream" }).end(answer(served % 2 === 1 ? 20_000 : 2_000));
     });
   });
   await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
@@ -63,7 +63,8 @@ beforeAll(async () => {
       headers: { "content-type": "application/json", "x-api-key": "sk-ant-bench" },
       body: JSON.stringify({ model: "claude-opus-5-5", stream: true, messages: [{ role: "user", content: question }] }),
     });
-    await response.arrayBuffer();`,
+    await response.arrayBuffer();
+    if (!response.ok) process.exit(1);`,
   );
 });
 
@@ -72,30 +73,35 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+async function bench(workDir: string, budget?: number) {
+  const free = createServer();
+  await new Promise<void>((resolve) => free.listen(0, "127.0.0.1", resolve));
+  const port = (free.address() as AddressInfo).port;
+  await new Promise((resolve) => free.close(resolve));
+  const commit = execFileSync("git", ["-C", join(dir, "source"), "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  served = 0;
+  return runBenchmark({
+    repos: [
+      {
+        name: "app",
+        url: join(dir, "source"),
+        commit,
+        questions: ["Where is app defined?", "What does app export?"],
+      },
+    ],
+    workDir: join(dir, workDir),
+    grenier: [process.execPath, BINARY],
+    agent: templateAgent(`${process.execPath} ${join(dir, "agent.mjs")} {question} {mcp}`),
+    port,
+    upstream: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
+    env: { PATH: process.env.PATH },
+    ...(budget !== undefined ? { budget } : {}),
+  });
+}
+
 describe("the benchmark", () => {
   it("asks every question cold then warm through the proxy, and tabulates tokens and cost", async () => {
-    const free = createServer();
-    await new Promise<void>((resolve) => free.listen(0, "127.0.0.1", resolve));
-    const port = (free.address() as AddressInfo).port;
-    await new Promise((resolve) => free.close(resolve));
-    const commit = execFileSync("git", ["-C", join(dir, "source"), "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-
-    const results = await runBenchmark({
-      repos: [
-        {
-          name: "app",
-          url: join(dir, "source"),
-          commit,
-          questions: ["Where is app defined?", "What does app export?"],
-        },
-      ],
-      workDir: join(dir, "work"),
-      grenier: [process.execPath, BINARY],
-      agent: templateAgent(`${process.execPath} ${join(dir, "agent.mjs")} {question} {mcp}`),
-      port,
-      upstream: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
-      env: { PATH: process.env.PATH },
-    });
+    const results = await bench("work");
 
     expect(results.map((result) => [result.question, result.cold.inputTokens, result.warm.inputTokens])).toEqual([
       ["Where is app defined?", 20_000, 2_000],
@@ -111,6 +117,21 @@ describe("the benchmark", () => {
       "mcp",
       "serve",
     ]);
+  }, 120_000);
+
+  it("stops at its budget, and leaves a question whose runs did not both finish out of the table", async () => {
+    // $0.081 a cold run and $0.009 a warm one: the third run passes at $0.09 spent, the fourth meets the limit.
+    const results = await bench("work-capped", 0.1);
+
+    expect(results.map((result) => [result.question, result.complete])).toEqual([
+      ["Where is app defined?", true],
+      ["What does app export?", false],
+    ]);
+    const table = formatResults(results, { date: "2026-11-16", agent: "test agent", budget: 0.1 });
+    expect(table).toContain("The run was capped at $0.1.");
+    expect(table).toMatch(/\| \*\*Total\*\* \| {2}\| 20,050 \| \$0\.0810 \| 2,050 \| \$0\.0090 \| 89% \|/);
+    expect(table).toContain("Not counted, because a run stopped before the end");
+    expect(table).toContain("- app: What does app export?");
   }, 120_000);
 
   it("reads the session id grenier run prints", () => {

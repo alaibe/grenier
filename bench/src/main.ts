@@ -9,12 +9,15 @@ const root = resolve(here, "..");
 const { values } = parseArgs({
   options: {
     agent: { type: "string" },
+    budget: { type: "string" },
     port: { type: "string", default: "7789" },
     repos: { type: "string", default: join(root, "repos.json") },
   },
 });
 
 const { repos } = JSON.parse(readFileSync(values.repos, "utf8")) as { repos: BenchRepo[] };
+const budget = values.budget === undefined ? undefined : Number(values.budget);
+if (budget !== undefined && !(budget > 0)) throw new Error("--budget takes a number of dollars above 0");
 const date = new Date().toISOString().slice(0, 10);
 const results = await runBenchmark({
   repos,
@@ -22,10 +25,18 @@ const results = await runBenchmark({
   grenier: [process.execPath, resolve(root, "../apps/cli/dist/grenier.js")],
   agent: values.agent ? templateAgent(values.agent) : claudeAgent,
   port: Number(values.port),
+  ...(budget !== undefined ? { budget } : {}),
   log: (line) => process.stderr.write(`${line}\n`),
 });
 
 const file = join(root, "results", `${date}.md`);
 mkdirSync(dirname(file), { recursive: true });
-writeFileSync(file, formatResults(results, { date, agent: values.agent ?? "Claude Code (claude -p)" }));
+writeFileSync(
+  file,
+  formatResults(results, {
+    date,
+    agent: values.agent ?? "Claude Code (claude -p)",
+    ...(budget !== undefined ? { budget } : {}),
+  }),
+);
 process.stdout.write(`${file}\n`);
