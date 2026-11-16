@@ -250,9 +250,9 @@ Each task lists what must be true before its box is ticked.
 
 - [ ] Monorepo with the layout above, pnpm workspaces, Biome, Vitest, TypeScript strict mode
   - Done when: `pnpm lint`, `pnpm typecheck` and `pnpm test` pass in GitHub Actions.
-- [ ] Config loader and SQLite migrations in `core` and `store`
+- [x] Config loader and SQLite migrations in `core` and `store`
   - Done when: a fresh machine gets `~/.grenier/` created on first run; invalid config fails with a clear message.
-- [ ] `grenier --version` and `grenier status` run from a built binary
+- [x] `grenier --version` and `grenier status` run from a built binary
 
 ### Phase 1: local cache and guards
 
