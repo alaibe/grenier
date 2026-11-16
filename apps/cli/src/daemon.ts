@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { closeSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { createGateway } from "@grenier/gateway";
@@ -38,11 +38,20 @@ export function daemonPid(home: string): number | null {
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
     // EPERM: the process exists but belongs to another user.
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+  // In a container whose PID 1 does not reap orphans, an exited daemon stays a zombie that kill(0) still finds.
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      return stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3) !== "Z";
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 function canConnect(port: number): Promise<boolean> {
@@ -169,8 +178,9 @@ export async function stopDaemon(io: Io): Promise<number | null> {
   const pid = daemonPid(paths.home);
   if (pid === null) return null;
   process.kill(pid, "SIGTERM");
+  // Done once it is gone, or once it has removed its pid file on the way out.
   for (let waited = 0; waited < 10_000; waited += 50) {
-    if (!isAlive(pid)) return pid;
+    if (!isAlive(pid) || !existsSync(pidFile(paths.home))) return pid;
     await sleep(50);
   }
   throw new CommandError(`the daemon (pid ${pid}) did not stop; see ${logFile(paths.home)}`);

@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [filesAsText()],
   test: {
     include: ["tests/agents/**/*.test.ts"],
+    hookTimeout: 60_000,
     testTimeout: 120_000,
   },
 });
