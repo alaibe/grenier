@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - apps/*
+  - bench
 
 # Exact versions only, and nothing published less than 7 days ago (in minutes): a compromised release is usually
 # caught and pulled within days.

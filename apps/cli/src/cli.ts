@@ -17,8 +17,10 @@ Commands:
   status                     Show the config, the database and whether the daemon runs
   start, stop                Start or stop the daemon (the proxy on 127.0.0.1)
   run -- <command>           Run an agent through the proxy as its own session
-  report [--by day|session|repo] [--since 7d]
+  report [--by day|session|repo] [--since 7d] [--json]
                              Tokens, cache hit rate, cost and savings
+  report --cache [--since 7d]
+                             Prompt-cache writes and reads by session, flagging churn
   budget                     Show the spending limits
   budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]
                              Set limits in dollars ("off" removes one)

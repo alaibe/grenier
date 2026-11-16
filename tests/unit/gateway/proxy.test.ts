@@ -214,3 +214,42 @@ describe("base URL", () => {
     expect(`${BASE}/s/abc`).toBe("http://127.0.0.1:7788/s/abc");
   });
 });
+
+describe("cache_control injection", () => {
+  const plain = { model: "claude-opus-5-5", system: "You are terse.", messages: [{ role: "user", content: "hi" }] };
+
+  it("is off by default: the body reaches the upstream unchanged", async () => {
+    const upstream = fakeUpstream(() => sse(STREAM));
+    gateway = testGateway(upstream);
+    await gateway.request("/s/s1/v1/messages", messagesRequest(plain));
+    expect(new TextDecoder().decode(upstream.requests[0]?.body)).toBe(JSON.stringify(plain));
+    expect(await gateway.store.events.list({ kind: "request_changed" })).toEqual([]);
+  });
+
+  it("when turned on, adds a top-level cache_control to a request that has none, and logs the change", async () => {
+    const upstream = fakeUpstream(() => sse(STREAM));
+    gateway = testGateway(upstream, (config) => {
+      config.proxy.inject_cache_control = true;
+    });
+    await gateway.request("/s/s1/v1/messages", messagesRequest(plain));
+    expect(JSON.parse(new TextDecoder().decode(upstream.requests[0]?.body))).toEqual({
+      ...plain,
+      cache_control: { type: "ephemeral" },
+    });
+    const [event] = await gateway.store.events.list({ kind: "request_changed" });
+    expect(JSON.parse(event?.detail ?? "{}")).toEqual({
+      change: "added top-level cache_control",
+      reason: "proxy.inject_cache_control",
+    });
+  });
+
+  it("leaves a request that already marks its cache alone", async () => {
+    const upstream = fakeUpstream(() => sse(STREAM));
+    gateway = testGateway(upstream, (config) => {
+      config.proxy.inject_cache_control = true;
+    });
+    const marked = { ...plain, system: [{ type: "text", text: "x", cache_control: { type: "ephemeral" } }] };
+    await gateway.request("/s/s1/v1/messages", messagesRequest(marked));
+    expect(new TextDecoder().decode(upstream.requests[0]?.body)).toBe(JSON.stringify(marked));
+  });
+});

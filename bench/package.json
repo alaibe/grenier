@@ -1,0 +1,14 @@
+{
+  "name": "@grenier/bench",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Token benchmark: the same questions on public repositories, cold then with the cache warm, through the real proxy.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "bench": "node build.mjs && node dist/bench.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

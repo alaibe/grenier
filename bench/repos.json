@@ -1,0 +1,24 @@
+{
+  "repos": [
+    {
+      "name": "hono",
+      "url": "https://github.com/honojs/hono.git",
+      "commit": "73ff6c0e82d66468e28ed439481220f56ab03882",
+      "questions": [
+        "How does Hono match an incoming request to a route handler?",
+        "How are middleware functions composed and run around a handler?",
+        "Where is a JSON request body parsed, and what happens when it is invalid?"
+      ]
+    },
+    {
+      "name": "flask",
+      "url": "https://github.com/pallets/flask.git",
+      "commit": "c12a5d874c5a014495eb2db8a73f40037bc813ac",
+      "questions": [
+        "How does Flask dispatch a request to a view function?",
+        "How are the application and request contexts pushed and popped?",
+        "How does the test client send a request without a server?"
+      ]
+    }
+  ]
+}

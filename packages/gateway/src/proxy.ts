@@ -112,7 +112,7 @@ export function createProxy(options: ProxyOptions) {
   return async function proxy(request: Request, sessionId: string, path: string): Promise<Response> {
     const session = await sessionFor(sessionId);
     const inference = request.method === "POST" && /\/v1\/messages\/?$/.test(path);
-    const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
+    let body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
     const parsed = inference && body ? parseJson(body) : undefined;
 
     if (parsed) await onLoops(session, await loops.observe(session.id, parsed, session.startedAt < startedAt));
@@ -131,6 +131,23 @@ export function createProxy(options: ProxyOptions) {
         await store.events.add({ sessionId: session.id, ts: now(), kind: "budget", detail: JSON.stringify(breach) });
         return errorResponse(429, "rate_limit_error", budgetMessage(breach));
       }
+    }
+
+    // Rule 9: the body changes only behind an opt-in flag, and every change is logged.
+    if (
+      config.proxy.inject_cache_control &&
+      parsed &&
+      body &&
+      !new TextDecoder().decode(body).includes('"cache_control"')
+    ) {
+      body = new TextEncoder().encode(JSON.stringify({ ...parsed, cache_control: { type: "ephemeral" } }))
+        .buffer as ArrayBuffer;
+      await store.events.add({
+        sessionId: session.id,
+        ts: now(),
+        kind: "request_changed",
+        detail: JSON.stringify({ change: "added top-level cache_control", reason: "proxy.inject_cache_control" }),
+      });
     }
 
     const target = new URL(upstream);
