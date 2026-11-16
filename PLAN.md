@@ -349,6 +349,8 @@ Claude Code stops and asks before building anything that depends on one of these
 2026-11-16; `docs/decisions.md` says how and why.
 
 - [ ] **Name.** Check that "grenier" is free on GitHub, npm and a `.dev` domain before the first public commit.
+  - Checked 2026-11-16: free on npm (`grenier`); taken on GitHub (a personal account) and as `grenier.dev`
+    (registered since 2019). The docs site, releases and launch wait for this.
 - [x] **Provider terms.** Confirm that a local proxy which reads usage and enforces budgets is allowed with API keys and with subscription sign-in, for each provider supported.
   - Anthropic: API keys and subscription sign-in. OpenAI: API keys; Codex with a ChatGPT sign-in is not supported
     through Grenier (docs/decisions.md).
