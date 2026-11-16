@@ -164,7 +164,7 @@ export async function runDaemon(io: Io): Promise<number> {
     }
     pulling = true;
     try {
-      await syncSources(store, io.err, only);
+      // Watch before reading, so a change made while a folder is read is not missed until the next timer.
       for (const source of await store.sources.list()) {
         const path = source.config.path;
         if (source.kind !== "markdown" || typeof path !== "string" || watchers.has(source.id)) continue;
@@ -177,6 +177,7 @@ export async function runDaemon(io: Io): Promise<number> {
           io.err(`grenier: cannot watch ${path}: ${(error as Error).message}`);
         }
       }
+      await syncSources(store, io.err, only);
     } finally {
       pulling = false;
     }
