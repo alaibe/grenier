@@ -313,7 +313,8 @@ Each task lists what must be true before its box is ticked.
 - [ ] README with install, a quick start and the benchmark table
   - Written; the table waits for a run of `bench/` with a real model and the owner's key.
 - [ ] Docs site generated from `docs/`
-  - The guide is in `docs/guide/`; the site itself goes in the laibe repository (docs/decisions.md).
+  - Built on laibe's `grenier-site` branch (not pushed): `grenier.laibe.cc`, its guide a verbatim copy of `docs/guide`,
+    laibe's checks green. Goes live once the host has a Cloudflare Tunnel hostname and the branch is merged.
 - [x] Demo video script: the same task run cold, then cached, with the token counter on screen
   - `docs/launch/demo-script.md`.
 - [ ] Show HN post, then Product Hunt launch with real benchmark numbers

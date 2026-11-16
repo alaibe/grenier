@@ -63,9 +63,9 @@ grenier cache stats    # answers kept and reused, by repository
 
 ## Next
 
-- [Proxy, budgets and loop guards](proxy.md)
-- [The exploration cache](exploration-cache.md)
-- [Teams](team.md)
-- [Personal data: notes, mail and calendar](personal-data.md)
-- [The desktop app](desktop.md)
-- [Configuration](configuration.md) and [security](security.md)
+- [Proxy, budgets and loop guards](./proxy.md)
+- [The exploration cache](./exploration-cache.md)
+- [Teams](./team.md)
+- [Personal data: notes, mail and calendar](./personal-data.md)
+- [The desktop app](./desktop.md)
+- [Configuration](./configuration.md) and [security](./security.md)

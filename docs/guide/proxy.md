@@ -26,13 +26,13 @@ no price is reported as unpriced, never as free. API keys and `Authorization` he
 | Daily | `grenier budget set --daily 10` | everything spent today (local time) |
 | Session | `--session 3` | one `grenier run` |
 | Repository | `--repo app=2` | today's spending in sessions of that repository |
-| Team, member | `grenier team budget --team 50 --member 10` | the team's UTC day ([Teams](team.md)) |
+| Team, member | `grenier team budget --team 50 --member 10` | the team's UTC day ([Teams](./team.md)) |
 
 `[budgets] daily` and `session` in config.toml set defaults; `grenier budget set` wins over them. A reached limit gets
 an HTTP 429 with `x-should-retry: false` and a message such as:
 
 > Grenier stopped this request: the daily budget of $10.00 is reached ($10.04 spent). To change it, run: grenier
-> budget set --daily <amount>
+> budget set --daily \<amount>
 
 Claude Code and the Anthropic SDKs show it and stop, without retrying.
 

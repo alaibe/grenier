@@ -72,4 +72,7 @@ code.
   `x-api-key` or `authorization`.
 - Dependencies are exact versions, and pnpm refuses releases younger than 7 days (`pnpm-workspace.yaml`). Install
   scripts run only for the packages listed there.
-- Every package is private until the name is settled (Open decisions, **Name**).
+- Every package is private until the release workflow publishes it; the name is settled (Grenier).
+- The site, `grenier.laibe.cc`, lives in the laibe repository; its guide (`content/grenier/guide`) is a verbatim copy of
+  `docs/guide`. After changing the guide, copy it there: `cp docs/guide/*.md ../laibe/content/grenier/guide/`. Links
+  between guide pages are `./page.md`, and a test refuses a bare `<word>` outside code, which the site would drop.
