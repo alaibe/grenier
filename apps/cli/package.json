@@ -1,0 +1,25 @@
+{
+  "name": "@grenier/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The grenier command and local daemon.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "grenier": "./dist/grenier.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.3"
+  },
+  "devDependencies": {
+    "@grenier/core": "workspace:*",
+    "@grenier/store": "workspace:*",
+    "esbuild": "0.28.2"
+  }
+}

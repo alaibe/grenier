@@ -1,0 +1,50 @@
+# Checks Grenier on each push: the dependency audit, formatting and lint, types, the unit tests, then the CLI built and
+# run as a binary (tests/e2e). It runs on git.laibe.cc's runner on the home server (`home-linux`: forgejo-runner in the
+# homeserver repository), in an Ubuntu container with nothing cached. Node is the version in .node-version, pnpm the one
+# in package.json's packageManager. Actions are pinned to a commit, with their tag beside it.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Linux
+    runs-on: home-linux
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: https://github.com/pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level moderate
+
+      - name: Formatting and lint (biome.json)
+        run: pnpm lint
+
+      - name: Types
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build the CLI and run it (tests/e2e)
+        run: pnpm test:e2e

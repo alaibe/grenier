@@ -1,0 +1,15 @@
+packages:
+  - packages/*
+  - apps/*
+
+# Exact versions only, and nothing published less than 7 days ago (in minutes): a compromised release is usually
+# caught and pulled within days.
+saveExact: true
+minimumReleaseAge: 10080
+
+# Install scripts run only for these. esbuild's fetches its binary. better-sqlite3 ships N-API prebuilds for every
+# platform, so its node-gyp build is skipped.
+onlyBuiltDependencies:
+  - esbuild
+ignoredBuiltDependencies:
+  - better-sqlite3
