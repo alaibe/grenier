@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, type FSWatcher, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
-import { watchMarkdown } from "@grenier/connectors";
+import { syncSources, watchMarkdown } from "@grenier/connectors";
 import { createGateway } from "@grenier/gateway";
 import { syncOnce, type TeamBudget, teamApi, vaultPull, vaultPush } from "@grenier/index";
 import { cacheSavingsOf, loadPrices } from "@grenier/log";
@@ -13,7 +14,6 @@ import { deviceId, vaultKey } from "./commands/vault.ts";
 import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
 import { CommandError, environment, type Io } from "./io.ts";
 import { desktopNotifier } from "./notify.ts";
-import { syncSources } from "./sources.ts";
 import { teamClient } from "./team.ts";
 
 /** The daemon writes its pid here while it runs. */
@@ -23,6 +23,15 @@ export function pidFile(home: string): string {
 
 export function logFile(home: string): string {
   return join(home, "daemon.log");
+}
+
+/** The desktop app's key to the admin API: made once, readable by this user only. */
+export function adminToken(home: string): string {
+  const file = join(home, "admin-token");
+  if (existsSync(file)) return readFileSync(file, "utf8").trim();
+  const token = `ga_${randomBytes(32).toString("base64url")}`;
+  writeFileSync(file, `${token}\n`, { mode: 0o600 });
+  return token;
 }
 
 /** The pid of the running daemon, or null when there is none. */
@@ -88,6 +97,7 @@ export async function runDaemon(io: Io): Promise<number> {
     port,
     notify: desktopNotifier(io.err),
     mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), version },
+    admin: { token: adminToken(paths.home), version, log: io.err },
     ...(team ? { teamBudget: () => teamApi<TeamBudget>(team, "/api/budget") } : {}),
   });
 

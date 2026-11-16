@@ -27,7 +27,11 @@ code.
   reports, `index` the exploration cache, embeddings and team sync, `gateway` the proxy (Anthropic, and OpenAI under
   `/openai/`) and the MCP server (Hono), `connectors` git. `apps/server` is the team server, a Cloudflare Worker (D1,
   a Durable Object per team), typechecked on its own (`apps/server/tsconfig.json`) and bundled into the CLI's
-  `dist/server` for `grenier team deploy`.
+  `dist/server` for `grenier team deploy`. `apps/desktop` is the Tauri app (React UI in `src`, Rust shell in
+  `src-tauri`), talking to the daemon's admin API (`packages/gateway/src/admin.ts`).
+- The desktop app bundle is built on a Mac: `pnpm build`, `pnpm --filter @grenier/desktop sidecar` (downloads Node's
+  official build, checked against the SHA-256 pinned in `scripts/prepare-sidecar.mjs`), then
+  `pnpm --filter @grenier/desktop tauri build`. CI builds only its web UI.
 - Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `agents` with real agents,
   `fixtures` for recorded data, `support` for shared helpers.
   Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`).

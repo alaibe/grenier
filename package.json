@@ -13,7 +13,7 @@
     "build": "pnpm --filter @grenier/server build && pnpm --filter @grenier/cli build",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "typecheck": "tsc && tsc -p apps/server",
+    "typecheck": "tsc && tsc -p apps/server && tsc -p apps/desktop",
     "test": "vitest run",
     "test:e2e": "pnpm build && vitest run --config vitest.e2e.config.ts",
     "db:generate": "pnpm --filter @grenier/store exec drizzle-kit generate",

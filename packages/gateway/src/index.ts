@@ -1,3 +1,4 @@
+export { type AdminOptions, createAdmin } from "./admin.ts";
 export { createGateway, type GatewayOptions } from "./gateway.ts";
 export { type ToolCall, toolCalls } from "./loops.ts";
 export { createMcpServer, INSTRUCTIONS, type McpDeps } from "./mcp.ts";

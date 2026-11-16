@@ -1,6 +1,7 @@
 import { sha256 } from "@grenier/core";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Hono } from "hono";
+import { createAdmin } from "./admin.ts";
 import { createMcpServer, type McpDeps } from "./mcp.ts";
 import { createProxy, errorResponse, type ProxyOptions, UNTAGGED } from "./proxy.ts";
 
@@ -9,6 +10,8 @@ export interface GatewayOptions extends ProxyOptions {
   port: number;
   /** Serves the MCP tools at /mcp (Streamable HTTP), for clients holding a token. */
   mcp?: Omit<McpDeps, "store">;
+  /** Serves the desktop app's API at /admin, for the holder of this token. */
+  admin?: { token: string; version: string; log?: (line: string) => void };
 }
 
 /**
@@ -56,6 +59,12 @@ export function createGateway(options: GatewayOptions): Hono {
     path.startsWith("/openai/")
       ? proxy(raw, session, path.slice("/openai".length), "openai")
       : proxy(raw, session, path);
+
+  if (options.admin) {
+    app.route("/admin", createAdmin({ store: options.store, prices: options.prices, ...options.admin }));
+  } else {
+    app.all("/admin/*", () => errorResponse(404, "not_found_error", "The admin API is not served here."));
+  }
 
   app.all("/s/:session/*", (c) => {
     const session = c.req.param("session");

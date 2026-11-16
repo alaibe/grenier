@@ -1,5 +1,5 @@
 # Checks Grenier on each push: the dependency audit, formatting and lint, types, the unit tests, then the CLI built and
-# run as a binary (tests/e2e). It runs on git.laibe.cc's runner on the home server (`home-linux`: forgejo-runner in the
+# run as a binary (tests/e2e), and the desktop app's web UI built. It runs on git.laibe.cc's runner on the home server (`home-linux`: forgejo-runner in the
 # homeserver repository), in an Ubuntu container with nothing cached. Node is the version in .node-version, pnpm the one
 # in package.json's packageManager. Actions are pinned to a commit, with their tag beside it.
 
@@ -48,3 +48,7 @@ jobs:
 
       - name: Build the CLI and run it (tests/e2e)
         run: pnpm test:e2e
+
+      # The desktop app's web UI only: its Tauri shell needs WebKitGTK on Linux and is built on a Mac (apps/desktop).
+      - name: Build the desktop UI
+        run: pnpm --filter @grenier/desktop build

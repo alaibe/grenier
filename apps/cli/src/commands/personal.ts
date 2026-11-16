@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { approveMemory, SCOPE_KINDS } from "@grenier/index";
+import { syncSources } from "@grenier/connectors";
+import { addClient, approveMemory, SCOPE_KINDS } from "@grenier/index";
 import { parseSince } from "@grenier/log";
 import type { Source } from "@grenier/store";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
-import { addClient, syncSources } from "../sources.ts";
 
 function passwordConfig(values: { "password-command"?: string; "password-env"?: string }): Record<string, unknown> {
   if (values["password-command"]) return { password_command: values["password-command"].split(" ").filter(Boolean) };

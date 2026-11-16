@@ -3,13 +3,12 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { createMcpServer } from "@grenier/gateway";
-import { SCOPE_KINDS } from "@grenier/index";
+import { addClient, readerFor, SCOPE_KINDS } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { version } from "../../package.json";
 import { embedderLoader, gitFiles, repoResolver } from "../exploration.ts";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
-import { addClient, readerFor } from "../sources.ts";
 
 /** `grenier mcp serve`: the MCP server over stdio, for an agent that launches it in its working directory. */
 export async function serve(io: Io): Promise<number> {

@@ -14,6 +14,7 @@ export {
   SIMILAR,
   terms,
 } from "./cache.ts";
+export { addClient, newClientToken, readerFor } from "./clients.ts";
 export { cosine, type Embedder, readSafetensors, StaticEmbedder } from "./embeddings.ts";
 export {
   approveMemory,

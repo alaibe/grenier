@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/*.md", "!packages/store/migrations/meta", "!tests/fixtures"]
+    "includes": [
+      "**",
+      "!**/*.md",
+      "!packages/store/migrations/meta",
+      "!tests/fixtures",
+      "!apps/desktop/src-tauri",
+      "!apps/desktop/resources"
+    ]
   },
   "formatter": {
     "enabled": true,
