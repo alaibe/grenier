@@ -12,8 +12,8 @@ pnpm format && pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e
 ```
 
 Biome formats and lints (`biome.json`); `tsc` only typechecks; `pnpm test:e2e` builds the CLI and runs the built file.
-`pnpm test:agents` runs Claude Code itself through the daemon against a stand-in API; run it by hand when the proxy
-changes (CI has no Claude Code).
+`pnpm test:agents` runs Claude Code itself through the daemon against a stand-in API, plain and with the benchmark's
+own command; run it by hand when the proxy, the MCP tools or `bench/` change (CI has no Claude Code).
 
 ## Comments
 

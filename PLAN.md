@@ -248,8 +248,9 @@ Each task lists what must be true before its box is ticked.
 
 ### Phase 0: scaffold
 
-- [ ] Monorepo with the layout above, pnpm workspaces, Biome, Vitest, TypeScript strict mode
+- [x] Monorepo with the layout above, pnpm workspaces, Biome, Vitest, TypeScript strict mode
   - Done when: `pnpm lint`, `pnpm typecheck` and `pnpm test` pass in GitHub Actions.
+  - They pass in Forgejo Actions, the origin's CI (docs/decisions.md).
 - [x] Config loader and SQLite migrations in `core` and `store`
   - Done when: a fresh machine gets `~/.grenier/` created on first run; invalid config fails with a clear message.
 - [x] `grenier --version` and `grenier status` run from a built binary
@@ -270,8 +271,10 @@ Each task lists what must be true before its box is ticked.
   - Done when: each writes a valid config, and an end-to-end test calls `ask_codebase` over stdio.
 - [x] Prompt-cache report (observe only)
   - Done when: the report shows cache-write vs cache-read share per session and flags high-churn sessions.
-- [x] Benchmark in `bench/`
+- [ ] Benchmark in `bench/`
   - Done when: one command runs the same questions on public repos twice, cold then warm, and writes tokens and cost for both runs to a Markdown table.
+  - Built and tested with a stand-in agent (CI) and with Claude Code against a stand-in API (`pnpm test:agents`);
+    waiting for a run with a real model and the owner's key.
 
 ### Phase 2: team server on Cloudflare
 
@@ -290,16 +293,18 @@ Each task lists what must be true before its box is ticked.
 
 ### Phase 3: personal data and desktop app
 
-- [ ] Connectors: markdown folder (watched), IMAP, CalDAV/ICS, with incremental sync
-- [ ] Phase 3 MCP tools: `search`, `get`, `timeline`, `people`, `remember`
-- [ ] Client tokens and scopes
+- [x] Connectors: markdown folder (watched), IMAP, CalDAV/ICS, with incremental sync
+  - IMAP and CalDAV are tested through stand-ins for their client libraries, not yet against a real server.
+- [x] Phase 3 MCP tools: `search`, `get`, `timeline`, `people`, `remember`
+- [x] Client tokens and scopes
   - Done when: a client without the mail scope cannot get any mail item through any tool (tested against every tool).
-- [ ] Audit log of every read, and revoke
-- [ ] Review queue: `remember` writes land as pending, approved or rejected by the user
-- [ ] Redaction rules (IBAN, phone numbers, postal addresses) applied before results leave the daemon
-- [ ] Encrypted sync between devices through R2
+- [x] Audit log of every read, and revoke
+- [x] Review queue: `remember` writes land as pending, approved or rejected by the user
+- [x] Redaction rules (IBAN, phone numbers, postal addresses) applied before results leave the daemon
+- [x] Encrypted sync between devices through R2
   - Done when: the R2 objects are unreadable without the user's key, checked in a test.
-- [ ] Tauri desktop app: dashboard, sources, clients and scopes, audit log, review queue
+- [x] Tauri desktop app: dashboard, sources, clients and scopes, audit log, review queue
+  - CI builds its web UI; the app bundle is built and was checked by hand on a Mac (docs/decisions.md).
 
 ### Phase 4: launch
 
@@ -346,7 +351,7 @@ Claude Code stops and asks before building anything that depends on one of these
 - [x] **Indexing cost.** Should Grenier pre-build file summaries with a small model (costs tokens up front) or only cache what agents record (free, slower to warm up)? Default proposal: record-only in phase 1, pre-build as an opt-in command.
 - [x] **Budget error code.** Which status code stops each agent cleanly without a retry loop? Decided by test in phase 1.
 - [x] **Embedding model.** Which small local model is the default, given size and licence?
-- [ ] **Desktop UI framework** for Tauri (React or Svelte). Only needed in phase 3.
+- [x] **Desktop UI framework** for Tauri (React or Svelte). Only needed in phase 3.
 
 ## Market context
 

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { freePort, messageStream } from "../support/anthropic.ts";
 
 const BINARY = fileURLToPath(new URL("../../apps/cli/dist/grenier.js", import.meta.url));
 const claude = (() => {
@@ -23,42 +24,6 @@ const claude = (() => {
 let dir: string;
 let upstream: Server;
 const messages: string[] = [];
-
-function answer(model: string, text: string): string {
-  const event = (type: string, data: unknown) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
-  return [
-    event("message_start", {
-      type: "message_start",
-      message: {
-        id: "msg_stand_in",
-        type: "message",
-        role: "assistant",
-        model,
-        content: [],
-        stop_reason: null,
-        stop_sequence: null,
-        usage: { input_tokens: 25, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 },
-      },
-    }),
-    event("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
-    event("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } }),
-    event("content_block_stop", { type: "content_block_stop", index: 0 }),
-    event("message_delta", {
-      type: "message_delta",
-      delta: { stop_reason: "end_turn", stop_sequence: null },
-      usage: { output_tokens: 2 },
-    }),
-    event("message_stop", { type: "message_stop" }),
-  ].join("");
-}
-
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
 
 const env = () => ({
   PATH: process.env.PATH,
@@ -95,7 +60,9 @@ describe.skipIf(claude === null)("Claude Code through grenier run", () => {
         } else if (path.startsWith("/v1/messages")) {
           messages.push(path);
           const model = (JSON.parse(body || "{}") as { model?: string }).model ?? "claude-opus-5-5";
-          response.writeHead(200, { "content-type": "text/event-stream" }).end(answer(model, "pong"));
+          response
+            .writeHead(200, { "content-type": "text/event-stream" })
+            .end(messageStream(model, { type: "text", text: "pong" }));
         } else {
           response
             .writeHead(404, { "content-type": "application/json" })
