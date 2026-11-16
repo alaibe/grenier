@@ -310,6 +310,8 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       saveState: async (id, state, at) => {
         db.update(sources).set({ state, lastSync: at }).where(eq(sources.id, id)).run();
       },
+      setVault: async (name, on) =>
+        db.update(sources).set({ vault: on }).where(eq(sources.name, name)).run().changes > 0,
     },
 
     items: {

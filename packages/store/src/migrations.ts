@@ -5,6 +5,7 @@ import answersFtsPorter from "../migrations/0003_answers_fts_porter.sql";
 import teamSync from "../migrations/0004_team_sync.sql";
 import personalData from "../migrations/0005_personal_data.sql";
 import itemsFts from "../migrations/0006_items_fts.sql";
+import sourceVault from "../migrations/0007_source_vault.sql";
 
 export interface Migration {
   /** 1 for the first migration: the schema version a database has once it is applied. */
@@ -26,4 +27,5 @@ export const migrations: readonly Migration[] = [
   { version: 5, name: "0004_team_sync", sql: teamSync },
   { version: 6, name: "0005_personal_data", sql: personalData },
   { version: 7, name: "0006_items_fts", sql: itemsFts },
+  { version: 8, name: "0007_source_vault", sql: sourceVault },
 ];

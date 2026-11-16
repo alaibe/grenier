@@ -77,7 +77,7 @@ describe("grenier status", () => {
     expect(result.out.split("\n")).toEqual([
       `grenier ${version}`,
       `config    ${join(home, "config.toml")} (not found, using defaults)`,
-      `database  ${join(home, "grenier.db")} (schema 7)`,
+      `database  ${join(home, "grenier.db")} (schema 8)`,
       "proxy     127.0.0.1:7788 → https://api.anthropic.com",
       "daemon    stopped",
     ]);
@@ -231,5 +231,22 @@ describe("grenier run", () => {
   it("needs a command", async () => {
     expect((await grenier("run")).code).toBe(2);
     expect((await grenier("run", "--")).code).toBe(2);
+  });
+});
+
+describe("grenier vault share", () => {
+  it("puts a source in the vault and takes it out, one source at a time", async () => {
+    writeFileSync(join(dir, "note.md"), "# A note\n");
+    expect((await grenier("sources", "add", "markdown", "journal", dir)).code).toBe(0);
+
+    expect(await grenier("vault", "share", "journal")).toMatchObject({ code: 0 });
+    expect((await grenier("sources")).out).toMatch(/^journal\s.*in the vault$/m);
+    expect((await grenier("sources")).out).not.toMatch(/^memory\s.*in the vault$/m);
+
+    expect((await grenier("vault", "unshare", "journal")).code).toBe(0);
+    expect((await grenier("sources")).out).not.toContain("in the vault");
+
+    expect(await grenier("vault", "share", "nothing")).toMatchObject({ code: 1 });
+    expect((await grenier("vault", "share")).code).toBe(2);
   });
 });

@@ -50,6 +50,8 @@ beforeEach(async () => {
     contentHash: "h",
   });
   await laptop.sources.add({ id: "s1", name: "journal", kind: "markdown", config: { path: SECRET_PATH } });
+  await laptop.sources.setVault("journal", true);
+  await laptop.sources.setVault("memory", true);
 });
 
 afterEach(async () => {
@@ -79,6 +81,23 @@ describe("vault sync through R2", () => {
     expect((await desktop.items.get("memory:m1"))?.body).toBe(SECRET_MEMORY);
     expect((await desktop.sources.get("journal"))?.config).toEqual({ path: SECRET_PATH });
     expect(await vaultPull(desktop, team, key, "desktop")).toEqual({ memories: 0, sources: 0 });
+  });
+
+  it("sends only the sources put in the vault, and memories only when memory is one of them", async () => {
+    await laptop.sources.add({ id: "s2", name: "work", kind: "markdown", config: { path: "/Users/ada/Work" } });
+    await laptop.sources.setVault("memory", false);
+    await vaultPush(laptop, team, key, "laptop");
+    expect(await vaultPull(desktop, team, key, "desktop")).toEqual({ memories: 0, sources: 1 });
+    expect(await desktop.sources.get("work")).toBeUndefined();
+    expect(await desktop.items.get("memory:m1")).toBeUndefined();
+
+    await laptop.sources.setVault("journal", false);
+    await vaultPush(laptop, team, key, "laptop");
+    const object = await (await mf.getR2Bucket("VAULT")).get("vault/m-ada/device-laptop.bin");
+    const stored = new Uint8Array(await (object as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer());
+    const plaintext = new TextDecoder().decode(await open(key, "device-laptop.bin", stored));
+    expect(JSON.parse(plaintext)).toMatchObject({ memories: [], sources: [] });
+    expect(await laptop.sources.setVault("nothing", true)).toBe(false);
   });
 
   it("fails to pull with another key, and changes nothing", async () => {

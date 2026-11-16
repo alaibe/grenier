@@ -130,7 +130,7 @@ export async function sources(argv: string[], io: Io): Promise<string[]> {
         (source) =>
           `${source.name.padEnd(20)}${source.kind.padEnd(10)}${String(counts.get(source.id) ?? 0).padStart(7)} items   ${
             source.lastSync ? `synced ${new Date(source.lastSync).toISOString()}` : "never synced"
-          }`,
+          }${source.vault ? "   in the vault" : ""}`,
       );
     });
   }

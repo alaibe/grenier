@@ -1,0 +1,1 @@
+ALTER TABLE `sources` ADD `vault` integer DEFAULT false NOT NULL;

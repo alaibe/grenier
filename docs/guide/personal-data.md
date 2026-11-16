@@ -66,12 +66,18 @@ grenier review reject <id>
 
 ## Your other devices
 
-Approved memories and source definitions can follow you to your other machines, end-to-end encrypted:
+Approved memories and source definitions can follow you to your other machines, end-to-end encrypted. Nothing goes
+until you put a source in the vault, one at a time:
 
 ```bash
 grenier vault init                # on the first device: prints the key to copy
 grenier vault join gv1_…          # on each other device
+grenier vault share journal       # this source's definition goes to your other devices
+grenier vault share memory        # and the approved memories
 grenier vault sync                # the daemon also syncs it with the team server
 ```
 
-The key stays on your devices. The team server stores only what it encrypts, and cannot read it.
+A source's definition is where to read it (a folder, a server, a calendar's address), never its items or a password:
+each device pulls its own copy and gets passwords from its own command. `grenier vault unshare <source>` takes a
+source out at the next sync; `grenier sources` shows which are in. The key stays on your devices. The team server
+stores only what it encrypts, and cannot read it.

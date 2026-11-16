@@ -155,6 +155,8 @@ export interface SourceStore {
   /** Removes the source and every item it brought. */
   remove(name: string): Promise<boolean>;
   saveState(id: string, state: Record<string, unknown>, at: number): Promise<void>;
+  /** Puts the source in the vault or takes it out; false when there is no source of that name. */
+  setVault(name: string, on: boolean): Promise<boolean>;
 }
 
 export interface ItemFilter {

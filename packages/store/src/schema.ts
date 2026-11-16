@@ -126,6 +126,8 @@ export const sources = sqliteTable("sources", {
   /** The connector's incremental-sync cursors, as JSON. */
   state: text("state", { mode: "json" }).$type<Record<string, unknown>>().notNull().default({}),
   lastSync: integer("last_sync"),
+  /** Whether `grenier vault share` put it in the encrypted vault: sync is opt-in per source (rule 3). */
+  vault: integer("vault", { mode: "boolean" }).notNull().default(false),
 });
 
 /** One note, message or event. `seq` is the full-text index's rowid, as for answers. */

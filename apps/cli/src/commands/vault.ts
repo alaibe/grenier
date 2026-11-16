@@ -25,7 +25,10 @@ export async function deviceId(store: Store): Promise<string> {
   return id;
 }
 
-/** `grenier vault init|key|join <key>|sync`: end-to-end encrypted sync of memories and sources between devices. */
+/**
+ * `grenier vault init|key|join <key>|share <source>|unshare <source>|sync`: end-to-end encrypted sync, between devices,
+ * of the sources put in the vault (`memory` for the approved memories).
+ */
 export async function vault(argv: string[], io: Io): Promise<string[]> {
   const [action, value] = argv;
   const { paths, config } = environment(io);
@@ -60,6 +63,19 @@ export async function vault(argv: string[], io: Io): Promise<string[]> {
       writeFileSync(keyFile, `${value.trim()}\n`, { mode: 0o600 });
       return ["Joined the vault. Sync with: grenier vault sync (the daemon also syncs it with the team server)."];
     }
+    case "share":
+    case "unshare": {
+      if (!value) {
+        throw new UsageError(`vault ${action} takes a source name, or memory for the approved memories`);
+      }
+      const done = await withStore(paths, (store) => store.sources.setVault(value, action === "share"));
+      if (!done) throw new CommandError(`no source named ${value}: grenier sources lists them`);
+      return [
+        action === "share"
+          ? `${value} is in the vault: its ${value === "memory" ? "approved memories go" : "definition goes"} to your other devices, encrypted, at the next sync.`
+          : `${value} is out of the vault from the next sync. A copy your other devices already pulled stays there.`,
+      ];
+    }
     case "sync": {
       const key = vaultKey(paths);
       if (!key) throw new CommandError("no vault key yet: grenier vault init, or grenier vault join <key>");
@@ -72,7 +88,7 @@ export async function vault(argv: string[], io: Io): Promise<string[]> {
           const pushed = await vaultPush(store, team, key, device);
           const pulled = await vaultPull(store, team, key, device);
           return [
-            pushed ? "Pushed this device's memories and sources, encrypted." : "Nothing new to push.",
+            pushed ? "Pushed the sources in this device's vault, encrypted." : "Nothing new to push.",
             `Pulled ${pulled.memories} memory(ies) and ${pulled.sources} source(s) from other devices.`,
           ];
         } catch (error) {
@@ -82,6 +98,6 @@ export async function vault(argv: string[], io: Io): Promise<string[]> {
       });
     }
     default:
-      throw new UsageError("vault takes: init, key, join <key> or sync");
+      throw new UsageError("vault takes: init, key, join <key>, share <source>, unshare <source> or sync");
   }
 }

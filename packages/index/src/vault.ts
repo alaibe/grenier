@@ -2,7 +2,8 @@ import { open, seal, sha256, VaultError } from "@grenier/core";
 import type { Store } from "@grenier/store";
 import type { TeamClient } from "./sync.ts";
 
-/** What one device shares with the user's other devices: approved memories and where its sources are. */
+/** What one device shares with its user's other devices: the sources put in the vault, and approved memories if
+ * `memory` is one of them. */
 export interface VaultSnapshot {
   version: 1;
   device: string;
@@ -24,12 +25,15 @@ async function vaultFetch(team: TeamClient, path: string, init: RequestInit = {}
 }
 
 async function snapshot(store: Store, device: string): Promise<VaultSnapshot> {
+  const shared = (await store.sources.list()).filter((source) => source.vault);
   const memories: VaultSnapshot["memories"] = [];
-  for (const id of await store.items.ids("memory")) {
-    const item = await store.items.get(id);
-    if (item) memories.push({ id: item.id, title: item.title, text: item.body, ts: item.ts });
+  if (shared.some((source) => source.kind === "memory")) {
+    for (const id of await store.items.ids("memory")) {
+      const item = await store.items.get(id);
+      if (item) memories.push({ id: item.id, title: item.title, text: item.body, ts: item.ts });
+    }
   }
-  const sources = (await store.sources.list())
+  const sources = shared
     .filter((source) => source.kind !== "memory")
     .map((source) => ({ name: source.name, kind: source.kind, config: source.config }));
   return { version: 1, device, memories, sources };
