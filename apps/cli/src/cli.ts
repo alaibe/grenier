@@ -42,6 +42,8 @@ Commands:
   team share [--repo <path>], team unshare [--repo <path>]
                              Share a repository's answers and summaries with the team, or stop
   team status, team sync     The team connection; sync now (the daemon syncs on its own)
+  team budget [--team <n>] [--member <n>]
+                             Team-wide and per-member daily limits in dollars (admins set them)
   sources add <markdown|ics|caldav|imap> <name> <path, url or host> [--user …] [--password-command "…"]
                              Add a personal-data source (passwords come from a command or an env var)
   sources [list], sources sync [name], sources remove <name>
@@ -54,8 +56,6 @@ Commands:
                              Memories AI tools proposed with remember
   vault init, vault join <key>, vault key, vault sync
                              End-to-end encrypted sync of memories and sources between your devices
-  team budget [--team <n>] [--member <n>]
-                             Team-wide and per-member daily limits in dollars (admins set them)
 
 Options:
   -h, --help                 Show this help

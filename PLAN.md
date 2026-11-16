@@ -304,9 +304,13 @@ Each task lists what must be true before its box is ticked.
 ### Phase 4: launch
 
 - [ ] README with install, a quick start and the benchmark table
+  - Written; the table waits for a run of `bench/` with a real model and the owner's key.
 - [ ] Docs site generated from `docs/`
-- [ ] Demo video script: the same task run cold, then cached, with the token counter on screen
+  - The guide is in `docs/guide/`; the site itself goes in the laibe repository (docs/decisions.md).
+- [x] Demo video script: the same task run cold, then cached, with the token counter on screen
+  - `docs/launch/demo-script.md`.
 - [ ] Show HN post, then Product Hunt launch with real benchmark numbers
+  - Drafts in `docs/launch/posts.md`, to post once the benchmark has run.
 
 ## Testing and benchmarks
 
