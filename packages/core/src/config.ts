@@ -67,7 +67,8 @@ const configSchema = z.strictObject({
     .prefault({}),
   cache: z
     .strictObject({
-      embeddings: z.enum(["local"]).default("local"),
+      /** "local" runs the embedding model on this machine; "off" leaves search to full text. */
+      embeddings: z.enum(["local", "off"]).default("local"),
       share_with_team: z.boolean().default(false),
     })
     .prefault({}),

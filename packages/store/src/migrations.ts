@@ -1,5 +1,7 @@
 import init from "../migrations/0000_init.sql";
 import answersFts from "../migrations/0001_answers_fts.sql";
+import answerEmbeddings from "../migrations/0002_answer_embeddings.sql";
+import answersFtsPorter from "../migrations/0003_answers_fts_porter.sql";
 
 export interface Migration {
   /** 1 for the first migration: the schema version a database has once it is applied. */
@@ -16,4 +18,6 @@ export interface Migration {
 export const migrations: readonly Migration[] = [
   { version: 1, name: "0000_init", sql: init },
   { version: 2, name: "0001_answers_fts", sql: answersFts },
+  { version: 3, name: "0002_answer_embeddings", sql: answerEmbeddings },
+  { version: 4, name: "0003_answers_fts_porter", sql: answersFtsPorter },
 ];

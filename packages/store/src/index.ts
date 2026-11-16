@@ -6,6 +6,7 @@ export type {
   Client,
   Event,
   FileSummary,
+  NewAnswer,
   NewEvent,
   NewSession,
   NewUsage,
@@ -14,12 +15,16 @@ export type {
 } from "./schema.ts";
 export * as schema from "./schema.ts";
 export type {
+  AnswerStore,
+  AnswerWithSources,
   BudgetScope,
   BudgetStore,
+  ClientStore,
   EventStore,
   SessionStore,
   SpendFilter,
   Store,
+  SummaryStore,
   UsageStore,
   UsageWithSession,
 } from "./store.ts";

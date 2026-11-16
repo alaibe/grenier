@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { blob, index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // Times are Unix milliseconds. Edit this file, then `pnpm db:generate` writes the migration.
 // The full-text index on answers and its triggers are hand-written SQL in a custom migration, not modelled here.
@@ -89,6 +89,15 @@ export const answerSources = sqliteTable(
   (table) => [primaryKey({ columns: [table.answerId, table.path] })],
 );
 
+/** A question's vector, by model: vectors from different models are never compared. Little-endian float32. */
+export const answerEmbeddings = sqliteTable("answer_embeddings", {
+  answerId: text("answer_id")
+    .primaryKey()
+    .references(() => answers.id, { onDelete: "cascade" }),
+  model: text("model").notNull(),
+  vector: blob("vector", { mode: "buffer" }).notNull(),
+});
+
 export const budgets = sqliteTable(
   "budgets",
   {
@@ -121,4 +130,5 @@ export type Budget = typeof budgets.$inferSelect;
 export type Answer = typeof answers.$inferSelect;
 export type AnswerSource = typeof answerSources.$inferSelect;
 export type FileSummary = typeof fileSummaries.$inferSelect;
+export type NewAnswer = typeof answers.$inferInsert;
 export type Client = typeof clients.$inferSelect;

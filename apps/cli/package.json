@@ -21,9 +21,11 @@
     "@grenier/connectors": "workspace:*",
     "@grenier/core": "workspace:*",
     "@grenier/gateway": "workspace:*",
+    "@grenier/index": "workspace:*",
     "@grenier/log": "workspace:*",
     "@grenier/store": "workspace:*",
     "@hono/node-server": "2.1.6",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "esbuild": "0.28.2"
   }
 }

@@ -1,0 +1,17 @@
+{
+  "name": "@grenier/index",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The exploration cache: answers and file summaries keyed by blob hash, full-text and vector search, embeddings.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "dependencies": {
+    "@grenier/core": "workspace:*",
+    "@grenier/store": "workspace:*",
+    "@huggingface/tokenizers": "0.2.0"
+  }
+}

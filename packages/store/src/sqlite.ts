@@ -1,6 +1,6 @@
 import { closeSync, openSync } from "node:fs";
 import Database from "better-sqlite3";
-import { and, asc, eq, gte, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNull, type SQL, sql, sum } from "drizzle-orm";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { migrations as allMigrations, type Migration, StoreError } from "./index.ts";
 import * as schema from "./schema.ts";
@@ -29,7 +29,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     throw error;
   }
 
-  const { sessions, usage, events, budgets } = schema;
+  const { sessions, usage, events, budgets, answers, answerSources, answerEmbeddings, fileSummaries, clients } = schema;
 
   return {
     schemaVersion: async () => schemaVersion(db),
@@ -134,7 +134,158 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       },
       list: async () => db.select().from(budgets).orderBy(asc(budgets.scope), asc(budgets.key)).all(),
     },
+
+    answers: {
+      add: async (answer, sources, embedding) => {
+        sqlite
+          .transaction(() => {
+            db.delete(answers)
+              .where(
+                and(
+                  eq(answers.repoId, answer.repoId),
+                  sql`lower(trim(${answers.question})) = lower(trim(${answer.question}))`,
+                ),
+              )
+              .run();
+            db.insert(answers).values(answer).run();
+            if (sources.length > 0) {
+              db.insert(answerSources)
+                .values(
+                  sources.map((source) => ({ answerId: answer.id, path: source.path, blobHash: source.blobHash })),
+                )
+                .run();
+            }
+            if (embedding) {
+              db.insert(answerEmbeddings)
+                .values({ answerId: answer.id, model: embedding.model, vector: toBlob(embedding.vector) })
+                .run();
+            }
+          })
+          .immediate();
+      },
+      get: async (id) => {
+        const answer = db.select().from(answers).where(eq(answers.id, id)).get();
+        if (!answer) return undefined;
+        const sources = db
+          .select({ path: answerSources.path, blobHash: answerSources.blobHash })
+          .from(answerSources)
+          .where(eq(answerSources.answerId, id))
+          .orderBy(asc(answerSources.path))
+          .all();
+        return { ...answer, sources };
+      },
+      search: async (repoId, terms, limit) => {
+        const query = terms
+          .filter((term) => term.trim() !== "")
+          .map((term) => `"${term.replace(/"/g, '""')}"`)
+          .join(" OR ");
+        if (query === "") return [];
+        return db.all<{ id: string; score: number }>(sql`
+          SELECT ${answers.id} AS id, bm25(answers_fts) AS score
+          FROM answers_fts JOIN ${answers} ON ${answers.seq} = answers_fts.rowid
+          WHERE answers_fts MATCH ${query} AND ${answers.repoId} = ${repoId}
+          ORDER BY score LIMIT ${limit}`);
+      },
+      vectors: async (repoId, model) =>
+        db
+          .select({ id: answerEmbeddings.answerId, vector: answerEmbeddings.vector })
+          .from(answerEmbeddings)
+          .innerJoin(answers, eq(answers.id, answerEmbeddings.answerId))
+          .where(and(eq(answers.repoId, repoId), eq(answerEmbeddings.model, model)))
+          .all()
+          .map((row) => ({ id: row.id, vector: fromBlob(row.vector) })),
+      hit: async (id) => {
+        db.update(answers)
+          .set({ hits: sql`${answers.hits} + 1` })
+          .where(eq(answers.id, id))
+          .run();
+      },
+      clear: async (repoId) =>
+        db
+          .delete(answers)
+          .where(repoId === undefined ? undefined : eq(answers.repoId, repoId))
+          .run().changes,
+      stats: async () =>
+        db
+          .select({ repoId: answers.repoId, answers: count(), hits: sql<number>`coalesce(${sum(answers.hits)}, 0)` })
+          .from(answers)
+          .groupBy(answers.repoId)
+          .orderBy(asc(answers.repoId))
+          .all()
+          .map((row) => ({ ...row, hits: Number(row.hits) })),
+    },
+
+    clients: {
+      add: async (client) => {
+        db.insert(clients).values(client).run();
+      },
+      findActive: async (tokenHash) =>
+        db
+          .select()
+          .from(clients)
+          .where(and(eq(clients.tokenHash, tokenHash), isNull(clients.revokedAt)))
+          .get(),
+      list: async () => db.select().from(clients).orderBy(asc(clients.name)).all(),
+      revoke: async (name, at) =>
+        db
+          .update(clients)
+          .set({ revokedAt: at })
+          .where(and(eq(clients.name, name), isNull(clients.revokedAt)))
+          .run().changes > 0,
+    },
+
+    summaries: {
+      put: async (summary) => {
+        db.insert(fileSummaries)
+          .values(summary)
+          .onConflictDoUpdate({
+            target: [fileSummaries.repoId, fileSummaries.path, fileSummaries.blobHash],
+            set: { summary: summary.summary, createdAt: summary.createdAt },
+          })
+          .run();
+      },
+      get: async (repoId, path, blobHash) =>
+        db
+          .select()
+          .from(fileSummaries)
+          .where(
+            and(eq(fileSummaries.repoId, repoId), eq(fileSummaries.path, path), eq(fileSummaries.blobHash, blobHash)),
+          )
+          .get(),
+      latest: async (repoId) => {
+        const rows = db
+          .select()
+          .from(fileSummaries)
+          .where(eq(fileSummaries.repoId, repoId))
+          .orderBy(asc(fileSummaries.path), desc(fileSummaries.createdAt))
+          .all();
+        const newest = new Map<string, (typeof rows)[number]>();
+        for (const row of rows) if (!newest.has(row.path)) newest.set(row.path, row);
+        return [...newest.values()];
+      },
+      clear: async (repoId) =>
+        db
+          .delete(fileSummaries)
+          .where(repoId === undefined ? undefined : eq(fileSummaries.repoId, repoId))
+          .run().changes,
+      stats: async () =>
+        db
+          .select({ repoId: fileSummaries.repoId, summaries: count() })
+          .from(fileSummaries)
+          .groupBy(fileSummaries.repoId)
+          .orderBy(asc(fileSummaries.repoId))
+          .all(),
+    },
   };
+}
+
+function toBlob(vector: Float32Array): Buffer {
+  return Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
+}
+
+function fromBlob(blob: Buffer): Float32Array {
+  const copy = new Uint8Array(blob);
+  return new Float32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4);
 }
 
 function periodOf(scope: BudgetScope): string {

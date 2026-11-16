@@ -24,7 +24,8 @@ code.
 
 - `packages/*` are libraries, `apps/*` are what runs: `apps/cli` is the `grenier` command and the daemon.
   `core` holds config and policy (budgets, loop detection), `store` the schema and SQLite, `log` prices, cost and
-  reports, `gateway` the proxy (Hono), `connectors` git.
+  reports, `index` the exploration cache and embeddings, `gateway` the proxy and the MCP server (Hono), `connectors`
+  git.
 - Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `agents` with real agents,
   `fixtures` for recorded data, `support` for shared helpers.
   Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`).
@@ -46,6 +47,9 @@ code.
   database and `schema.ts` disagree.
 - Our runner applies the migrations and records them in `schema_migrations`, not Drizzle's migrator: SQL files are
   imported as text (esbuild's text loader, a Vitest plugin, `types/text.d.ts`), so they work inside the bundled CLI.
+- The embedding model is downloaded on first use and checked against the SHA-256 pinned in
+  `packages/index/src/node.ts`; a new model or revision is a new pin, and its vectors never mix with the old ones'
+  (they are stored with the model's name). `tests/e2e/embeddings.test.ts` keeps its copy in `node_modules/.cache`.
 - No test touches the real `~/.grenier`: set `GRENIER_HOME` to a temporary directory.
 - Prices live only in `packages/log/prices.toml` (overridable under `[prices]` in config.toml). Never write a price
   anywhere else.

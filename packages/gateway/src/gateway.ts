@@ -1,12 +1,20 @@
+import { sha256 } from "@grenier/core";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Hono } from "hono";
+import { createMcpServer, type McpDeps } from "./mcp.ts";
 import { createProxy, errorResponse, type ProxyOptions, UNTAGGED } from "./proxy.ts";
 
 export interface GatewayOptions extends ProxyOptions {
   /** The port the daemon listens on, to accept only requests addressed to this machine. */
   port: number;
+  /** Serves the MCP tools at /mcp (Streamable HTTP), for clients holding a token. */
+  mcp?: Omit<McpDeps, "store">;
 }
 
-/** The daemon's HTTP app: the proxy under /s/<session>/… for `grenier run`, and untagged everywhere else. */
+/**
+ * The daemon's HTTP app: MCP at /mcp for clients with a token, the proxy under /s/<session>/… for `grenier run`, and
+ * untagged proxying everywhere else.
+ */
 export function createGateway(options: GatewayOptions): Hono {
   const proxy = createProxy(options);
   const hosts = new Set([`127.0.0.1:${options.port}`, `localhost:${options.port}`, `[::1]:${options.port}`]);
@@ -17,6 +25,24 @@ export function createGateway(options: GatewayOptions): Hono {
     const host = c.req.header("host") ?? new URL(c.req.url).host;
     if (!hosts.has(host)) return errorResponse(403, "permission_error", "Grenier only answers requests to 127.0.0.1.");
     return next();
+  });
+
+  app.all("/mcp", async (c) => {
+    if (!options.mcp) return errorResponse(404, "not_found_error", "MCP is not served here.");
+    const token = /^Bearer (\S+)$/.exec(c.req.header("authorization") ?? "")?.[1];
+    const client = token ? await options.store.clients.findActive(await sha256(token)) : undefined;
+    if (!client) {
+      return errorResponse(
+        401,
+        "authentication_error",
+        "Grenier's MCP endpoint needs a client token: Authorization: Bearer <token>.",
+      );
+    }
+    const server = createMcpServer({ ...options.mcp, store: options.store });
+    // No session id generator: stateless, one server per request.
+    const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
+    await server.connect(transport);
+    return transport.handleRequest(c.req.raw);
   });
 
   app.all("/s/:session/*", (c) => {

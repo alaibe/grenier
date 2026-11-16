@@ -1,5 +1,7 @@
 import { version } from "../package.json";
 import { budget } from "./commands/budget.ts";
+import { cache } from "./commands/cache.ts";
+import { install, serve } from "./commands/mcp.ts";
 import { report } from "./commands/report.ts";
 import { resume } from "./commands/resume.ts";
 import { run as runAgent } from "./commands/run.ts";
@@ -21,6 +23,12 @@ Commands:
   budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]
                              Set limits in dollars ("off" removes one)
   resume <session>           Let a session paused by the loop guard continue
+  mcp install <claude-code|cursor|codex|claude-desktop>
+                             Add Grenier's MCP server to that client's config
+  mcp serve                  The MCP server over stdio (what the clients launch)
+  cache stats                Answers and summaries kept, by repository
+  cache clear [--repo <name>]
+                             Empty the cache, or one repository's part of it
 
 Options:
   -h, --help                 Show this help
@@ -74,6 +82,16 @@ export async function run(argv: string[], io: Io): Promise<number> {
         return 0;
       case "resume":
         io.out(await resume(rest, io));
+        return 0;
+      case "mcp":
+        if (rest[0] === "serve" && rest.length === 1) return await serve(io);
+        if (rest[0] === "install") {
+          io.out(install(rest.slice(1), io));
+          return 0;
+        }
+        throw new UsageError("mcp takes: install <client>, or serve");
+      case "cache":
+        for (const line of await cache(rest, io)) io.out(line);
         return 0;
       default:
         throw new UsageError(`unknown command "${command}"`);

@@ -331,13 +331,14 @@ These are hard rules. A failing test is never a reason to relax one.
 
 ## Open decisions
 
-Claude Code stops and asks before building anything that depends on one of these.
+Claude Code stops and asks before building anything that depends on one of these. Ticked ones were decided on
+2026-11-16; `docs/decisions.md` says how and why.
 
 - [ ] **Name.** Check that "grenier" is free on GitHub, npm and a `.dev` domain before the first public commit.
-- [ ] **Provider terms.** Confirm that a local proxy which reads usage and enforces budgets is allowed with API keys and with subscription sign-in, for each provider supported.
-- [ ] **Indexing cost.** Should Grenier pre-build file summaries with a small model (costs tokens up front) or only cache what agents record (free, slower to warm up)? Default proposal: record-only in phase 1, pre-build as an opt-in command.
-- [ ] **Budget error code.** Which status code stops each agent cleanly without a retry loop? Decided by test in phase 1.
-- [ ] **Embedding model.** Which small local model is the default, given size and licence?
+- [x] **Provider terms.** Confirm that a local proxy which reads usage and enforces budgets is allowed with API keys and with subscription sign-in, for each provider supported.
+- [x] **Indexing cost.** Should Grenier pre-build file summaries with a small model (costs tokens up front) or only cache what agents record (free, slower to warm up)? Default proposal: record-only in phase 1, pre-build as an opt-in command.
+- [x] **Budget error code.** Which status code stops each agent cleanly without a retry loop? Decided by test in phase 1.
+- [x] **Embedding model.** Which small local model is the default, given size and licence?
 - [ ] **Desktop UI framework** for Tauri (React or Svelte). Only needed in phase 3.
 
 ## Market context

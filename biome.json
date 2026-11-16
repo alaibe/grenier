@@ -145,8 +145,10 @@
       "includes": [
         "packages/core/src/**",
         "packages/store/src/**",
+        "packages/index/src/**",
         "!packages/core/src/node.ts",
-        "!packages/store/src/sqlite.ts"
+        "!packages/store/src/sqlite.ts",
+        "!packages/index/src/node.ts"
       ],
       "linter": {
         "rules": {

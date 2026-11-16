@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { defineConfig, type Plugin } from "vitest/config";
 
-function filesAsText(): Plugin {
+/** SQL and TOML files are imported as their text, as esbuild's text loader does in the CLI build. */
+export function filesAsText(): Plugin {
   return {
     name: "files-as-text",
     async load(id) {

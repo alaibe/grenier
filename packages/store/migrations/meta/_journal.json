@@ -15,6 +15,20 @@
       "when": 1794836322770,
       "tag": "0001_answers_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794840874702,
+      "tag": "0002_answer_embeddings",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794840875241,
+      "tag": "0003_answers_fts_porter",
+      "breakpoints": true
     }
   ]
 }

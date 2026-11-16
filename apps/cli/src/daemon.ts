@@ -7,6 +7,7 @@ import { loadPrices } from "@grenier/log";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { serve } from "@hono/node-server";
 import { version } from "../package.json";
+import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
 import { CommandError, environment, type Io } from "./io.ts";
 import { desktopNotifier } from "./notify.ts";
 
@@ -69,6 +70,7 @@ export async function runDaemon(io: Io): Promise<number> {
     prices: loadPrices(config.prices),
     port,
     notify: desktopNotifier(io.err),
+    mcp: { files: gitFiles, embedder: embedderLoader(config, paths, io.err), resolveRepo: repoResolver(null), version },
   });
 
   const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
