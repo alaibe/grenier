@@ -57,7 +57,7 @@ ANTHROPIC_API_KEY=sk-ant-… pnpm --filter @grenier/bench bench
 ## Security
 
 The daemon only listens on 127.0.0.1; API keys pass through and are never stored; nothing leaves your machine unless
-you share a repository or set up the vault, which is end-to-end encrypted. The ten rules and how they are enforced are
+you share a repository or put a source in the vault, which is end-to-end encrypted. The ten rules and how they are enforced are
 in [docs/guide/security.md](docs/guide/security.md).
 
 ## Development

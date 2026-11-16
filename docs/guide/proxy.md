@@ -9,7 +9,9 @@ command at `http://127.0.0.1:7788/s/<session>`, and closes the session when the 
 is Grenier's. Requests without the `/s/<session>` prefix are counted under `untagged`.
 
 Anthropic's Messages API is served at the root; OpenAI's API (Chat Completions, Responses) under `/openai/`, sent to
-`[proxy] upstream_openai`, which can be any OpenAI-compatible server.
+`[proxy] upstream_openai`, which can be any OpenAI-compatible server. Codex has to use an API key
+(`codex login --with-api-key`): a ChatGPT sign-in only works with ChatGPT's own backend, so the proxy refuses it with a
+message rather than send it to OpenAI's API.
 
 ## What is recorded
 

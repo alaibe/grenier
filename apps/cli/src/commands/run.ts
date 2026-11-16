@@ -15,8 +15,21 @@ export function newSessionId(): string {
 }
 
 /**
- * `grenier run -- <command>`: registers a session, points the command at the proxy with ANTHROPIC_BASE_URL, runs
- * it, and closes the session when it exits. Returns the command's exit code.
+ * The command's arguments, plus what points it at the proxy when an environment variable cannot: Codex reads its base
+ * URL only from its config, so it gets `-c openai_base_url=…` unless the command already sets one.
+ */
+export function agentArgs(program: string, args: readonly string[], openaiBaseUrl: string): string[] {
+  const codex = /^codex(\.exe)?$/i.test(basename(program));
+  if (!codex || args.some((arg) => /^openai_base_url\s*=/.test(arg) || /^--config=openai_base_url/.test(arg))) {
+    return [...args];
+  }
+  return ["-c", `openai_base_url=${JSON.stringify(openaiBaseUrl)}`, ...args];
+}
+
+/**
+ * `grenier run -- <command>`: registers a session, points the command at the proxy (ANTHROPIC_BASE_URL,
+ * OPENAI_BASE_URL, and Codex's own setting), runs it, and closes the session when it exits. Returns the command's
+ * exit code.
  */
 export async function run(argv: string[], io: Io, dependencies: RunDependencies = { startDaemon }): Promise<number> {
   const command = argv[0] === "--" ? argv.slice(1) : argv;
@@ -44,10 +57,11 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
   io.err(`grenier: session ${id}, through ${baseUrl}`);
 
   const code = await new Promise<number>((resolve) => {
-    const child = spawn(program, args, {
+    const openaiBaseUrl = `${baseUrl}/openai/v1`;
+    const child = spawn(program, agentArgs(program, args, openaiBaseUrl), {
       stdio: "inherit",
       cwd: io.cwd,
-      env: { ...io.env, ANTHROPIC_BASE_URL: baseUrl, OPENAI_BASE_URL: `${baseUrl}/openai/v1` },
+      env: { ...io.env, ANTHROPIC_BASE_URL: baseUrl, OPENAI_BASE_URL: openaiBaseUrl },
     });
     // Ctrl-C reaches the command directly; a second copy from here would make an agent quit instead of interrupting.
     const ignore = () => {};

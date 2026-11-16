@@ -290,6 +290,8 @@ Each task lists what must be true before its box is ticked.
 - [x] Dashboard page served by the Worker: usage, hit rate, savings, members, revoke
   - Done when: a revoked token gets 401 on its next call.
 - [x] OpenAI-compatible proxy endpoints, for Codex and others
+  - Codex is pointed at them with `-c openai_base_url`, with an API key; tested with recorded fixtures and a stand-in
+    `codex`, not yet with Codex itself.
 
 ### Phase 3: personal data and desktop app
 
@@ -348,6 +350,8 @@ Claude Code stops and asks before building anything that depends on one of these
 
 - [ ] **Name.** Check that "grenier" is free on GitHub, npm and a `.dev` domain before the first public commit.
 - [x] **Provider terms.** Confirm that a local proxy which reads usage and enforces budgets is allowed with API keys and with subscription sign-in, for each provider supported.
+  - Anthropic: API keys and subscription sign-in. OpenAI: API keys; Codex with a ChatGPT sign-in is not supported
+    through Grenier (docs/decisions.md).
 - [x] **Indexing cost.** Should Grenier pre-build file summaries with a small model (costs tokens up front) or only cache what agents record (free, slower to warm up)? Default proposal: record-only in phase 1, pre-build as an opt-in command.
 - [x] **Budget error code.** Which status code stops each agent cleanly without a retry loop? Decided by test in phase 1.
 - [x] **Embedding model.** Which small local model is the default, given size and licence?

@@ -152,6 +152,18 @@ export function createProxy(options: ProxyOptions) {
     path: string,
     provider: Provider = "anthropic",
   ): Promise<Response> {
+    // A ChatGPT sign-in is for ChatGPT's own backend; OpenAI's API would refuse it with a less helpful message.
+    if (
+      provider === "openai" &&
+      upstreams.openai.hostname === "api.openai.com" &&
+      request.headers.has("chatgpt-account-id")
+    ) {
+      return errorResponse(
+        403,
+        "permission_error",
+        "Grenier sends OpenAI requests to OpenAI's API (proxy.upstream_openai), which takes an API key, not a ChatGPT sign-in. Sign Codex in with an API key (codex login --with-api-key), or run it without grenier run.",
+      );
+    }
     const session = await sessionFor(sessionId);
     const inference = request.method === "POST" && INFERENCE[provider].test(path);
     let body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();

@@ -74,6 +74,21 @@ describe("OpenAI-compatible endpoints", () => {
     expect(upstream.requests).toEqual([]);
   });
 
+  it("refuses a ChatGPT sign-in bound for OpenAI's API with a message saying what to do, without forwarding it", async () => {
+    const upstream = fakeUpstream(() => sse(RESPONSES));
+    gateway = testGateway(upstream);
+    const init = openaiRequest({ model: "gpt-5.1-codex" });
+    const response = await gateway.request("/s/s1/openai/v1/responses", {
+      ...init,
+      headers: { ...(init.headers as Record<string, string>), "chatgpt-account-id": "acct-1" },
+    });
+    expect(response.status).toBe(403);
+    expect(((await response.json()) as { error: { message: string } }).error.message).toContain(
+      "codex login --with-api-key",
+    );
+    expect(upstream.requests).toEqual([]);
+  });
+
   it("honours upstream_openai, for any OpenAI-compatible API", async () => {
     const upstream = fakeUpstream(() => sse(RESPONSES));
     gateway = testGateway(upstream, (config) => {

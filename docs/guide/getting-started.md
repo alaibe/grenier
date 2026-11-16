@@ -26,7 +26,8 @@ grenier run -- claude
 ```
 
 `grenier run` starts the daemon if it is not running, gives the agent its own session, and points it at the proxy
-with `ANTHROPIC_BASE_URL` (and `OPENAI_BASE_URL` for OpenAI-compatible tools such as Codex). The agent works exactly as
+with `ANTHROPIC_BASE_URL` (and `OPENAI_BASE_URL` for OpenAI-compatible tools; Codex gets `-c openai_base_url=…`, the
+only place it reads one). The agent works exactly as
 before: requests and answers pass through unchanged, streamed as they arrive. Grenier records what each one used.
 
 ```bash

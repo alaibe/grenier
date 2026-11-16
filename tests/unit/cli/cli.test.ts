@@ -1,12 +1,22 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
 import { run } from "../../../apps/cli/src/cli.ts";
-import { run as runAgent } from "../../../apps/cli/src/commands/run.ts";
+import { agentArgs, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
 import { daemonPid, pidFile } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
@@ -219,6 +229,34 @@ describe("grenier run", () => {
     expect(session?.endedAt).not.toBeNull();
     expect(readFileSync(out, "utf8")).toBe(`http://127.0.0.1:7788/s/${session?.id}`);
     expect(err[0]).toBe(`grenier: session ${session?.id}, through http://127.0.0.1:7788/s/${session?.id}`);
+  });
+
+  it("points Codex at the proxy through its own setting, since it reads no base URL from the environment", async () => {
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    const out = join(dir, "codex-args");
+    writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(out)}\n`);
+    chmodSync(join(bin, "codex"), 0o755);
+    const base = io();
+    const code = await runAgent(
+      ["codex", "exec", "hello"],
+      { ...base, env: { ...base.env, PATH: `${bin}:${process.env.PATH}` } },
+      { startDaemon: async () => ({ pid: 1 }) },
+    );
+
+    expect(code).toBe(0);
+    const store = db();
+    const [session] = await store.sessions.list();
+    await store.close();
+    expect(readFileSync(out, "utf8").split("\n")).toEqual([
+      "-c",
+      `openai_base_url="http://127.0.0.1:7788/s/${session?.id}/openai/v1"`,
+      "exec",
+      "hello",
+      "",
+    ]);
+    expect(agentArgs("/usr/bin/codex", ["-c", 'openai_base_url="x"'], "y")).toEqual(["-c", 'openai_base_url="x"']);
+    expect(agentArgs("claude", ["-p", "hi"], "y")).toEqual(["-p", "hi"]);
   });
 
   it("returns 127 for a command that does not exist", async () => {

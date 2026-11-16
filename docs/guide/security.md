@@ -1,6 +1,7 @@
 # Security and privacy
 
-These rules hold across Grenier. Tests check rules 1 to 9; pnpm's settings and CI enforce rule 10.
+These rules hold across Grenier. Tests check them, except the listening address, which is fixed in the code, and
+rule 10, which pnpm's settings and CI enforce.
 
 1. **Local only.** The daemon listens on 127.0.0.1 and refuses requests addressed to any other host. Its MCP and admin
    endpoints need a token; only the proxy path that `grenier run` uses does not.

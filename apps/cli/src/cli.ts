@@ -54,8 +54,8 @@ Commands:
                              Every read of personal data
   review, review approve <id>, review reject <id>
                              Memories AI tools proposed with remember
-  vault init, vault join <key>, vault key, vault sync
-                             End-to-end encrypted sync of memories and sources between your devices
+  vault init, vault join <key>, vault key, vault share <source>, vault unshare <source>, vault sync
+                             End-to-end encrypted sync, between your devices, of the sources you share
 
 Options:
   -h, --help                 Show this help
