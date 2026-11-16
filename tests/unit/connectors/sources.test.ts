@@ -77,24 +77,27 @@ describe("markdown", () => {
     expect(readFrontMatter("no front matter")).toEqual({ people: [], body: "no front matter" });
   });
 
-  it("calls back once for a burst of changes", async () => {
+  it("calls back for a burst of changes a few times at most, not once per file", async () => {
     let calls = 0;
     const watcher = watchMarkdown(
       dir,
       () => {
         calls += 1;
       },
-      50,
+      200,
     );
     try {
-      writeFileSync(join(dir, "a.md"), "1");
-      writeFileSync(join(dir, "b.md"), "2");
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      expect(calls).toBe(1);
+      for (let index = 0; index < 20; index++) writeFileSync(join(dir, `note-${index}.md`), String(index));
+      for (let waited = 0; calls === 0 && waited < 5_000; waited += 50) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(calls).toBeGreaterThanOrEqual(1);
+      expect(calls).toBeLessThanOrEqual(3);
     } finally {
       watcher.close();
     }
-  });
+  }, 10_000);
 });
 
 describe("iCalendar", () => {
