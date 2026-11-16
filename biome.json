@@ -1,8 +1,19 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["**", "!**/*.md"] },
-  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["**", "!**/*.md", "!packages/store/migrations/meta"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
   "javascript": {
     "formatter": {
       "quoteStyle": "double",
@@ -11,7 +22,14 @@
       "arrowParentheses": "always"
     }
   },
-  "assist": { "enabled": true, "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "linter": {
     "enabled": true,
     "rules": {
@@ -23,8 +41,18 @@
         "noDefaultExport": "error",
         "noNonNullAssertion": "error",
         "noParameterAssign": "error",
-        "useConsistentArrayType": { "level": "error", "options": { "syntax": "shorthand" } },
-        "useConsistentTypeDefinitions": { "level": "error", "options": { "style": "interface" } },
+        "useConsistentArrayType": {
+          "level": "error",
+          "options": {
+            "syntax": "shorthand"
+          }
+        },
+        "useConsistentTypeDefinitions": {
+          "level": "error",
+          "options": {
+            "style": "interface"
+          }
+        },
         "useExportType": "error",
         "useImportType": "error",
         "useNodejsImportProtocol": "error",
@@ -44,7 +72,34 @@
   },
   "overrides": [
     {
-      "includes": ["packages/**"],
+      "includes": ["packages/**", "apps/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "better-sqlite3": "Only packages/store talks to SQLite. Go through the store interface."
+                },
+                "patterns": [
+                  {
+                    "group": ["@grenier/cli", "@grenier/server", "@grenier/desktop", "**/apps/**"],
+                    "message": "packages/* never import from apps/*."
+                  },
+                  {
+                    "group": ["drizzle-orm", "drizzle-orm/**"],
+                    "message": "Only packages/store uses Drizzle. Go through the store interface."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/store/src/**"],
       "linter": {
         "rules": {
           "style": {
@@ -87,34 +142,29 @@
       }
     },
     {
-      "includes": ["apps/**"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "paths": {
-                  "better-sqlite3": "Only packages/store talks to SQLite. Go through the store interface."
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
       "includes": [
         "packages/core/src/**",
         "packages/store/src/**",
         "!packages/core/src/node.ts",
         "!packages/store/src/sqlite.ts"
       ],
-      "linter": { "rules": { "correctness": { "noNodejsModules": "error" } } }
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNodejsModules": "error"
+          }
+        }
+      }
     },
     {
-      "includes": ["*.config.ts", "types/**"],
-      "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
+      "includes": ["**/*.config.ts", "types/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "off"
+          }
+        }
+      }
     }
   ]
 }

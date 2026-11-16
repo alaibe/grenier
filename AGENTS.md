@@ -32,11 +32,15 @@ code.
   `apps/cli`.
 - `@grenier/core` and `@grenier/store` must run on Cloudflare Workers too. Node-only code goes in a subpath
   (`@grenier/core/node`, `@grenier/store/sqlite`); Biome refuses a Node import anywhere else in those two packages.
-- Only `packages/store/src/sqlite.ts` imports better-sqlite3, and `packages/*` never import `apps/*`. Biome enforces
-  both.
-- The schema moves forward by migration: a new `packages/store/migrations/NNNN_name.sql`, listed in
-  `packages/store/src/migrations.ts`. A shipped migration never changes. SQL files are imported as text (esbuild's
-  text loader, a Vitest plugin, `types/sql.d.ts`).
+- Only `packages/store` uses Drizzle, only `packages/store/src/sqlite.ts` imports better-sqlite3, and `packages/*`
+  never import `apps/*`. Biome enforces all three.
+- The schema is `packages/store/src/schema.ts` (Drizzle). To change it: edit that file, run `pnpm db:generate`, list
+  the new SQL file in `packages/store/src/migrations.ts`, and commit the SQL and `migrations/meta/`. What Drizzle
+  cannot express (the full-text index, its triggers, later sqlite-vec) goes in a migration from
+  `pnpm db:generate --custom --name <what>`. A shipped migration never changes. A test fails when the migrated
+  database and `schema.ts` disagree.
+- Our runner applies the migrations and records them in `schema_migrations`, not Drizzle's migrator: SQL files are
+  imported as text (esbuild's text loader, a Vitest plugin, `types/sql.d.ts`), so they work inside the bundled CLI.
 - No test touches the real `~/.grenier`: set `GRENIER_HOME` to a temporary directory.
 - Dependencies are exact versions, and pnpm refuses releases younger than 7 days (`pnpm-workspace.yaml`). Install
   scripts run only for the packages listed there.

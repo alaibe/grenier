@@ -1,9 +1,12 @@
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Migration, migrations, StoreError } from "@grenier/store";
+import { type Migration, migrations, StoreError, schema } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import Database from "better-sqlite3";
+import { eq, is, sql } from "drizzle-orm";
+import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
+import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const LATEST = migrations.at(-1)?.version ?? 0;
@@ -108,69 +111,107 @@ describe("openSqliteStore", () => {
   });
 });
 
-describe("the initial schema", () => {
-  function addAnswer(db: Database.Database, id: string, question: string): void {
-    db.prepare(
-      "INSERT INTO answers (id, repo_id, question, answer, created_at, author) VALUES (?, 'repo', ?, 'an answer', 0, 'local')",
-    ).run(id, question);
+describe("the schema", () => {
+  function withDb(test: (db: BetterSQLite3Database<typeof schema>, sqlite: Database.Database) => void): void {
+    const sqlite = new Database(file);
+    sqlite.pragma("foreign_keys = ON");
+    try {
+      test(drizzle(sqlite, { schema }), sqlite);
+    } finally {
+      sqlite.close();
+    }
   }
 
-  function search(db: Database.Database, query: string): string[] {
-    return (
-      db
-        .prepare(
-          "SELECT answers.id FROM answers_fts JOIN answers ON answers.seq = answers_fts.rowid WHERE answers_fts MATCH ?",
-        )
-        .all(query) as { id: string }[]
-    ).map((row) => row.id);
+  function addAnswer(db: BetterSQLite3Database<typeof schema>, id: string, question: string): void {
+    db.insert(schema.answers)
+      .values({ id, repoId: "repo", question, answer: "an answer", createdAt: 0, author: "local" })
+      .run();
   }
+
+  function search(db: BetterSQLite3Database<typeof schema>, query: string): string[] {
+    return db
+      .all<{ id: string }>(
+        sql`SELECT answers.id FROM answers_fts JOIN answers ON answers.seq = answers_fts.rowid WHERE answers_fts MATCH ${query}`,
+      )
+      .map((row) => row.id);
+  }
+
+  it("matches schema.ts, column by column, once migrated", async () => {
+    await openSqliteStore(file).close();
+    withDb((_, sqlite) => {
+      const tables = Object.values(schema).filter((value) => is(value, SQLiteTable));
+      expect(tables.length).toBeGreaterThan(0);
+      for (const table of tables) {
+        const config = getTableConfig(table);
+        const columns = sqlite.pragma(`table_info(${config.name})`) as {
+          name: string;
+          type: string;
+          notnull: number;
+          pk: number;
+        }[];
+        const actual = columns.map((column) => ({
+          name: column.name,
+          type: column.type.toLowerCase(),
+          notNull: column.notnull === 1 || column.pk > 0,
+        }));
+        const expected = config.columns.map((column) => ({
+          name: column.name,
+          type: column.getSQLType().toLowerCase(),
+          notNull: column.notNull || column.primary,
+        }));
+        expect(actual, config.name).toEqual(expect.arrayContaining(expected));
+        expect(actual, config.name).toHaveLength(expected.length);
+      }
+    });
+  });
 
   it("keeps the full-text index in step with the answers", async () => {
     await openSqliteStore(file).close();
-    const db = new Database(file);
-    try {
+    withDb((db, sqlite) => {
       addAnswer(db, "a1", "How does the proxy stream responses?");
       addAnswer(db, "a2", "Where are budgets enforced?");
       expect(search(db, "proxy")).toEqual(["a1"]);
 
-      db.prepare("UPDATE answers SET question = 'How is the cache keyed?' WHERE id = 'a1'").run();
+      db.update(schema.answers).set({ question: "How is the cache keyed?" }).where(eq(schema.answers.id, "a1")).run();
       expect(search(db, "proxy")).toEqual([]);
       expect(search(db, "cache")).toEqual(["a1"]);
 
-      db.prepare("UPDATE answers SET hits = hits + 1 WHERE id = 'a2'").run();
+      db.update(schema.answers)
+        .set({ hits: sql`${schema.answers.hits} + 1` })
+        .where(eq(schema.answers.id, "a2"))
+        .run();
       expect(search(db, "budgets")).toEqual(["a2"]);
 
-      db.prepare("DELETE FROM answers WHERE id = 'a2'").run();
+      db.delete(schema.answers).where(eq(schema.answers.id, "a2")).run();
       expect(search(db, "budgets")).toEqual([]);
-      expect(() => db.exec("INSERT INTO answers_fts (answers_fts) VALUES ('integrity-check')")).not.toThrow();
-    } finally {
-      db.close();
-    }
+      expect(() => sqlite.exec("INSERT INTO answers_fts (answers_fts) VALUES ('integrity-check')")).not.toThrow();
+    });
   });
 
   it("removes an answer's sources with the answer", async () => {
     await openSqliteStore(file).close();
-    const db = new Database(file);
-    db.pragma("foreign_keys = ON");
-    try {
+    withDb((db) => {
       addAnswer(db, "a1", "question");
-      db.prepare("INSERT INTO answer_sources (answer_id, path, blob_hash) VALUES ('a1', 'src/x.ts', 'abc')").run();
-      db.prepare("DELETE FROM answers WHERE id = 'a1'").run();
-      expect(db.prepare("SELECT count(*) AS n FROM answer_sources").get()).toEqual({ n: 0 });
-    } finally {
-      db.close();
-    }
+      db.insert(schema.answerSources).values({ answerId: "a1", path: "src/x.ts", blobHash: "abc" }).run();
+      db.delete(schema.answers).where(eq(schema.answers.id, "a1")).run();
+      expect(db.select().from(schema.answerSources).all()).toEqual([]);
+    });
   });
 
-  it("refuses a value of the wrong type", async () => {
+  it("refuses a source for an answer that does not exist", async () => {
     await openSqliteStore(file).close();
-    const db = new Database(file);
-    try {
+    withDb((db) => {
       expect(() =>
-        db.prepare("INSERT INTO usage (session_id, ts, input_tokens) VALUES ('s', 0, 'many')").run(),
-      ).toThrow(/cannot store TEXT value in INTEGER column/);
-    } finally {
-      db.close();
-    }
+        db.insert(schema.answerSources).values({ answerId: "nope", path: "src/x.ts", blobHash: "abc" }).run(),
+      ).toThrow(/FOREIGN KEY constraint failed/);
+    });
+  });
+
+  it("stores a client's scopes as a JSON list", async () => {
+    await openSqliteStore(file).close();
+    withDb((db) => {
+      db.insert(schema.clients).values({ id: "c1", name: "cursor", tokenHash: "h", createdAt: 0 }).run();
+      expect(db.select({ scopes: schema.clients.scopes }).from(schema.clients).get()).toEqual({ scopes: [] });
+    });
   });
 });

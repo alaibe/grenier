@@ -2,7 +2,7 @@
   "name": "@grenier/store",
   "version": "0.0.0",
   "private": true,
-  "description": "The storage interface, the schema migrations, and the local SQLite adapter (./sqlite).",
+  "description": "The storage interface, the Drizzle schema and its migrations, and the local SQLite adapter (./sqlite).",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -10,9 +10,11 @@
     "./sqlite": "./src/sqlite.ts"
   },
   "dependencies": {
-    "better-sqlite3": "13.0.3"
+    "better-sqlite3": "13.0.3",
+    "drizzle-orm": "0.45.4"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "9.6.0"
+    "@types/better-sqlite3": "9.6.0",
+    "drizzle-kit": "0.31.11"
   }
 }

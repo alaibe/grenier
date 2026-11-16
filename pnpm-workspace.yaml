@@ -13,3 +13,8 @@ onlyBuiltDependencies:
   - esbuild
 ignoredBuiltDependencies:
   - better-sqlite3
+
+# drizzle-kit loads its config through @esbuild-kit, which asks for esbuild 0.18 (GHSA-67mh-4wv8-2f99). It works with
+# the patched 0.25 that drizzle-kit itself uses.
+overrides:
+  "@esbuild-kit/core-utils>esbuild": 0.25.12

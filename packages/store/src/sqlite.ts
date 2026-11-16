@@ -1,6 +1,11 @@
 import { closeSync, openSync } from "node:fs";
 import Database from "better-sqlite3";
+import { sql } from "drizzle-orm";
+import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { migrations as allMigrations, type Migration, type Store, StoreError } from "./index.ts";
+import * as schema from "./schema.ts";
+
+type Db = BetterSQLite3Database<typeof schema>;
 
 export interface SqliteStoreOptions {
   /** The migrations to apply. Tests pass their own; everything else uses the shipped ones. */
@@ -11,51 +16,55 @@ export interface SqliteStoreOptions {
 export function openSqliteStore(file: string, options: SqliteStoreOptions = {}): Store {
   if (file !== ":memory:") closeSync(openSync(file, "a", 0o600));
 
-  const db = new Database(file);
+  const sqlite = new Database(file);
+  const db = drizzle(sqlite, { schema });
   try {
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    db.pragma("busy_timeout = 5000");
-    migrate(db, file, options.migrations ?? allMigrations);
+    sqlite.pragma("journal_mode = WAL");
+    sqlite.pragma("foreign_keys = ON");
+    sqlite.pragma("busy_timeout = 5000");
+    migrate(sqlite, db, file, options.migrations ?? allMigrations);
   } catch (error) {
-    db.close();
+    sqlite.close();
     throw error;
   }
 
   return {
     schemaVersion: async () => schemaVersion(db),
     close: async () => {
-      db.close();
+      sqlite.close();
     },
   };
 }
 
-function migrate(db: Database.Database, file: string, migrations: readonly Migration[]): void {
-  db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+function migrate(sqlite: Database.Database, db: Db, file: string, migrations: readonly Migration[]): void {
+  db.run(sql`CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     applied_at INTEGER NOT NULL
   ) STRICT`);
-  const record = db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)");
   const known = migrations.at(-1)?.version ?? 0;
 
   // Immediate, so a second process opening the same file waits, then finds the work done.
-  db.transaction(() => {
-    const current = schemaVersion(db);
-    if (current > known) {
-      throw new StoreError(
-        `${file} has schema version ${current}, newer than this build of grenier knows (${known}). Update grenier.`,
-      );
-    }
-    for (const migration of migrations) {
-      if (migration.version <= current) continue;
-      db.exec(migration.sql);
-      record.run(migration.version, migration.name, Date.now());
-    }
-  }).immediate();
+  sqlite
+    .transaction(() => {
+      const current = schemaVersion(db);
+      if (current > known) {
+        throw new StoreError(
+          `${file} has schema version ${current}, newer than this build of grenier knows (${known}). Update grenier.`,
+        );
+      }
+      for (const migration of migrations) {
+        if (migration.version <= current) continue;
+        sqlite.exec(migration.sql);
+        db.run(
+          sql`INSERT INTO schema_migrations (version, name, applied_at) VALUES (${migration.version}, ${migration.name}, ${Date.now()})`,
+        );
+      }
+    })
+    .immediate();
 }
 
-function schemaVersion(db: Database.Database): number {
-  const row = db.prepare("SELECT max(version) AS version FROM schema_migrations").get() as { version: number | null };
+function schemaVersion(db: Db): number {
+  const row = db.get<{ version: number | null }>(sql`SELECT max(version) AS version FROM schema_migrations`);
   return row.version ?? 0;
 }
