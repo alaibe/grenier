@@ -2,7 +2,16 @@ import { budgetMessage, type Config, effectiveLimits, firstBreach } from "@greni
 import { costOf, type Prices, repoName, startOfToday } from "@grenier/log";
 import type { Session, Store } from "@grenier/store";
 import { LoopWatch, type ToolCall } from "./loops.ts";
+import { OpenAIUsageReader } from "./openai.ts";
 import { UsageReader } from "./usage.ts";
+
+/** Which API a request is for: Anthropic's Messages API, or OpenAI's (under /openai/ on the proxy). */
+export type Provider = "anthropic" | "openai";
+
+const INFERENCE: Record<Provider, RegExp> = {
+  anthropic: /\/v1\/messages\/?$/,
+  openai: /\/v1\/(chat\/completions|responses|completions)\/?$/,
+};
 
 export const UNTAGGED = "untagged";
 
@@ -18,7 +27,14 @@ export interface ProxyOptions {
   pollInterval?: number;
   /** When this process started: sessions older than it get their history marked as seen, not counted. */
   startedAt?: number;
+  /** Today's team and member limits and spend, from the team server; null when there is no team. */
+  teamBudget?: () => Promise<{
+    team: { limit: number | null; spent: number };
+    member: { limit: number | null; spent: number };
+  } | null>;
 }
+
+const TEAM_BUDGET_TTL = 15_000;
 
 // Hop-by-hop headers (RFC 9110 §7.6.1) and the ones fetch sets itself.
 const DROPPED_REQUEST_HEADERS = new Set([
@@ -51,7 +67,10 @@ export function createProxy(options: ProxyOptions) {
   const pollInterval = options.pollInterval ?? 500;
   const startedAt = options.startedAt ?? now();
   const loops = new LoopWatch(config.guards.loop_repeat_threshold, config.guards.loop_window);
-  const upstream = new URL(config.proxy.upstream_anthropic);
+  const upstreams: Record<Provider, URL> = {
+    anthropic: new URL(config.proxy.upstream_anthropic),
+    openai: new URL(config.proxy.upstream_openai),
+  };
 
   async function sessionFor(id: string): Promise<Session> {
     const existing = await store.sessions.get(id);
@@ -92,11 +111,29 @@ export function createProxy(options: ProxyOptions) {
     return true;
   }
 
+  let teamStatus: { at: number; value: Awaited<ReturnType<NonNullable<ProxyOptions["teamBudget"]>>> } | undefined;
+  async function teamBreach() {
+    if (!options.teamBudget) return null;
+    if (!teamStatus || now() - teamStatus.at > TEAM_BUDGET_TTL) {
+      // A team server that cannot be reached does not stop anyone's work: the request goes through.
+      teamStatus = { at: now(), value: await options.teamBudget().catch(() => null) };
+    }
+    const status = teamStatus.value;
+    if (!status) return null;
+    if (status.team.limit !== null && status.team.spent >= status.team.limit) {
+      return { scope: "team" as const, key: "", limit: status.team.limit, spent: status.team.spent };
+    }
+    if (status.member.limit !== null && status.member.spent >= status.member.limit) {
+      return { scope: "member" as const, key: "", limit: status.member.limit, spent: status.member.spent };
+    }
+    return null;
+  }
+
   async function budgetBreach(session: Session) {
     const stored = await store.budgets.list();
     const name = session.repoRoot ? repoName(session.repoRoot) : null;
     const limits = effectiveLimits(config.budgets, stored, name);
-    if (limits.length === 0) return null;
+    if (limits.length === 0) return teamBreach();
     const today = startOfToday(now());
     const spent = new Map<string, number>();
     for (const limit of limits) {
@@ -106,12 +143,17 @@ export function createProxy(options: ProxyOptions) {
         spent.set("repo", await store.usage.spend({ since: today, repoId: session.repoId }));
       }
     }
-    return firstBreach(limits, (limit) => spent.get(limit.scope) ?? 0);
+    return firstBreach(limits, (limit) => spent.get(limit.scope) ?? 0) ?? teamBreach();
   }
 
-  return async function proxy(request: Request, sessionId: string, path: string): Promise<Response> {
+  return async function proxy(
+    request: Request,
+    sessionId: string,
+    path: string,
+    provider: Provider = "anthropic",
+  ): Promise<Response> {
     const session = await sessionFor(sessionId);
-    const inference = request.method === "POST" && /\/v1\/messages\/?$/.test(path);
+    const inference = request.method === "POST" && INFERENCE[provider].test(path);
     let body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
     const parsed = inference && body ? parseJson(body) : undefined;
 
@@ -135,6 +177,7 @@ export function createProxy(options: ProxyOptions) {
 
     // Rule 9: the body changes only behind an opt-in flag, and every change is logged.
     if (
+      provider === "anthropic" &&
       config.proxy.inject_cache_control &&
       parsed &&
       body &&
@@ -150,6 +193,7 @@ export function createProxy(options: ProxyOptions) {
       });
     }
 
+    const upstream = upstreams[provider];
     const target = new URL(upstream);
     target.pathname = upstream.pathname.replace(/\/$/, "") + path;
     target.search = new URL(request.url).search;
@@ -180,7 +224,8 @@ export function createProxy(options: ProxyOptions) {
       });
     }
 
-    const reader = new UsageReader(response.headers.get("content-type"));
+    const contentType = response.headers.get("content-type");
+    const reader = provider === "openai" ? new OpenAIUsageReader(contentType) : new UsageReader(contentType);
     const requestedModel = typeof parsed?.model === "string" ? parsed.model : null;
     let recorded = false;
     const record = async () => {
@@ -219,7 +264,8 @@ export function createProxy(options: ProxyOptions) {
 
 interface MessagesRequest {
   model?: unknown;
-  messages?: { role?: string; content?: unknown }[];
+  messages?: { role?: string; content?: unknown; tool_calls?: unknown }[];
+  input?: unknown;
 }
 
 function parseJson(body: ArrayBuffer): MessagesRequest | undefined {

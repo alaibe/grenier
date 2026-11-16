@@ -1,0 +1,12 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_fixture","object":"response","status":"in_progress","model":"gpt-5.1-codex","usage":null}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_fixture","output_index":0,"content_index":0,"delta":"The router "}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_fixture","output_index":0,"content_index":0,"delta":"is in src/router.ts."}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_fixture","object":"response","status":"completed","model":"gpt-5.1-codex","usage":{"input_tokens":5000,"input_tokens_details":{"cached_tokens":4096},"output_tokens":120,"output_tokens_details":{"reasoning_tokens":64},"total_tokens":5120}}}
+

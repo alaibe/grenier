@@ -54,7 +54,8 @@ export class LoopDetector {
 }
 
 export interface BudgetLimit {
-  scope: "daily" | "session" | "repo";
+  /** daily, session and repo limits are this machine's; team and member limits are the team server's, per UTC day. */
+  scope: "daily" | "session" | "repo" | "team" | "member";
   /** The repository's name for a repo limit, "" otherwise. */
   key: string;
   limit: number;
@@ -102,11 +103,34 @@ export function budgetMessage(breach: BudgetBreach): string {
     daily: `the daily budget of ${money(breach.limit)}`,
     session: `this session's budget of ${money(breach.limit)}`,
     repo: `the daily budget of ${money(breach.limit)} for ${breach.key}`,
+    team: `the team's daily budget of ${money(breach.limit)}`,
+    member: `your daily budget of ${money(breach.limit)} in the team`,
   }[breach.scope];
-  const flag = {
-    daily: "--daily <amount>",
-    session: "--session <amount>",
-    repo: `--repo ${breach.key}=<amount>`,
+  const change = {
+    daily: "grenier budget set --daily <amount>",
+    session: "grenier budget set --session <amount>",
+    repo: `grenier budget set --repo ${breach.key}=<amount>`,
+    team: "grenier team budget --team <amount> (a team admin)",
+    member: "grenier team budget --member <amount> (a team admin)",
   }[breach.scope];
-  return `Grenier stopped this request: ${what} is reached (${money(breach.spent)} spent). To change it, run: grenier budget set ${flag}`;
+  return `Grenier stopped this request: ${what} is reached (${money(breach.spent)} spent). To change it, run: ${change}`;
+}
+
+export const MAX_SHARED_TEXT = 4000;
+export const MAX_CODE_LINES = 10;
+
+/**
+ * Rule 4: an answer or summary describes code; it may quote a short snippet, never a file. Null when the text is
+ * fine, else what is wrong with it.
+ */
+export function unshareable(text: string): string | null {
+  if (text.trim() === "") return "the text is empty";
+  if (text.length > MAX_SHARED_TEXT) return `it holds at most ${MAX_SHARED_TEXT} characters`;
+  const blocks = text.split("```").filter((_, index) => index % 2 === 1);
+  for (const block of blocks) {
+    if (block.trim().split("\n").length > MAX_CODE_LINES + 1) {
+      return `it may quote at most ${MAX_CODE_LINES} lines of code at a time`;
+    }
+  }
+  return null;
 }

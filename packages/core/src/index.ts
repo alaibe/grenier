@@ -15,5 +15,8 @@ export {
   effectiveLimits,
   firstBreach,
   LoopDetector,
+  MAX_CODE_LINES,
+  MAX_SHARED_TEXT,
   sha256,
+  unshareable,
 } from "./policy.ts";

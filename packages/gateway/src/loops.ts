@@ -17,13 +17,49 @@ interface Block {
 }
 
 interface MessagesBody {
-  messages?: { role?: string; content?: unknown }[];
+  messages?: { role?: string; content?: unknown; tool_calls?: unknown }[];
+  /** OpenAI's Responses API: the conversation as items. */
+  input?: unknown;
 }
 
-/** Every tool_use in the conversation, and every tool_result marked as an error, keyed by its id, in order. */
+interface OpenAIToolCall {
+  id?: string;
+  call_id?: string;
+  type?: string;
+  name?: string;
+  arguments?: unknown;
+  function?: { name?: string; arguments?: unknown };
+}
+
+/** OpenAI sends a call's arguments as a JSON string; equal arguments in another key order are the same call. */
+function argumentsOf(raw: unknown): unknown {
+  if (typeof raw !== "string") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Every tool call in the conversation, keyed by its id, in order: Anthropic's tool_use blocks and tool_result blocks
+ * marked as errors, OpenAI's Chat Completions tool_calls and Responses function_call items.
+ */
 export async function toolCalls(body: MessagesBody): Promise<{ key: string; call: ToolCall }[]> {
   const calls: { key: string; call: ToolCall }[] = [];
+  const openai = async (id: string | undefined, name: string | undefined, args: unknown) => {
+    if (!id) return;
+    const tool = name ?? "";
+    calls.push({
+      key: `use:${id}`,
+      call: { tool, hash: await sha256(`${tool}\0${canonicalJson(argumentsOf(args))}`) },
+    });
+  };
   for (const message of body.messages ?? []) {
+    if (Array.isArray(message.tool_calls)) {
+      for (const call of message.tool_calls as OpenAIToolCall[])
+        await openai(call.id, call.function?.name, call.function?.arguments);
+    }
     if (!Array.isArray(message.content)) continue;
     for (const block of message.content as Block[]) {
       if (block.type === "tool_use" && block.id) {
@@ -38,6 +74,11 @@ export async function toolCalls(body: MessagesBody): Promise<{ key: string; call
           call: { tool: "error", hash: await sha256(`error\0${canonicalJson(block.content)}`) },
         });
       }
+    }
+  }
+  if (Array.isArray(body.input)) {
+    for (const item of body.input as OpenAIToolCall[]) {
+      if (item.type === "function_call") await openai(item.call_id ?? item.id, item.name, item.arguments);
     }
   }
   return calls;

@@ -232,3 +232,63 @@ describe("loops", () => {
     expect(JSON.parse(response.text).error.message).toContain("grenier resume s1");
   });
 });
+
+describe("team budgets", () => {
+  const status = (team: number | null, teamSpent: number, member: number | null = null, memberSpent = 0) => ({
+    team: { limit: team, spent: teamSpent },
+    member: { limit: member, spent: memberSpent },
+  });
+
+  it("stops a request once the team's daily budget is reached, naming who can change it", async () => {
+    const upstream = fakeUpstream(() => sse(STREAM));
+    gateway = testGateway(upstream, () => {}, { teamBudget: async () => status(5, 5.5) });
+    const response = await send("/s/s1/v1/messages");
+    expect(response.status).toBe(429);
+    expect(response.headers.get("x-should-retry")).toBe("false");
+    expect(JSON.parse(response.text).error.message).toBe(
+      "Grenier stopped this request: the team's daily budget of $5.00 is reached ($5.50 spent). To change it, run: grenier team budget --team <amount> (a team admin)",
+    );
+    expect(upstream.requests).toEqual([]);
+  });
+
+  it("stops a member at their own limit", async () => {
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      () => {},
+      { teamBudget: async () => status(null, 0, 1, 1) },
+    );
+    expect((await send("/s/s1/v1/messages")).text).toContain("your daily budget of $1.00 in the team");
+  });
+
+  it("lets requests through when the team server cannot be reached, and asks it at most every 15 seconds", async () => {
+    let asked = 0;
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      () => {},
+      {
+        teamBudget: async () => {
+          asked += 1;
+          throw new Error("offline");
+        },
+      },
+    );
+    expect((await send("/s/s1/v1/messages")).status).toBe(200);
+    expect((await send("/s/s1/v1/messages")).status).toBe(200);
+    expect(asked).toBe(1);
+    gateway.clock.now += 16_000;
+    await send("/s/s1/v1/messages");
+    expect(asked).toBe(2);
+  });
+
+  it("checks this machine's own limits before the team's", async () => {
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      (config) => {
+        config.budgets.daily = 1;
+      },
+      { teamBudget: async () => status(100, 0) },
+    );
+    await gateway.store.usage.add({ sessionId: "s0", ts: gateway.clock.now, model: "m", cost: 2 });
+    expect((await send("/s/s1/v1/messages")).text).toContain("the daily budget of $1.00");
+  });
+});

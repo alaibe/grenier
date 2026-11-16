@@ -159,7 +159,7 @@
       }
     },
     {
-      "includes": ["**/*.config.ts", "types/**"],
+      "includes": ["**/*.config.ts", "types/**", "apps/server/src/index.ts"],
       "linter": {
         "rules": {
           "style": {

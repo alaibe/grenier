@@ -45,12 +45,18 @@ export function createGateway(options: GatewayOptions): Hono {
     return transport.handleRequest(c.req.raw);
   });
 
+  // OpenAI's API lives under /openai/, so one port serves both: …/openai/v1/responses goes to upstream_openai.
+  const route = (raw: Request, session: string, path: string) =>
+    path.startsWith("/openai/")
+      ? proxy(raw, session, path.slice("/openai".length), "openai")
+      : proxy(raw, session, path);
+
   app.all("/s/:session/*", (c) => {
     const session = c.req.param("session");
     const path = new URL(c.req.url).pathname.slice(`/s/${session}`.length) || "/";
-    return proxy(c.req.raw, session, path);
+    return route(c.req.raw, session, path);
   });
-  app.all("*", (c) => proxy(c.req.raw, UNTAGGED, new URL(c.req.url).pathname));
+  app.all("*", (c) => route(c.req.raw, UNTAGGED, new URL(c.req.url).pathname));
 
   return app;
 }

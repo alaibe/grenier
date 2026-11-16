@@ -42,6 +42,8 @@ const configSchema = z.strictObject({
     .strictObject({
       port: z.int().min(1).max(65535).default(7788),
       upstream_anthropic: secureUrl.default("https://api.anthropic.com"),
+      /** Where requests under /openai/ go: OpenAI, or any OpenAI-compatible API. */
+      upstream_openai: secureUrl.default("https://api.openai.com"),
       /** Adds a cache_control marker to requests that carry none. Off unless turned on; every change is logged. */
       inject_cache_control: z.boolean().default(false),
     })
@@ -79,6 +81,8 @@ const configSchema = z.strictObject({
         .string()
         .regex(/^[A-Z_][A-Z0-9_]*$/, "must be an environment variable name, such as GRENIER_TEAM_TOKEN")
         .default("GRENIER_TEAM_TOKEN"),
+      /** Seconds between two rounds of sync with the team server. */
+      sync_interval: z.int().min(1).max(3600).default(20),
     })
     .prefault({}),
   /** Overrides for packages/log/prices.toml, by model id. */

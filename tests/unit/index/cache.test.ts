@@ -208,7 +208,7 @@ describe("summaries and repo_map", () => {
 
   it("refuses a summary that quotes too much code, or a path that does not exist", async () => {
     const long = `Intro\n\`\`\`ts\n${"line\n".repeat(11)}\`\`\``;
-    expect(() => checkSummary(long)).toThrow("at most 10 lines of code");
+    expect(() => checkSummary(long)).toThrow("the summary is refused: it may quote at most 10 lines of code");
     expect(() => checkSummary("x".repeat(4001))).toThrow("at most 4000 characters");
     expect(() => checkSummary(`\`\`\`ts\n${"line\n".repeat(10)}\`\`\``)).not.toThrow();
     await expect(recordSummary(deps(), repo, { path: "nope", summary: "x" })).rejects.toThrow(

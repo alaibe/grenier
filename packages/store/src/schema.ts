@@ -56,6 +56,8 @@ export const fileSummaries = sqliteTable(
     blobHash: text("blob_hash").notNull(),
     summary: text("summary").notNull(),
     createdAt: integer("created_at").notNull(),
+    /** On the team server already. */
+    shared: integer("shared", { mode: "boolean" }).notNull().default(false),
   },
   (table) => [primaryKey({ columns: [table.repoId, table.path, table.blobHash] })],
 );
@@ -72,6 +74,8 @@ export const answers = sqliteTable(
     createdAt: integer("created_at").notNull(),
     hits: integer("hits").notNull().default(0),
     author: text("author").notNull(),
+    /** On the team server already: pushed from here, or pulled from it. */
+    shared: integer("shared", { mode: "boolean" }).notNull().default(false),
   },
   (table) => [index("answers_repo").on(table.repoId)],
 );
@@ -96,6 +100,19 @@ export const answerEmbeddings = sqliteTable("answer_embeddings", {
     .references(() => answers.id, { onDelete: "cascade" }),
   model: text("model").notNull(),
   vector: blob("vector", { mode: "buffer" }).notNull(),
+});
+
+/** Repositories this machine shares with the team (rule 3: opt-in, per repository). */
+export const teamRepos = sqliteTable("team_repos", {
+  repoId: text("repo_id").primaryKey(),
+  root: text("root").notNull(),
+  addedAt: integer("added_at").notNull(),
+});
+
+/** Cursors of the team sync: the last answer and summary seq pulled, the last usage row and hit count pushed. */
+export const syncState = sqliteTable("sync_state", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
 });
 
 export const budgets = sqliteTable(
@@ -131,4 +148,6 @@ export type Answer = typeof answers.$inferSelect;
 export type AnswerSource = typeof answerSources.$inferSelect;
 export type FileSummary = typeof fileSummaries.$inferSelect;
 export type NewAnswer = typeof answers.$inferInsert;
+export type NewFileSummary = typeof fileSummaries.$inferInsert;
 export type Client = typeof clients.$inferSelect;
+export type TeamRepo = typeof teamRepos.$inferSelect;

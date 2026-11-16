@@ -7,9 +7,11 @@ import type {
   FileSummary,
   NewAnswer,
   NewEvent,
+  NewFileSummary,
   NewSession,
   NewUsage,
   Session,
+  TeamRepo,
   Usage,
 } from "./schema.ts";
 
@@ -25,6 +27,7 @@ export interface Store {
   answers: AnswerStore;
   summaries: SummaryStore;
   clients: ClientStore;
+  team: TeamStore;
 }
 
 export interface SessionStore {
@@ -54,6 +57,8 @@ export interface UsageStore {
   spend(filter: SpendFilter): Promise<number>;
   /** Rows with their session's repository, oldest first. */
   list(filter?: { since?: number; sessionId?: string }): Promise<UsageWithSession[]>;
+  /** Rows with an id above `id`, in order, at most `limit`. */
+  after(id: number, limit: number): Promise<Usage[]>;
 }
 
 export interface EventStore {
@@ -91,16 +96,24 @@ export interface AnswerStore {
   vectors(repoId: string, model: string): Promise<{ id: string; vector: Float32Array }[]>;
   /** Counts one more reuse. */
   hit(id: string): Promise<void>;
+  /** Reuses counted over every answer. */
+  totalHits(): Promise<number>;
+  /** Answers of these repositories not yet on the team server, oldest first. */
+  unshared(repoIds: readonly string[], limit: number): Promise<AnswerWithSources[]>;
+  markShared(ids: readonly string[]): Promise<void>;
+  remove(id: string): Promise<void>;
   /** Removes the answers of one repository, or all; returns how many. */
   clear(repoId?: string): Promise<number>;
   stats(): Promise<{ repoId: string; answers: number; hits: number }[]>;
 }
 
 export interface SummaryStore {
-  put(summary: FileSummary): Promise<void>;
+  put(summary: NewFileSummary): Promise<void>;
   get(repoId: string, path: string, blobHash: string): Promise<FileSummary | undefined>;
   /** The newest summary of each path in a repository. */
   latest(repoId: string): Promise<FileSummary[]>;
+  unshared(repoIds: readonly string[], limit: number): Promise<FileSummary[]>;
+  markShared(keys: readonly { repoId: string; path: string; blobHash: string }[]): Promise<void>;
   clear(repoId?: string): Promise<number>;
   stats(): Promise<{ repoId: string; summaries: number }[]>;
 }
@@ -112,4 +125,12 @@ export interface ClientStore {
   list(): Promise<Client[]>;
   /** Revokes the named client; false when there is no such active client. */
   revoke(name: string, at: number): Promise<boolean>;
+}
+
+export interface TeamStore {
+  repos(): Promise<TeamRepo[]>;
+  share(repoId: string, root: string, at: number): Promise<void>;
+  unshare(repoId: string): Promise<boolean>;
+  get(key: string): Promise<string | undefined>;
+  set(key: string, value: string): Promise<void>;
 }

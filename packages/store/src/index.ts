@@ -8,9 +8,11 @@ export type {
   FileSummary,
   NewAnswer,
   NewEvent,
+  NewFileSummary,
   NewSession,
   NewUsage,
   Session,
+  TeamRepo,
   Usage,
 } from "./schema.ts";
 export * as schema from "./schema.ts";
@@ -25,6 +27,7 @@ export type {
   SpendFilter,
   Store,
   SummaryStore,
+  TeamStore,
   UsageStore,
   UsageWithSession,
 } from "./store.ts";

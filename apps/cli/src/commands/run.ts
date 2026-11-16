@@ -47,7 +47,7 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
     const child = spawn(program, args, {
       stdio: "inherit",
       cwd: io.cwd,
-      env: { ...io.env, ANTHROPIC_BASE_URL: baseUrl },
+      env: { ...io.env, ANTHROPIC_BASE_URL: baseUrl, OPENAI_BASE_URL: `${baseUrl}/openai/v1` },
     });
     // Ctrl-C reaches the command directly; a second copy from here would make an agent quit instead of interrupting.
     const ignore = () => {};

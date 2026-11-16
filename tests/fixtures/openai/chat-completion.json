@@ -1,0 +1,1 @@
+{"id":"chatcmpl-fixture","object":"chat.completion","created":1794836000,"model":"gpt-5.1","choices":[{"index":0,"message":{"role":"assistant","content":"In src/router.ts."},"finish_reason":"stop"}],"usage":{"prompt_tokens":800,"completion_tokens":40,"total_tokens":840,"prompt_tokens_details":{"cached_tokens":512}}}

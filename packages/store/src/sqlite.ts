@@ -1,6 +1,6 @@
 import { closeSync, openSync } from "node:fs";
 import Database from "better-sqlite3";
-import { and, asc, count, desc, eq, gte, isNull, type SQL, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, type SQL, sql, sum } from "drizzle-orm";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { migrations as allMigrations, type Migration, StoreError } from "./index.ts";
 import * as schema from "./schema.ts";
@@ -29,7 +29,19 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     throw error;
   }
 
-  const { sessions, usage, events, budgets, answers, answerSources, answerEmbeddings, fileSummaries, clients } = schema;
+  const {
+    sessions,
+    usage,
+    events,
+    budgets,
+    answers,
+    answerSources,
+    answerEmbeddings,
+    fileSummaries,
+    clients,
+    teamRepos,
+    syncState,
+  } = schema;
 
   return {
     schemaVersion: async () => schemaVersion(db),
@@ -96,6 +108,8 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           )
           .orderBy(asc(usage.ts), asc(usage.id))
           .all(),
+      after: async (id, limit) =>
+        db.select().from(usage).where(gt(usage.id, id)).orderBy(asc(usage.id)).limit(limit).all(),
     },
 
     events: {
@@ -200,6 +214,42 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .where(eq(answers.id, id))
           .run();
       },
+      totalHits: async () =>
+        Number(
+          db
+            .select({ total: sql<number>`coalesce(sum(${answers.hits}), 0)` })
+            .from(answers)
+            .get()?.total ?? 0,
+        ),
+      unshared: async (repoIds, limit) => {
+        if (repoIds.length === 0) return [];
+        const rows = db
+          .select()
+          .from(answers)
+          .where(and(inArray(answers.repoId, [...repoIds]), eq(answers.shared, false)))
+          .orderBy(asc(answers.createdAt))
+          .limit(limit)
+          .all();
+        return rows.map((answer) => ({
+          ...answer,
+          sources: db
+            .select({ path: answerSources.path, blobHash: answerSources.blobHash })
+            .from(answerSources)
+            .where(eq(answerSources.answerId, answer.id))
+            .orderBy(asc(answerSources.path))
+            .all(),
+        }));
+      },
+      markShared: async (ids) => {
+        if (ids.length > 0)
+          db.update(answers)
+            .set({ shared: true })
+            .where(inArray(answers.id, [...ids]))
+            .run();
+      },
+      remove: async (id) => {
+        db.delete(answers).where(eq(answers.id, id)).run();
+      },
       clear: async (repoId) =>
         db
           .delete(answers)
@@ -234,13 +284,28 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .run().changes > 0,
     },
 
+    team: {
+      repos: async () => db.select().from(teamRepos).orderBy(asc(teamRepos.root)).all(),
+      share: async (repoId, root, at) => {
+        db.insert(teamRepos)
+          .values({ repoId, root, addedAt: at })
+          .onConflictDoUpdate({ target: teamRepos.repoId, set: { root } })
+          .run();
+      },
+      unshare: async (repoId) => db.delete(teamRepos).where(eq(teamRepos.repoId, repoId)).run().changes > 0,
+      get: async (key) => db.select().from(syncState).where(eq(syncState.key, key)).get()?.value,
+      set: async (key, value) => {
+        db.insert(syncState).values({ key, value }).onConflictDoUpdate({ target: syncState.key, set: { value } }).run();
+      },
+    },
+
     summaries: {
       put: async (summary) => {
         db.insert(fileSummaries)
           .values(summary)
           .onConflictDoUpdate({
             target: [fileSummaries.repoId, fileSummaries.path, fileSummaries.blobHash],
-            set: { summary: summary.summary, createdAt: summary.createdAt },
+            set: { summary: summary.summary, createdAt: summary.createdAt, shared: summary.shared ?? false },
           })
           .run();
       },
@@ -262,6 +327,30 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
         const newest = new Map<string, (typeof rows)[number]>();
         for (const row of rows) if (!newest.has(row.path)) newest.set(row.path, row);
         return [...newest.values()];
+      },
+      unshared: async (repoIds, limit) =>
+        repoIds.length === 0
+          ? []
+          : db
+              .select()
+              .from(fileSummaries)
+              .where(and(inArray(fileSummaries.repoId, [...repoIds]), eq(fileSummaries.shared, false)))
+              .orderBy(asc(fileSummaries.createdAt))
+              .limit(limit)
+              .all(),
+      markShared: async (keys) => {
+        for (const key of keys) {
+          db.update(fileSummaries)
+            .set({ shared: true })
+            .where(
+              and(
+                eq(fileSummaries.repoId, key.repoId),
+                eq(fileSummaries.path, key.path),
+                eq(fileSummaries.blobHash, key.blobHash),
+              ),
+            )
+            .run();
+        }
       },
       clear: async (repoId) =>
         db

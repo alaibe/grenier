@@ -37,11 +37,16 @@ function errorOf(text: string): ConfigError {
 describe("defaultConfig", () => {
   it("fills every section with its defaults and sets no budget", () => {
     expect(defaultConfig()).toEqual({
-      proxy: { port: 7788, upstream_anthropic: "https://api.anthropic.com", inject_cache_control: false },
+      proxy: {
+        port: 7788,
+        upstream_anthropic: "https://api.anthropic.com",
+        upstream_openai: "https://api.openai.com",
+        inject_cache_control: false,
+      },
       budgets: {},
       guards: { loop_repeat_threshold: 3, loop_window: 10, on_loop: "notify", pause_timeout: 600 },
       cache: { embeddings: "local", share_with_team: false },
-      team: { url: "", token_env: "GRENIER_TEAM_TOKEN" },
+      team: { url: "", token_env: "GRENIER_TEAM_TOKEN", sync_interval: 20 },
       prices: {},
     });
   });
@@ -63,6 +68,7 @@ describe("parseConfig", () => {
     expect(config.proxy).toEqual({
       port: 9000,
       upstream_anthropic: "https://api.anthropic.com",
+      upstream_openai: "https://api.openai.com",
       inject_cache_control: false,
     });
     expect(config.guards.loop_window).toBe(10);

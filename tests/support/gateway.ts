@@ -40,7 +40,11 @@ export interface TestGateway {
   clock: { now: number };
 }
 
-export function testGateway(upstream: Upstream, configure: (config: Config) => void = () => {}): TestGateway {
+export function testGateway(
+  upstream: Upstream,
+  configure: (config: Config) => void = () => {},
+  extra: Partial<Parameters<typeof createGateway>[0]> = {},
+): TestGateway {
   const config = defaultConfig();
   configure(config);
   const store = openSqliteStore(":memory:");
@@ -56,6 +60,7 @@ export function testGateway(upstream: Upstream, configure: (config: Config) => v
     notify: (title, message) => notifications.push(`${title}: ${message}`),
     pollInterval: 5,
     startedAt: 0,
+    ...extra,
   });
   return {
     store,

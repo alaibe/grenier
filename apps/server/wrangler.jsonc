@@ -1,0 +1,13 @@
+// For local development only (`pnpm --filter @grenier/server exec wrangler dev`). `grenier team deploy` writes the
+// configuration of a real deployment into the user's ~/.grenier/team-server.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "grenier-team",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "grenier-team", "database_id": "local", "migrations_dir": "migrations" }
+  ],
+  "durable_objects": { "bindings": [{ "name": "TEAM", "class_name": "TeamCounter" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamCounter"] }]
+}

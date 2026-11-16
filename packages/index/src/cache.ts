@@ -1,4 +1,4 @@
-import { sha256 } from "@grenier/core";
+import { sha256, unshareable } from "@grenier/core";
 import type { Store } from "@grenier/store";
 import { cosine, type Embedder } from "./embeddings.ts";
 
@@ -53,19 +53,10 @@ function stem(word: string): string {
   return word.replace(/(ing|ed|es|s)$/, "").padEnd(3, word);
 }
 
-const MAX_SUMMARY = 4000;
-const MAX_CODE_LINES = 10;
-
 /** Rule 4: a summary describes code; it may quote a short snippet, not the file. Throws CacheError. */
 export function checkSummary(summary: string): void {
-  if (summary.trim() === "") throw new CacheError("the summary is empty");
-  if (summary.length > MAX_SUMMARY) throw new CacheError(`a summary holds at most ${MAX_SUMMARY} characters`);
-  const blocks = summary.split("```").filter((_, index) => index % 2 === 1);
-  for (const block of blocks) {
-    if (block.trim().split("\n").length > MAX_CODE_LINES + 1) {
-      throw new CacheError(`a summary may quote at most ${MAX_CODE_LINES} lines of code at a time`);
-    }
-  }
+  const problem = unshareable(summary);
+  if (problem) throw new CacheError(`the summary is refused: ${problem}`);
 }
 
 function newId(): string {

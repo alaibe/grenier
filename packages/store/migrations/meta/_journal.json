@@ -29,6 +29,13 @@
       "when": 1794840875241,
       "tag": "0003_answers_fts_porter",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794842056556,
+      "tag": "0004_team_sync",
+      "breakpoints": true
     }
   ]
 }

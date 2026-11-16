@@ -6,6 +6,7 @@ import { report } from "./commands/report.ts";
 import { resume } from "./commands/resume.ts";
 import { run as runAgent } from "./commands/run.ts";
 import { status } from "./commands/status.ts";
+import { team } from "./commands/team.ts";
 import { runDaemon, startDaemon, stopDaemon } from "./daemon.ts";
 import { type Io, isReported, UsageError } from "./io.ts";
 
@@ -31,6 +32,16 @@ Commands:
   cache stats                Answers and summaries kept, by repository
   cache clear [--repo <name>]
                              Empty the cache, or one repository's part of it
+  team deploy [--name grenier-team] [--admin <name>]
+                             Deploy the team server to your Cloudflare account (after npx wrangler login)
+  team join <url> <token>    Connect this machine to a team server
+  team invite <name> [--admin]
+                             Create a teammate's token (admins)
+  team share [--repo <path>], team unshare [--repo <path>]
+                             Share a repository's answers and summaries with the team, or stop
+  team status, team sync     The team connection; sync now (the daemon syncs on its own)
+  team budget [--team <n>] [--member <n>]
+                             Team-wide and per-member daily limits in dollars (admins set them)
 
 Options:
   -h, --help                 Show this help
@@ -94,6 +105,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
         throw new UsageError("mcp takes: install <client>, or serve");
       case "cache":
         for (const line of await cache(rest, io)) io.out(line);
+        return 0;
+      case "team":
+        for (const line of await team(rest, io)) io.out(line);
         return 0;
       default:
         throw new UsageError(`unknown command "${command}"`);

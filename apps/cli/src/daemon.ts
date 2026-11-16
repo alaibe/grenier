@@ -3,13 +3,15 @@ import { closeSync, openSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { connect } from "node:net";
 import { join } from "node:path";
 import { createGateway } from "@grenier/gateway";
-import { loadPrices } from "@grenier/log";
+import { syncOnce, type TeamBudget, teamApi } from "@grenier/index";
+import { cacheSavingsOf, loadPrices } from "@grenier/log";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { serve } from "@hono/node-server";
 import { version } from "../package.json";
 import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
 import { CommandError, environment, type Io } from "./io.ts";
 import { desktopNotifier } from "./notify.ts";
+import { teamClient } from "./team.ts";
 
 /** The daemon writes its pid here while it runs. */
 export function pidFile(home: string): string {
@@ -64,13 +66,17 @@ export async function runDaemon(io: Io): Promise<number> {
 
   const store = openSqliteStore(paths.db);
   const port = config.proxy.port;
+  const prices = loadPrices(config.prices);
+  const embedder = embedderLoader(config, paths, io.err);
+  const team = teamClient(config, paths, io.env);
   const app = createGateway({
     store,
     config,
-    prices: loadPrices(config.prices),
+    prices,
     port,
     notify: desktopNotifier(io.err),
-    mcp: { files: gitFiles, embedder: embedderLoader(config, paths, io.err), resolveRepo: repoResolver(null), version },
+    mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), version },
+    ...(team ? { teamBudget: () => teamApi<TeamBudget>(team, "/api/budget") } : {}),
   });
 
   const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
@@ -90,10 +96,40 @@ export async function runDaemon(io: Io): Promise<number> {
   writeFileSync(pidFile(paths.home), `${process.pid}\n`, { mode: 0o600 });
   io.err(`grenier ${version} daemon listening on 127.0.0.1:${port} (pid ${process.pid})`);
 
+  // Team sync: push and pull on a timer; while the server cannot be reached, the local cache carries on alone.
+  let syncing = false;
+  let lastError = "";
+  const sync = async () => {
+    if (!team || syncing) return;
+    syncing = true;
+    try {
+      const resolved = await embedder();
+      await syncOnce({
+        store,
+        embedder: resolved,
+        team,
+        savedOf: (row) => cacheSavingsOf(row.model, row.cacheReadTokens ?? 0, prices),
+        shareAll: config.cache.share_with_team,
+      });
+      await store.team.set("last_sync", String(Date.now()));
+      if (lastError) io.err("grenier: team sync works again");
+      lastError = "";
+    } catch (error) {
+      const message = (error as Error).message;
+      if (message !== lastError) io.err(`grenier: team sync failed, will retry: ${message}`);
+      lastError = message;
+    } finally {
+      syncing = false;
+    }
+  };
+  const timer = team ? setInterval(() => void sync(), config.team.sync_interval * 1000) : undefined;
+  if (team) void sync();
+
   await new Promise<void>((resolve) => {
     process.once("SIGTERM", () => resolve());
     process.once("SIGINT", () => resolve());
   });
+  if (timer) clearInterval(timer);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   rmSync(pidFile(paths.home), { force: true });
   await store.close();
