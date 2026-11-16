@@ -1,8 +1,8 @@
 # Launch posts (drafts)
 
-Post only after the benchmark has run with a real model and its table is in the README, the name is settled (PLAN.md,
-Open decisions), and the repository is public on GitHub. Replace every `<…>` with a measured figure or a real link;
-publish nothing with a placeholder left in it.
+The benchmark has run (README, 16 November 2026) and the name is settled. Post once the repository is public on GitHub
+(github.com/alaibe/grenier) and grenier.laibe.cc is live: replace `<link>` with the real link, and publish nothing with
+a placeholder left in it.
 
 ## Show HN
 
@@ -23,7 +23,8 @@ It does three things for coding agents:
   with the files it read. The answer is reused until one of those files' git blob hashes changes; then it comes back
   stale with the paths to re-read. Questions are matched by meaning with a 30 MB local embedding model.
 
-On public repositories, the same questions cost <measured> cold and <measured> warm (`bench/`, table in the README).
+On six questions about Hono and Flask, Claude Code (Opus 5.5) spent $2.97 at API prices answering them cold and $0.40
+asking them again once Grenier had the answers, 87% less (`bench/`, table and method in the README).
 
 A team can deploy a server to its own Cloudflare account with one command to share the cache and budgets. There is
 also an opt-in side for personal data: notes, mail and calendars over MCP with per-tool scopes, an audit log of every

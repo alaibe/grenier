@@ -2,8 +2,8 @@
 
 Runs the questions in `repos.json` on each pinned public repository twice, through the real proxy and an agent: once
 without its answer in Grenier's cache (cold), then once with what the cold run recorded (warm), one question after
-the other. It writes tokens and cost for both
-runs to `results/<date>.md`. Only numbers this benchmark measured go in the README.
+the other. It writes tokens and cost for both runs to `results/<date>.md`. Only numbers this benchmark measured go
+in the README.
 
 It calls a real model with your own credentials (an API key, or the Claude Code you are signed in to), so it is run
 by hand, never in CI. `--budget` caps what it may spend, in dollars at API prices: Grenier's own budget stops the agent

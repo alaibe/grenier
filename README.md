@@ -47,11 +47,27 @@ The [guide](docs/guide/getting-started.md) covers the rest: [budgets and loop gu
 ## Benchmark
 
 `bench/` asks the same questions about public repositories (Hono and Flask at pinned commits) twice through the real
-proxy: once with the cache empty, once with what the first run recorded. It writes the tokens and cost of both runs
-to a table. This README only publishes numbers it measured, and it has not been run with a real model yet:
+proxy: once without the answer in Grenier's cache (cold), then once after the cold run recorded it (warm). Measured on
+16 November 2026 with Claude Code (`claude -p`) on Claude Opus 5.5:
+
+| Repository | Question | Cold tokens | Cold cost | Warm tokens | Warm cost | Saved |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| hono | How does Hono match an incoming request to a route handler? | 738,621 | $0.9968 | 92,058 | $0.0682 | 93% |
+| hono | How are middleware functions composed and run around a handler? | 521,375 | $0.4273 | 90,957 | $0.0568 | 87% |
+| hono | Where is a JSON request body parsed, and what happens when it is invalid? | 467,540 | $0.3751 | 90,362 | $0.0466 | 88% |
+| flask | How does Flask dispatch a request to a view function? | 405,517 | $0.3800 | 137,082 | $0.0770 | 80% |
+| flask | How are the application and request contexts pushed and popped? | 391,527 | $0.4646 | 137,863 | $0.0813 | 83% |
+| flask | How does the test client send a request without a server? | 352,294 | $0.3255 | 136,446 | $0.0679 | 79% |
+| **Total** |  | 2,876,874 | $2.9693 | 684,768 | $0.3978 | 87% |
+
+Tokens count input, prompt-cache writes and reads, and output, as the proxy recorded them; costs are at API prices
+from `prices.toml`. Each question ran once each way, and the warm run asks it in the same words. Within a repository,
+a later question's cold run could already find the first question's answer in the cache, so only the first question
+of each is fully cold. The full output is in [`bench/results/2026-11-16.md`](bench/results/2026-11-16.md). To run it
+again, with a spending cap:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-… pnpm --filter @grenier/bench bench
+pnpm build && pnpm --filter @grenier/bench bench --budget 4
 ```
 
 ## Security

@@ -271,10 +271,10 @@ Each task lists what must be true before its box is ticked.
   - Done when: each writes a valid config, and an end-to-end test calls `ask_codebase` over stdio.
 - [x] Prompt-cache report (observe only)
   - Done when: the report shows cache-write vs cache-read share per session and flags high-churn sessions.
-- [ ] Benchmark in `bench/`
+- [x] Benchmark in `bench/`
   - Done when: one command runs the same questions on public repos twice, cold then warm, and writes tokens and cost for both runs to a Markdown table.
-  - Built and tested with a stand-in agent (CI) and with Claude Code against a stand-in API (`pnpm test:agents`);
-    waiting for a run with a real model and the owner's key.
+  - Run on 2026-11-16 with Claude Code on Claude Opus 5.5, capped at $3.75: $2.97 cold, $0.40 warm
+    (`bench/results/2026-11-16.md`).
 
 ### Phase 2: team server on Cloudflare
 
@@ -310,15 +310,15 @@ Each task lists what must be true before its box is ticked.
 
 ### Phase 4: launch
 
-- [ ] README with install, a quick start and the benchmark table
-  - Written; the table waits for a run of `bench/` with a real model and the owner's key.
+- [x] README with install, a quick start and the benchmark table
 - [ ] Docs site generated from `docs/`
   - Built on laibe's `grenier-site` branch (not pushed): `grenier.laibe.cc`, its guide a verbatim copy of `docs/guide`,
     laibe's checks green. Goes live once the host has a Cloudflare Tunnel hostname and the branch is merged.
 - [x] Demo video script: the same task run cold, then cached, with the token counter on screen
   - `docs/launch/demo-script.md`.
 - [ ] Show HN post, then Product Hunt launch with real benchmark numbers
-  - Drafts in `docs/launch/posts.md`, to post once the benchmark has run.
+  - Drafts in `docs/launch/posts.md`, with the measured numbers; posted by the owner once the GitHub repository and
+    the site are public.
 
 ## Testing and benchmarks
 
