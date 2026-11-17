@@ -55,6 +55,9 @@ code.
   Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`).
 - CI is `.forgejo/workflows/ci.yml`, on git.laibe.cc. `nightly.yml` tags a release when main has changed and
   `release.yml` builds and publishes it on `github.com/alaibe/grenier` (`docs/RELEASE.md`).
+- `priv/` is gitignored except its `.gitkeep`: the maintainer's own material (launch posts, the demo script, Product
+  Hunt's images) lives there, and new material of that kind goes there too. Its README lists what is in it. A worktree
+  has no `priv/`; use the main checkout's.
 
 ## Things that are not obvious from the code
 
