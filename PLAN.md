@@ -317,9 +317,9 @@ Each task lists what must be true before its box is ticked.
     verbatim copy of `docs/guide`, with Markdown twins, `llms.txt` and `search.json`; laibe's checks green.
 - [x] Demo video script: the same task run cold, then cached, with the token counter on screen
   - `docs/launch/demo-script.md`.
-- [ ] Show HN post, then Product Hunt launch with real benchmark numbers
-  - Drafts in `docs/launch/posts.md`, with the measured numbers and the GitHub link. The repository and the site are
-    public since 2026-11-17; the owner posts them from their own accounts.
+- [ ] ~~Show HN post, then Product Hunt launch with real benchmark numbers~~ Skipped
+  - The owner chose on 2026-11-17 not to launch. The drafts, the logo and the gallery stay in `docs/launch/` for a
+    later launch.
 
 ## Testing and benchmarks
 
