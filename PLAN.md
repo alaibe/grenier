@@ -318,8 +318,8 @@ Each task lists what must be true before its box is ticked.
 - [x] Demo video script: the same task run cold, then cached, with the token counter on screen
   - `docs/launch/demo-script.md`.
 - [ ] Show HN post, then Product Hunt launch with real benchmark numbers
-  - Drafts in `docs/launch/posts.md`, with the measured numbers; posted by the owner once the GitHub repository and
-    the site are public.
+  - Drafts in `docs/launch/posts.md`, with the measured numbers and the GitHub link. The repository and the site are
+    public since 2026-11-17; the owner posts them from their own accounts.
 
 ## Testing and benchmarks
 
