@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { team } from "../../../apps/cli/src/commands/team.ts";
-import type { Io } from "../../../apps/cli/src/io.ts";
+import { npxWrangler, team } from "../../../apps/cli/src/commands/team.ts";
+import { CommandError, type Io } from "../../../apps/cli/src/io.ts";
 import { withTomlValue } from "../../../apps/cli/src/team.ts";
 
 let dir: string;
@@ -68,7 +68,7 @@ describe("grenier team deploy", () => {
     ]);
     expect(calls[5]?.args).toEqual(["r2", "bucket", "create", "grenier-team-vault"]);
     expect(calls[6]).toEqual({ args: ["d1", "migrations", "apply", "grenier-team", "--remote"], cwd: serverHome });
-    expect(calls[7]?.cwd).toBe(serverHome);
+    expect(calls.every((call) => call.cwd === serverHome)).toBe(true);
     const insert = calls[9]?.args.at(-1) ?? "";
     expect(insert).toMatch(
       /^INSERT INTO members \(id, name, token_hash, role, created_at\) VALUES \('[\w-]+', 'admin', '[0-9a-f]{64}', 'admin', \d+\)$/,
@@ -107,6 +107,25 @@ describe("grenier team deploy", () => {
     const lines = await team(["deploy"], io(), { wrangler, serverDir });
     expect(calls.filter((call) => call.args.at(-1)?.startsWith("INSERT"))).toEqual([]);
     expect(lines[1]).toContain("already has an admin");
+  });
+
+  it("reports what Wrangler said when it fails, instead of crashing on its exit code", async () => {
+    const failing = Object.assign(new Error("Command failed: npx"), {
+      code: 1,
+      stdout: "",
+      stderr: "✘ [ERROR] A request to the Cloudflare API failed. [code: 7403]",
+    });
+    const wrangler = npxWrangler({}, async (_file, args) => {
+      if (args.includes("whoami")) return { stdout: "You are logged in." };
+      if (args.includes("list")) return { stdout: "[]" };
+      throw failing;
+    });
+
+    const deploying = team(["deploy"], io(), { wrangler, serverDir });
+    await expect(deploying).rejects.toBeInstanceOf(CommandError);
+    await expect(deploying).rejects.toThrow(
+      "wrangler d1 create failed:\n✘ [ERROR] A request to the Cloudflare API failed. [code: 7403]",
+    );
   });
 
   it("refuses names that would not be safe in a Worker name or SQL", async () => {

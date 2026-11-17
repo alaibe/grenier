@@ -16,15 +16,27 @@ export const WRANGLER_VERSION = "4.159.0";
 
 export type Wrangler = (args: string[], options?: { cwd?: string }) => Promise<string>;
 
-export function npxWrangler(env: NodeJS.ProcessEnv): Wrangler {
+type Exec = (
+  file: string,
+  args: string[],
+  options: { cwd?: string | undefined; env: NodeJS.ProcessEnv; maxBuffer: number },
+) => Promise<{ stdout: string }>;
+
+export function npxWrangler(env: NodeJS.ProcessEnv, exec: Exec = promisify(execFile)): Wrangler {
   return async (args, options = {}) => {
-    const { stdout } = await promisify(execFile)("npx", ["--yes", `wrangler@${WRANGLER_VERSION}`, ...args], {
-      cwd: options.cwd,
-      // CI makes Wrangler answer its own prompts (applying migrations) instead of waiting for a terminal.
-      env: { ...env, CI: "1" },
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    return stdout;
+    try {
+      const { stdout } = await exec("npx", ["--yes", `wrangler@${WRANGLER_VERSION}`, ...args], {
+        cwd: options.cwd,
+        // CI makes Wrangler answer its own prompts (applying migrations) instead of waiting for a terminal.
+        env: { ...env, CI: "1" },
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      return stdout;
+    } catch (error) {
+      const { stdout = "", stderr = "" } = error as { stdout?: string; stderr?: string };
+      const said = `${stderr}\n${stdout}`.trim() || (error as Error).message;
+      throw new CommandError(`wrangler ${args.slice(0, 2).join(" ")} failed:\n${said}`);
+    }
   };
 }
 
@@ -70,19 +82,19 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
   });
   if (!/^[a-z0-9-]{1,63}$/.test(values.name)) throw new UsageError("--name takes lowercase letters, digits and -");
   if (!SQL_NAME.test(values.admin)) throw new UsageError("--admin takes letters, digits and . _ @ -");
-  const wrangler = dependencies.wrangler ?? npxWrangler(io.env);
   const serverDir = dependencies.serverDir ?? fileURLToPath(new URL("./server/", import.meta.url));
   const { paths } = environment(io);
   const out = (line: string) => io.err(line);
+  const dir = join(paths.home, "team-server");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Run from here, not from the caller's project: npx can take that project's node_modules for Wrangler's.
+  const run = dependencies.wrangler ?? npxWrangler(io.env);
+  const wrangler = (args: string[]) => run(args, { cwd: dir });
 
-  const whoami = await wrangler(["whoami"]).catch(
-    (error: { stdout?: string; stderr?: string }) => `${error.stdout}${error.stderr}`,
-  );
+  const whoami = await wrangler(["whoami"]).catch((error: Error) => error.message);
   if (/not authenticated|not logged in/i.test(whoami))
     throw new CommandError("log in to Cloudflare first: npx wrangler login");
 
-  const dir = join(paths.home, "team-server");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
   cpSync(join(serverDir, "server.js"), join(dir, "server.js"));
   cpSync(join(serverDir, "migrations"), join(dir, "migrations"), { recursive: true });
 
@@ -125,9 +137,9 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
   );
 
   out("Applying the database migrations…");
-  await wrangler(["d1", "migrations", "apply", values.name, "--remote"], { cwd: dir });
+  await wrangler(["d1", "migrations", "apply", values.name, "--remote"]);
   out("Deploying the Worker…");
-  const deployed = await wrangler(["deploy"], { cwd: dir });
+  const deployed = await wrangler(["deploy"]);
   const url = /https:\/\/[\w.-]+\.workers\.dev/.exec(deployed)?.[0];
   if (!url) throw new CommandError(`deployed, but Wrangler printed no workers.dev address:\n${deployed}`);
 

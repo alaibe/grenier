@@ -159,5 +159,6 @@ function noArguments(command: string, rest: string[]): void {
 }
 
 function isParseArgsError(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException | undefined)?.code?.startsWith("ERR_PARSE_ARGS") ?? false;
+  const code = (error as { code?: unknown } | undefined)?.code;
+  return typeof code === "string" && code.startsWith("ERR_PARSE_ARGS");
 }
