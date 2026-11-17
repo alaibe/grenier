@@ -218,12 +218,15 @@ jobs:
         run: apps/desktop/scripts/sign-macos.sh "$APP" "${{ secrets.APPLE_SIGNING_IDENTITY }}" "$KEYCHAIN"
 
       # The signed Node, under the hardened runtime, runs the bundled CLI and opens a database with the signed SQLite
-      # addon: what the app does when it starts the daemon. Intel's half too, when Rosetta is installed.
+      # addon: what the app does when it starts the daemon. Intel's half too, when Rosetta is installed. Then the
+      # `grenier` command, through a link as the cask makes one.
       - name: The signed daemon runs
         run: |
           run() { GRENIER_HOME="$(mktemp -d "$WORK/home.XXXXXX")" "$@" "$APP/Contents/MacOS/grenier-node" "$APP/Contents/Resources/grenier/dist/grenier.js" status; }
           run
           if arch -x86_64 /usr/bin/true 2> /dev/null; then run arch -x86_64; else echo "No Rosetta: Intel's half not run."; fi
+          ln -sf "$APP/Contents/Resources/grenier/bin/grenier" "$WORK/grenier"
+          GRENIER_HOME="$(mktemp -d "$WORK/home.XXXXXX")" "$WORK/grenier" status
 
       - name: DMG, notarized and stapled when NOTARIZE is on
         env:
@@ -485,6 +488,7 @@ jobs:
             depends_on macos: :big_sur
 
             app "Grenier.app"
+            binary "#{appdir}/Grenier.app/Contents/Resources/grenier/bin/grenier"
 
             zap trash: [
               "~/Library/Application Support/cc.laibe.grenier",

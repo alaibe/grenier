@@ -1,0 +1,15 @@
+#!/bin/sh
+# The grenier command on a Mac: the app's own Node runs the app's own CLI. It sits in
+# Grenier.app/Contents/Resources/grenier/bin and is reached through links (Homebrew's), so it follows them to find the
+# app. macOS 11 has no `readlink -f`.
+set -e
+self=$0
+while [ -L "$self" ]; do
+  target=$(readlink "$self")
+  case $target in
+    /*) self=$target ;;
+    *) self=$(dirname "$self")/$target ;;
+  esac
+done
+contents=$(cd "$(dirname "$self")/../../.." && pwd -P)
+exec "$contents/MacOS/grenier-node" "$contents/Resources/grenier/dist/grenier.js" "$@"

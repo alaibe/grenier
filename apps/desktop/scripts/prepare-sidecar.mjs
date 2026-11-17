@@ -1,7 +1,8 @@
 // Gathers what the app bundles to run the daemon: Node's official standalone binary as the sidecar (named for Tauri
 // with the target triple, downloaded once and checked against the SHA-256 pinned below), the CLI's bundle
-// (dist/grenier.js and the team Worker), and better-sqlite3, the one dependency the bundle leaves outside, with only the
-// target's prebuilt addon. Run after `pnpm build` at the root:
+// (dist/grenier.js and the team Worker), better-sqlite3, the one dependency the bundle leaves outside, with only the
+// target's prebuilt addon, and on a Mac the `grenier` command (bin/grenier) that the Homebrew cask links. Run after
+// `pnpm build` at the root:
 //
 //   node scripts/prepare-sidecar.mjs [--target <triple>]
 //
@@ -94,5 +95,11 @@ for (const triple of triples) {
   const [platform] = BUILDS[triple];
   const addon = `${PREBUILDS[platform] ?? platform}.node`;
   cpSync(join(sqlite, "prebuilds", addon), join(copied, "prebuilds", addon));
+}
+if (triples.every((triple) => triple.endsWith("-apple-darwin"))) {
+  const command = join(resources, "bin", "grenier");
+  mkdirSync(dirname(command), { recursive: true });
+  copyFileSync(join(app, "bin", "grenier"), command);
+  chmodSync(command, 0o755);
 }
 console.log(`sidecar ${files.join(" ")}\nresources ${resources}`);

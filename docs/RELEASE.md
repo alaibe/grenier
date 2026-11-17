@@ -12,7 +12,8 @@ A release is a `v*` tag. The rest happens on git.laibe.cc's runners and on GitHu
    `github.com/alaibe/grenier` at the same commit, drafts a release there with the commits since the last one, and
    builds the three systems on our own runners.
 3. **Publish.** Once every build passes, the workflow attaches `SHA256SUMS`, publishes the release, and writes the
-   Homebrew cask (`alaibe/homebrew-tap`, `Casks/grenier.rb`) for its DMG: `brew install --cask alaibe/tap/grenier`.
+   Homebrew cask (`alaibe/homebrew-tap`, `Casks/grenier.rb`) for its DMG: `brew install --cask alaibe/tap/grenier`
+   installs the app and links the `grenier` command inside it (`Contents/Resources/grenier/bin/grenier`).
 
 Running `release.yml` by hand ("Run workflow", on any branch) builds that branch's version into a draft and stops
 there: the way to check the builds without publishing anything. It refuses a version that's already published. The
@@ -45,8 +46,8 @@ Not there yet:
 - **Updates.** The app has no updater plugin, so there is no `latest.json` and no update key: an installed copy
   updates by installing the next release, or `brew upgrade`. Adding one needs the key the homeserver repository's
   `ci-secrets.sh tauri-key` makes, whose password is the owner's.
-- **The CLI on npm.** `grenier` is free on npm, but nothing publishes it: that needs an npm token. The desktop app
-  carries the CLI's bundle for its own daemon only.
+- **The CLI on npm.** `grenier` is free on npm, but nothing publishes it: that needs an npm token. The Mac app carries
+  the `grenier` command; on Linux and Windows the app's bundle runs only its own daemon.
 - **Windows signing.** The installer isn't signed, so SmartScreen warns the first time it runs.
 
 ## Signing
