@@ -1,8 +1,9 @@
 // Gathers what the app bundles to run the daemon: Node's official standalone binary as the sidecar (named for Tauri
 // with the target triple, downloaded once and checked against the SHA-256 pinned below), the CLI's bundle
 // (dist/grenier.js and the team Worker), better-sqlite3, the one dependency the bundle leaves outside, with only the
-// target's prebuilt addon, and on a Mac the `grenier` command (bin/grenier) that the Homebrew cask links. Run after
-// `pnpm build` at the root:
+// target's prebuilt addon, and the `grenier` command: on a Mac bin/grenier, which the Homebrew cask links, and on
+// Windows bin/grenier.cmd. The deb and the rpm install bin/grenier-linux as /usr/bin/grenier themselves
+// (tauri.conf.json). Run after `pnpm build` at the root:
 //
 //   node scripts/prepare-sidecar.mjs [--target <triple>]
 //
@@ -96,10 +97,15 @@ for (const triple of triples) {
   const addon = `${PREBUILDS[platform] ?? platform}.node`;
   cpSync(join(sqlite, "prebuilds", addon), join(copied, "prebuilds", addon));
 }
-if (triples.every((triple) => triple.endsWith("-apple-darwin"))) {
-  const command = join(resources, "bin", "grenier");
-  mkdirSync(dirname(command), { recursive: true });
-  copyFileSync(join(app, "bin", "grenier"), command);
-  chmodSync(command, 0o755);
+const command = triples.every((triple) => triple.endsWith("-apple-darwin"))
+  ? "grenier"
+  : target.endsWith("-windows-msvc")
+    ? "grenier.cmd"
+    : undefined;
+if (command) {
+  const file = join(resources, "bin", command);
+  mkdirSync(dirname(file), { recursive: true });
+  copyFileSync(join(app, "bin", command), file);
+  chmodSync(file, 0o755);
 }
 console.log(`sidecar ${files.join(" ")}\nresources ${resources}`);

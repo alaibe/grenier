@@ -309,14 +309,15 @@ jobs:
     steps:
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      # WebKitGTK, GTK and libsoup for the Tauri shell; patchelf, file and xdg-utils for the AppImage.
+      # WebKitGTK, GTK and libsoup for the Tauri shell; patchelf, file and xdg-utils for the AppImage; bsdtar to open the
+      # rpm.
       - name: Linux packages and gh
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config file curl wget \
             libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev libjavascriptcoregtk-4.1-dev \
-            libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf xdg-utils
+            libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf xdg-utils libarchive-tools
           curl -fsSL -o "$RUNNER_TEMP/gh.tar.gz" "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_amd64.tar.gz"
           echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
           sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
@@ -356,7 +357,8 @@ jobs:
           pnpm --filter @grenier/desktop tauri build --bundles deb,rpm,appimage \
             --config '{"bundle":{"createUpdaterArtifacts":true}}' -- --locked
 
-      # What the app does when it starts the daemon, from the files the deb installs.
+      # What the app does when it starts the daemon, from the files the deb installs. Then the grenier command the deb
+      # and the rpm put in /usr/bin, which finds the rest beside it.
       - name: The bundled daemon runs
         run: |
           shopt -s nullglob
@@ -368,6 +370,15 @@ jobs:
           script=$(find "$root" -type f -path '*/grenier/dist/grenier.js' | head -1)
           [ -n "$node" ] && [ -n "$script" ] || { echo "the deb has no grenier-node or grenier.js" >&2; exit 1; }
           GRENIER_HOME="$(mktemp -d)" "$node" "$script" status
+          rpms=(apps/desktop/src-tauri/target/release/bundle/rpm/*.rpm)
+          [ ${#rpms[@]} -eq 1 ] || { echo "no single rpm: ${rpms[*]}" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/rpm"
+          bsdtar -xf "${rpms[0]}" -C "$RUNNER_TEMP/rpm"
+          for package in deb rpm; do
+            command="$RUNNER_TEMP/$package/usr/bin/grenier"
+            [ -x "$command" ] || { echo "the $package has no executable /usr/bin/grenier" >&2; exit 1; }
+            GRENIER_HOME="$(mktemp -d)" "$command" status
+          done
 
       - name: Attach to the release
         env:
@@ -433,6 +444,7 @@ jobs:
         run: |
           pnpm build
           pnpm --filter @grenier/desktop sidecar --target x86_64-pc-windows-msvc
+          test -f apps/desktop/resources/grenier/bin/grenier.cmd
 
       - name: Cross-build the NSIS installer
         env:

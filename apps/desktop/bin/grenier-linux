@@ -1,0 +1,6 @@
+#!/bin/sh
+# The grenier command the deb and the rpm install as /usr/bin/grenier: the app's Node beside it runs the app's CLI,
+# from its resources in /usr/lib/Grenier.
+set -e
+here=$(dirname "$(readlink -f "$0")")
+exec "$here/grenier-node" "$here/../lib/Grenier/grenier/dist/grenier.js" "$@"

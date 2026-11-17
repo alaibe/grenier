@@ -45,7 +45,11 @@ the addon and creates a database; on the Mac, Intel's half runs too when Rosetta
 Not there yet:
 
 - **The CLI on npm.** `grenier` is free on npm, but nothing publishes it: that needs an npm token. The Mac app carries
-  the `grenier` command; on Linux and Windows the app's bundle runs only its own daemon.
+  the `grenier` command, the deb and the rpm install it as `/usr/bin/grenier` (`apps/desktop/bin/grenier-linux`), and
+  the AppImage has none.
+- **The command on Windows' PATH.** The installer carries `grenier\bin\grenier.cmd` in the install folder, but nothing
+  adds that folder to the PATH: an NSIS hook that edits the user's PATH needs a run on a real Windows first, since one
+  that truncates it wipes the user's PATH.
 - **Windows signing.** The installer isn't signed, so SmartScreen warns the first time it runs.
 
 ## Updates
