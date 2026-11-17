@@ -26,17 +26,25 @@ hosted service.
 
 ## Quick start
 
-Grenier needs Node 22 or later. Until it is published, build it from source:
+On a Mac, Homebrew installs the desktop app, with the daemon inside, and the `grenier` command. Open Grenier once from
+Applications first: it isn't notarized yet, so macOS asks you to allow it.
 
 ```bash
-git clone https://github.com/alaibe/grenier.git && cd grenier
-pnpm install && pnpm build
-alias grenier="node $PWD/apps/cli/dist/grenier.js"
+brew install --cask alaibe/tap/grenier
 
 grenier run -- claude                    # an agent through the proxy
 grenier report                           # what it spent
 grenier budget set --daily 10            # a limit
 grenier mcp install claude-code          # the exploration cache, over MCP
+```
+
+On Linux and Windows, the app is on the [download page](https://grenier.laibe.cc/download), and the command is built
+from source, with Node 22 or later and pnpm:
+
+```bash
+git clone https://github.com/alaibe/grenier.git && cd grenier
+pnpm install && pnpm build
+alias grenier="node $PWD/apps/cli/dist/grenier.js"
 ```
 
 The [guide](https://grenier.laibe.cc/guide/getting-started) covers the rest:
