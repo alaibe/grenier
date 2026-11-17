@@ -8,7 +8,7 @@ an MCP server for what it knows. This page gets a coding agent going through bot
 Grenier needs Node 22 or later. Until it is published, install it from source:
 
 ```bash
-git clone https://git.laibe.cc/anthony/grenier.git
+git clone https://github.com/alaibe/grenier.git
 cd grenier
 pnpm install
 pnpm build

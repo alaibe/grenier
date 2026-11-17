@@ -29,7 +29,7 @@ hosted service.
 Grenier needs Node 22 or later. Until it is published, build it from source:
 
 ```bash
-git clone https://git.laibe.cc/anthony/grenier.git && cd grenier
+git clone https://github.com/alaibe/grenier.git && cd grenier
 pnpm install && pnpm build
 alias grenier="node $PWD/apps/cli/dist/grenier.js"
 
@@ -85,6 +85,8 @@ pnpm format && pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e
 
 [PLAN.md](PLAN.md) is the build plan, [docs/decisions.md](docs/decisions.md) records every choice it left open, and
 [AGENTS.md](AGENTS.md) is the guide for working in this repository.
+
+This repository lives on git.laibe.cc, which runs its checks. The GitHub copy is a mirror.
 
 ## Licence
 

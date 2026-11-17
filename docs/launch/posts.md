@@ -1,8 +1,7 @@
 # Launch posts (drafts)
 
-The benchmark has run (README, 16 November 2026) and the name is settled. Post once the repository is public on GitHub
-(github.com/alaibe/grenier) and grenier.laibe.cc is live: replace `<link>` with the real link, and publish nothing with
-a placeholder left in it.
+The benchmark has run (README, 16 November 2026), the repository is public on GitHub (github.com/alaibe/grenier) and
+grenier.laibe.cc is live: these are ready for the owner to post.
 
 ## Show HN
 
@@ -30,7 +29,7 @@ A team can deploy a server to its own Cloudflare account with one command to sha
 also an opt-in side for personal data: notes, mail and calendars over MCP with per-tool scopes, an audit log of every
 read, redaction, and AI-proposed memories that wait for your approval.
 
-MIT, TypeScript, SQLite. No hosted service. <link>
+MIT, TypeScript, SQLite. No hosted service. https://github.com/alaibe/grenier
 
 ## Product Hunt
 
