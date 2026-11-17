@@ -27,13 +27,17 @@ afterEach(() => {
 const io = (): Io => ({ env: { GRENIER_HOME: home }, cwd: dir, out: () => {}, err: () => {}, self: [] });
 
 /** Answers like Wrangler, and records what it was asked. */
-function fakeWrangler(options: { loggedIn?: boolean; admins?: number } = {}) {
+function fakeWrangler(options: { loggedIn?: boolean; admins?: number; r2?: boolean } = {}) {
   const calls: { args: string[]; cwd?: string }[] = [];
   let created = false;
   const wrangler = async (args: string[], init: { cwd?: string } = {}) => {
     calls.push({ args, ...(init.cwd ? { cwd: init.cwd } : {}) });
     const command = args.slice(0, 2).join(" ");
     if (args[0] === "whoami") return options.loggedIn === false ? "You are not authenticated." : "You are logged in.";
+    if (command === "r2 bucket" && options.r2 === false)
+      throw new CommandError(
+        "wrangler r2 bucket failed:\n✘ [ERROR] Please enable R2 through the Cloudflare Dashboard. [code: 10042]",
+      );
     if (command === "d1 list") return JSON.stringify(created ? [{ name: "grenier-team", uuid: "db-123" }] : []);
     if (command === "d1 create") {
       created = true;
@@ -100,6 +104,14 @@ describe("grenier team deploy", () => {
     const { calls, wrangler } = fakeWrangler({ loggedIn: false });
     await expect(team(["deploy"], io(), { wrangler, serverDir })).rejects.toThrow("npx wrangler login");
     expect(calls).toHaveLength(1);
+  });
+
+  it("asks to turn on R2 when the account does not have it, before deploying anything", async () => {
+    const { calls, wrangler } = fakeWrangler({ r2: false });
+    await expect(team(["deploy"], io(), { wrangler, serverDir })).rejects.toThrow(
+      "turn on R2 in the Cloudflare dashboard first (its free tier is enough), then run grenier team deploy again",
+    );
+    expect(calls.map((call) => call.args[0])).not.toContain("deploy");
   });
 
   it("does not add a second admin to a server that has one", async () => {

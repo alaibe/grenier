@@ -35,7 +35,8 @@ Commands:
   cache clear [--repo <name>]
                              Empty the cache, or one repository's part of it
   team deploy [--name grenier-team] [--admin <name>]
-                             Deploy the team server to your Cloudflare account (after npx wrangler login)
+                             Deploy the team server to your Cloudflare account (after npx wrangler login,
+                             with R2 turned on)
   team join <url> <token>    Connect this machine to a team server
   team invite <name> [--admin]
                              Create a teammate's token (admins)

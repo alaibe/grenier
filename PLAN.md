@@ -280,10 +280,11 @@ Each task lists what must be true before its box is ticked.
 
 - [x] `apps/server` Worker: Hono routes, D1 schema, Vectorize index, Durable Object per team for budget counters
   - Built without Vectorize: search stays on each machine (docs/decisions.md).
-- [ ] `grenier team deploy` and `grenier team join`
+- [x] `grenier team deploy` and `grenier team join`
   - Done when: a new Cloudflare account goes from nothing to a working team server with one command plus `wrangler login`.
-  - Built and tested against a stand-in for Wrangler and against the Worker in Miniflare; waiting for a run on a real
-    Cloudflare account.
+  - Run on a real Cloudflare account on 2026-11-17: deploy, then two machines joined, an answer recorded on one was a
+    hit on the other after one sync each, and revoked tokens were refused. The account needs R2 turned on first
+    (docs/decisions.md).
 - [x] Shared cache: answers and summaries sync up and down; local stays the source of truth while offline
   - Done when: an answer recorded on machine A is a `hit` on machine B within one minute.
 - [x] Team budgets and per-member usage

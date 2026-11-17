@@ -5,6 +5,9 @@ account. There is no hosted Grenier service.
 
 ## Deploy
 
+Turn on R2 in the Cloudflare dashboard first, once per account: the encrypted vault is kept there, and R2's free tier
+is enough. Then:
+
 ```bash
 npx wrangler login
 grenier team deploy

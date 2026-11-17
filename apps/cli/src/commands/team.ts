@@ -111,7 +111,13 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
   if (!databaseId) throw new CommandError(`could not find or create the D1 database ${values.name}`);
 
   const bucket = `${values.name}-vault`;
-  const buckets = await wrangler(["r2", "bucket", "list"]);
+  const buckets = await wrangler(["r2", "bucket", "list"]).catch((error: Error) => {
+    if (/code: 10042/.test(error.message))
+      throw new CommandError(
+        "turn on R2 in the Cloudflare dashboard first (its free tier is enough), then run grenier team deploy again",
+      );
+    throw error;
+  });
   if (!buckets.includes(bucket)) {
     out(`Creating the R2 bucket ${bucket}…`);
     await wrangler(["r2", "bucket", "create", bucket]);
