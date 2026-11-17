@@ -1,21 +1,27 @@
 // Gathers what the app bundles to run the daemon: Node's official standalone binary as the sidecar (named for Tauri
 // with the target triple, downloaded once and checked against the SHA-256 pinned below), the CLI's bundle
-// (dist/grenier.js and the team Worker), and better-sqlite3, the one dependency the bundle leaves outside. Run after
-// `pnpm build` at the root.
+// (dist/grenier.js and the team Worker), and better-sqlite3, the one dependency the bundle leaves outside, with only the
+// target's prebuilt addon. Run after `pnpm build` at the root:
+//
+//   node scripts/prepare-sidecar.mjs [--target <triple>]
+//
+// The target defaults to this machine's. `universal-apple-darwin` joins both Macs' Node with lipo, and keeps each
+// Mac's own binary beside it: Tauri's build checks for those while it compiles each architecture.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = join(here, "..");
 const cli = join(app, "..", "cli");
 if (!existsSync(join(cli, "dist", "grenier.js"))) throw new Error("build the CLI first: pnpm build");
 
-// Node 22 LTS from nodejs.org, as its SHASUMS256.txt lists it. A package manager's node (Homebrew's) links a shared
-// libnode and cannot be copied into an app.
+// Node 22 LTS from nodejs.org, as its SHASUMS256.txt lists it, with better-sqlite3's prebuild for the same system. A
+// package manager's node (Homebrew's) links a shared libnode and cannot be copied into an app.
 const NODE = "22.23.5";
 const BUILDS = {
   "aarch64-apple-darwin": ["darwin-arm64", "e7131995759b61a0170b646010d2ad35a5d37b4cb0d471f3e8317eac6f742f3d"],
@@ -24,34 +30,55 @@ const BUILDS = {
   "x86_64-unknown-linux-gnu": ["linux-x64", "c54118104acc524633b5abe106bbf44a53126ec8b4e5fa105cb92b5d7de8a1a1"],
   "x86_64-pc-windows-msvc": ["win-x64", "4a191082e9706866830379d577d2cc8a50c776fcd9436a8d061b063ed0d9a0e3"],
 };
+const PREBUILDS = { "win-x64": "win32-x64" };
+const UNIVERSAL = "universal-apple-darwin";
+const MACS = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
 
-const triple = /host: (\S+)/.exec(execFileSync("rustc", ["-vV"], { encoding: "utf8" }))?.[1];
-const build = triple ? BUILDS[triple] : undefined;
-if (!triple || !build) throw new Error(`no Node build pinned for ${triple ?? "this machine"}`);
-const [platform, sha256] = build;
-const windows = platform.startsWith("win");
-const archive = `node-v${NODE}-${platform}.${windows ? "zip" : "tar.gz"}`;
+const { values } = parseArgs({ options: { target: { type: "string" } } });
+const target = values.target ?? /host: (\S+)/.exec(execFileSync("rustc", ["-vV"], { encoding: "utf8" }))?.[1];
+const triples = target === UNIVERSAL ? MACS : [target];
+if (!target || triples.some((triple) => !BUILDS[triple])) {
+  throw new Error(`no Node build pinned for ${target ?? "this machine"}`);
+}
+
 const cache = join(app, ".cache");
-mkdirSync(cache, { recursive: true });
-const downloaded = join(cache, archive);
-if (!existsSync(downloaded)) {
-  const response = await fetch(`https://nodejs.org/dist/v${NODE}/${archive}`);
-  if (!response.ok) throw new Error(`could not download ${archive}: HTTP ${response.status}`);
-  writeFileSync(downloaded, Buffer.from(await response.arrayBuffer()));
-}
-const actual = createHash("sha256").update(readFileSync(downloaded)).digest("hex");
-if (actual !== sha256) {
-  rmSync(downloaded);
-  throw new Error(`${archive} has SHA-256 ${actual}, expected ${sha256}`);
-}
-const inside = `node-v${NODE}-${platform}/${windows ? "node.exe" : "bin/node"}`;
-execFileSync("tar", ["-xf", downloaded, "-C", cache, inside]);
-
 const binaries = join(app, "src-tauri", "binaries");
+mkdirSync(cache, { recursive: true });
 mkdirSync(binaries, { recursive: true });
-const sidecar = join(binaries, `grenier-node-${triple}${windows ? ".exe" : ""}`);
-copyFileSync(join(cache, inside), sidecar);
-chmodSync(sidecar, 0o755);
+
+/** Node's binary for one triple, checked and copied to binaries/grenier-node-<triple>. */
+async function sidecar(triple) {
+  const [platform, sha256] = BUILDS[triple];
+  const windows = platform.startsWith("win");
+  const archive = `node-v${NODE}-${platform}.${windows ? "zip" : "tar.gz"}`;
+  const downloaded = join(cache, archive);
+  if (!existsSync(downloaded)) {
+    const response = await fetch(`https://nodejs.org/dist/v${NODE}/${archive}`);
+    if (!response.ok) throw new Error(`could not download ${archive}: HTTP ${response.status}`);
+    writeFileSync(downloaded, Buffer.from(await response.arrayBuffer()));
+  }
+  const actual = createHash("sha256").update(readFileSync(downloaded)).digest("hex");
+  if (actual !== sha256) {
+    rmSync(downloaded);
+    throw new Error(`${archive} has SHA-256 ${actual}, expected ${sha256}`);
+  }
+  const inside = `node-v${NODE}-${platform}/${windows ? "node.exe" : "bin/node"}`;
+  // GNU tar cannot read a zip; Windows' own tar can, and has no unzip.
+  if (windows && process.platform !== "win32") execFileSync("unzip", ["-o", "-q", downloaded, inside, "-d", cache]);
+  else execFileSync("tar", ["-xf", downloaded, "-C", cache, inside]);
+  const file = join(binaries, `grenier-node-${triple}${windows ? ".exe" : ""}`);
+  copyFileSync(join(cache, inside), file);
+  chmodSync(file, 0o755);
+  return file;
+}
+
+const files = [];
+for (const triple of triples) files.push(await sidecar(triple));
+if (target === UNIVERSAL) {
+  const universal = join(binaries, `grenier-node-${UNIVERSAL}`);
+  execFileSync("lipo", ["-create", "-output", universal, ...files]);
+  files.push(universal);
+}
 
 const resources = join(app, "resources", "grenier");
 rmSync(resources, { recursive: true, force: true });
@@ -60,7 +87,12 @@ cpSync(join(cli, "dist"), join(resources, "dist"), { recursive: true });
 writeFileSync(join(resources, "package.json"), `${JSON.stringify({ type: "module", private: true })}\n`);
 
 const sqlite = dirname(createRequire(join(cli, "package.json")).resolve("better-sqlite3/package.json"));
-for (const entry of ["package.json", "LICENSE", "lib", "prebuilds"]) {
-  cpSync(join(sqlite, entry), join(resources, "node_modules", "better-sqlite3", entry), { recursive: true });
+const copied = join(resources, "node_modules", "better-sqlite3");
+for (const entry of ["package.json", "LICENSE", "lib"])
+  cpSync(join(sqlite, entry), join(copied, entry), { recursive: true });
+for (const triple of triples) {
+  const [platform] = BUILDS[triple];
+  const addon = `${PREBUILDS[platform] ?? platform}.node`;
+  cpSync(join(sqlite, "prebuilds", addon), join(copied, "prebuilds", addon));
 }
-console.log(`sidecar ${sidecar}\nresources ${resources}`);
+console.log(`sidecar ${files.join(" ")}\nresources ${resources}`);

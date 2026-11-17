@@ -43,6 +43,10 @@ jobs:
       - name: Types
         run: pnpm typecheck
 
+      # Run as release.yml and nightly.yml run it.
+      - name: Version files agree
+        run: node scripts/version.ts check
+
       - name: Unit tests
         run: pnpm test
 

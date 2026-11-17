@@ -29,13 +29,15 @@ code.
   a Durable Object per team), typechecked on its own (`apps/server/tsconfig.json`) and bundled into the CLI's
   `dist/server` for `grenier team deploy`. `apps/desktop` is the Tauri app (React UI in `src`, Rust shell in
   `src-tauri`), talking to the daemon's admin API (`packages/gateway/src/admin.ts`).
-- The desktop app bundle is built on a Mac: `pnpm build`, `pnpm --filter @grenier/desktop sidecar` (downloads Node's
+- The desktop app bundle: `pnpm build`, `pnpm --filter @grenier/desktop sidecar [--target <triple>]` (downloads Node's
   official build, checked against the SHA-256 pinned in `scripts/prepare-sidecar.mjs`), then
-  `pnpm --filter @grenier/desktop tauri build`. CI builds only its web UI.
+  `pnpm --filter @grenier/desktop tauri build`. CI builds only its web UI; releases build it for macOS, Linux and
+  Windows (`docs/RELEASE.md`).
 - Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `agents` with real agents,
   `fixtures` for recorded data, `support` for shared helpers.
   Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`).
-- CI is `.forgejo/workflows/ci.yml`, on git.laibe.cc.
+- CI is `.forgejo/workflows/ci.yml`, on git.laibe.cc. `nightly.yml` tags a release when main has changed and
+  `release.yml` builds and publishes it on `github.com/alaibe/grenier` (`docs/RELEASE.md`).
 
 ## Things that are not obvious from the code
 
@@ -73,6 +75,7 @@ code.
 - Dependencies are exact versions, and pnpm refuses releases younger than 7 days (`pnpm-workspace.yaml`). Install
   scripts run only for the packages listed there.
 - Every package is private until the release workflow publishes it; the name is settled (Grenier).
+- The version is in six files kept equal by `scripts/version.ts`; change them together (`check` says when they differ).
 - The site, `grenier.laibe.cc`, lives in the laibe repository; its guide (`content/grenier/guide`) is a verbatim copy of
   `docs/guide`. After changing the guide, copy it there: `cp docs/guide/*.md ../laibe/content/grenier/guide/`. Links
   between guide pages are `./page.md`, and a test refuses a bare `<word>` outside code, which the site would drop.

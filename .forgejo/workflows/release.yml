@@ -1,0 +1,502 @@
+# Builds the desktop app for the three systems when a `v*` tag is pushed to git.laibe.cc (nightly.yml pushes it), on
+# Forgejo Actions, and releases it on the public GitHub repository alaibe/grenier, which mirrors this one, as Statim's
+# release does. docs/RELEASE.md is how a release is made.
+#
+# Runners (the homeserver repository has their setup):
+#   mac         forgejo-runner on the Mac, steps on the Mac itself with its Xcode, rustup, Node, pnpm and gh
+#   home-linux  forgejo-runner on the home server, Ubuntu 22.04 containers with nothing cached
+#
+# - prepare (`home-linux`): the version files agree with the tag (scripts/version.ts), GitHub has the tag at this
+#   commit, and a draft release carries the commits since the last one.
+# - macOS (`mac`): the universal app built unsigned, signed inside out by apps/desktop/scripts/sign-macos.sh, its
+#   daemon started once from the signed bundle, then put in a DMG, notarized and stapled when NOTARIZE is on.
+# - Linux (`home-linux`): the deb, rpm and AppImage, the daemon started once from the deb's files.
+# - Windows (`home-linux`): the NSIS installer, cross-built with cargo-xwin.
+# - publish (`home-linux`): SHA256SUMS; then, on a tag's run only, the release leaves draft and the Homebrew cask
+#   (alaibe/homebrew-tap, Casks/grenier.rb) moves to its DMG.
+#
+# A run by hand builds the branch it's started on into a draft and goes no further. It refuses a version whose release
+# is already published, so it can't overwrite one. The app has no updater yet: no update key, no latest.json.
+#
+# Secrets on git.laibe.cc, all shared by every repository (user level, set with the homeserver repository's
+# ci-secrets.sh, whose AGENTS.md maps every credential):
+#   RELEASES_TOKEN              a GitHub fine-grained token with Contents read and write on alaibe/grenier and
+#                               alaibe/homebrew-tap
+#   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD  its password
+#   APPLE_SIGNING_IDENTITY      "Developer ID Application: … (8N3Z3WWTK7)"
+#   APPLE_API_KEY, APPLE_API_ISSUER, APPLE_API_PRIVATE_KEY   notarization, read only when NOTARIZE is true
+#
+# Actions are pinned to a commit, with their tag beside it, as in ci.yml; gh is checked against its SHA-256.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# One release at a time per tag, never cancelled halfway through an upload.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RELEASES_REPOSITORY: alaibe/grenier
+  # gh talks to GitHub, not to the Forgejo the job runs for; the home runner's image has no gh of its own.
+  GH_HOST: github.com
+  GH_VERSION: 2.104.0
+  GH_SHA256: 98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e
+
+jobs:
+  prepare:
+    runs-on: home-linux
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - name: Secrets are set
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: '[ -n "$RELEASES_TOKEN" ] || { echo "The RELEASES_TOKEN secret is not set." >&2; exit 1; }'
+
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: gh
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/gh.tar.gz" "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_amd64.tar.gz"
+          echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
+
+      - id: version
+        name: Version files agree with the tag
+        run: |
+          V=$(node scripts/version.ts check)
+          case "${{ github.ref }}" in
+            refs/tags/*) [ "${{ github.ref_name }}" = "v$V" ] || { echo "tag ${{ github.ref_name }} does not match the version files' $V" >&2; exit 1; } ;;
+          esac
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      # The mirror pushes the tag to GitHub within seconds of the push here. Publishing a release whose tag GitHub
+      # doesn't have would make one from GitHub's main, and the mirror would then overwrite it.
+      - name: GitHub has the tag, at this commit
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          for attempt in $(seq 60); do
+            ref=$(gh api "repos/$RELEASES_REPOSITORY/git/ref/tags/$TAG" --jq '"\(.object.type) \(.object.sha)"' 2>/dev/null || true)
+            if [ "${ref%% *}" = tag ]; then
+              ref="commit $(gh api "repos/$RELEASES_REPOSITORY/git/tags/${ref#* }" --jq .object.sha)"
+            fi
+            [ "${ref#* }" = "$GITHUB_SHA" ] && { echo "GitHub has $TAG at $GITHUB_SHA."; exit 0; }
+            sleep 10
+          done
+          echo "After ten minutes GitHub's $TAG is '${ref:-missing}', not $GITHUB_SHA: is the push mirror to GitHub working?" >&2
+          exit 1
+
+      - name: Release notes
+        run: |
+          # The commits since the last release; the first release has none to list.
+          PREVIOUS=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          if [ -n "$PREVIOUS" ]; then
+            git log --no-merges --format='- %s' "$PREVIOUS..HEAD" > "$RUNNER_TEMP/all-notes"
+            COUNT=$(wc -l < "$RUNNER_TEMP/all-notes")
+            head -n 50 "$RUNNER_TEMP/all-notes" > "$RUNNER_TEMP/notes"
+            [ "$COUNT" -le 50 ] || echo "- And $((COUNT - 50)) more changes" >> "$RUNNER_TEMP/notes"
+          else
+            echo "The first release of Grenier." > "$RUNNER_TEMP/notes"
+          fi
+          cat "$RUNNER_TEMP/notes"
+
+      - id: release
+        name: Draft release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          TAG="v$V"
+          # Looking a release up by tag never finds a draft.
+          release=$(gh api "repos/$RELEASES_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$TAG\") | \"\(.id) \(.draft)\"" | head -1)
+          if [ -n "$release" ]; then
+            # As Statim's: a published release's files are never replaced, a draft's are.
+            [ "${release#* }" = true ] || { echo "Grenier $V is already published; this run would overwrite its files." >&2; exit 1; }
+            id=${release%% *}
+          else
+            id=$(gh api "repos/$RELEASES_REPOSITORY/releases" \
+              -f tag_name="$TAG" -f name="Grenier $V" \
+              -F body=@"$RUNNER_TEMP/notes" -F draft=true -F prerelease=false --jq .id)
+          fi
+          [[ "$id" =~ ^[0-9]+$ ]] || { echo "no release id: $id" >&2; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: prepare
+    runs-on: mac
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      # actions/checkout adds a safe.directory to the global git config: a throwaway one, not Anthony's ~/.gitconfig.
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        env:
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/gitconfig
+
+      - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Secrets are set
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_SIGNING_IDENTITY; do
+            [ -n "${!name}" ] || { echo "The $name secret is not set." >&2; exit 1; }
+          done
+
+      # The Rust in apps/desktop/src-tauri/rust-toolchain.toml, with its targets, through the Mac's own rustup.
+      - name: The Mac's tools
+        run: |
+          WORK=$(mktemp -d)
+          echo "WORK=$WORK" >> "$GITHUB_ENV"
+          (cd apps/desktop/src-tauri && { rustup show active-toolchain || rustup install; } && cargo --version)
+          # Whole outputs: `| head` would end a command early, and the pipe's SIGPIPE fails the step.
+          xcodebuild -version; node --version; pnpm --version; gh --version
+
+      - name: JavaScript packages
+        run: pnpm install --frozen-lockfile
+
+      - name: The CLI and both Macs' Node
+        run: |
+          pnpm build
+          pnpm --filter @grenier/desktop sidecar --target universal-apple-darwin
+
+      - name: Build the universal app, unsigned
+        run: |
+          pnpm --filter @grenier/desktop tauri build --target universal-apple-darwin --bundles app --no-sign -- --locked
+          APP="$PWD/apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/Grenier.app"
+          [ -d "$APP" ] || { echo "no app at $APP" >&2; exit 1; }
+          found=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
+          [ "$found" = "$VERSION" ] || { echo "the app says $found, expected $VERSION" >&2; exit 1; }
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Signing keychain
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$WORK/signing.keychain-db"
+          PASS=$(openssl rand -hex 16)
+          security create-keychain -p "$PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASS" "$KEYCHAIN"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$WORK/certificate.p12"
+          security import "$WORK/certificate.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$PASS" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$WORK/certificate.p12"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Sign inside out
+        run: apps/desktop/scripts/sign-macos.sh "$APP" "${{ secrets.APPLE_SIGNING_IDENTITY }}" "$KEYCHAIN"
+
+      # The signed Node, under the hardened runtime, runs the bundled CLI and opens a database with the signed SQLite
+      # addon: what the app does when it starts the daemon. Intel's half too, when Rosetta is installed.
+      - name: The signed daemon runs
+        run: |
+          run() { GRENIER_HOME="$(mktemp -d "$WORK/home.XXXXXX")" "$@" "$APP/Contents/MacOS/grenier-node" "$APP/Contents/Resources/grenier/dist/grenier.js" status; }
+          run
+          if arch -x86_64 /usr/bin/true 2> /dev/null; then run arch -x86_64; else echo "No Rosetta: Intel's half not run."; fi
+
+      - name: DMG, notarized and stapled when NOTARIZE is on
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          # The repository's NOTARIZE variable (Settings › Actions › Variables) set to `true`. Off while Apple refuses
+          # the team's requests until its new agreement is accepted; an un-notarized DMG asks "Open Anyway" on the
+          # first launch from a download.
+          NOTARIZE: ${{ vars.NOTARIZE }}
+        run: |
+          STAGE="$WORK/dmg"
+          mkdir -p "$STAGE" && cp -R "$APP" "$STAGE/" && ln -s /Applications "$STAGE/Applications"
+          DMG="$WORK/Grenier-$VERSION.dmg"
+          hdiutil create -volname Grenier -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          codesign --force --sign "${{ secrets.APPLE_SIGNING_IDENTITY }}" --keychain "$KEYCHAIN" --timestamp "$DMG"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+          if [ "$NOTARIZE" != true ]; then
+            echo "Not notarized: NOTARIZE isn't true."
+            exit 0
+          fi
+          printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$WORK/AuthKey.p8"
+          xcrun notarytool submit "$DMG" --key "$WORK/AuthKey.p8" --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" --wait
+          rm "$WORK/AuthKey.p8"
+          xcrun stapler staple "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose "$DMG"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: gh release upload "v$VERSION" "$DMG" --clobber --repo "$RELEASES_REPOSITORY"
+
+      - name: Remove the signing keychain and the work folder
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN:-}" ] && security delete-keychain "$KEYCHAIN" || true
+          [ -n "${WORK:-}" ] && rm -rf "$WORK" || true
+
+  linux:
+    needs: prepare
+    runs-on: home-linux
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # WebKitGTK, GTK and libsoup for the Tauri shell; patchelf, file and xdg-utils for the AppImage.
+      - name: Linux packages and gh
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config file curl wget \
+            libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev libjavascriptcoregtk-4.1-dev \
+            librsvg2-dev libssl-dev patchelf xdg-utils
+          curl -fsSL -o "$RUNNER_TEMP/gh.tar.gz" "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_amd64.tar.gz"
+          echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
+
+      # The Rust in apps/desktop/src-tauri/rust-toolchain.toml. The Linux image has no rustup: a minimal one goes in
+      # first, without a default toolchain, and on the PATH for the next steps.
+      - name: Rust
+        working-directory: apps/desktop/src-tauri
+        run: |
+          if ! command -v rustup > /dev/null; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup show active-toolchain || rustup install
+          cargo --version
+
+      - uses: https://github.com/pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+      - name: JavaScript packages
+        run: pnpm install --frozen-lockfile
+
+      - name: The CLI and Linux's Node
+        run: |
+          pnpm build
+          pnpm --filter @grenier/desktop sidecar --target x86_64-unknown-linux-gnu
+
+      - name: Build the deb, rpm and AppImage
+        env:
+          # linuxdeploy is an AppImage itself, and the job container has no FUSE to mount it.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: pnpm --filter @grenier/desktop tauri build --bundles deb,rpm,appimage -- --locked
+
+      # What the app does when it starts the daemon, from the files the deb installs.
+      - name: The bundled daemon runs
+        run: |
+          shopt -s nullglob
+          debs=(apps/desktop/src-tauri/target/release/bundle/deb/*.deb)
+          [ ${#debs[@]} -eq 1 ] || { echo "no single deb: ${debs[*]}" >&2; exit 1; }
+          root="$RUNNER_TEMP/deb"
+          dpkg-deb -x "${debs[0]}" "$root"
+          node=$(find "$root" -type f -name grenier-node | head -1)
+          script=$(find "$root" -type f -path '*/grenier/dist/grenier.js' | head -1)
+          [ -n "$node" ] && [ -n "$script" ] || { echo "the deb has no grenier-node or grenier.js" >&2; exit 1; }
+          GRENIER_HOME="$(mktemp -d)" "$node" "$script" status
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          shopt -s nullglob
+          bundle=apps/desktop/src-tauri/target/release/bundle
+          files=($bundle/deb/*.deb $bundle/rpm/*.rpm $bundle/appimage/*.AppImage)
+          [ ${#files[@]} -eq 3 ] || { echo "the deb, rpm and AppImage weren't all built: ${files[*]}" >&2; exit 1; }
+          gh release upload "v$VERSION" "${files[@]}" --clobber --repo "$RELEASES_REPOSITORY"
+
+  windows:
+    needs: prepare
+    runs-on: home-linux
+    # Tauri's installer script needs NSIS 3.09 (Win\RestartManager.nsh); Ubuntu 22.04 has 3.08. Pinned to the digest
+    # of act-24.04 on 2026-11-17.
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-24.04@sha256:7bf3a8afc2bbfe7fdaf4b9d2716cb2f3634fd21e4f38e26aa17a12cfda80d721
+    timeout-minutes: 90
+    # The upload uses bash's arrays; a container job's steps run under sh otherwise.
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # unzip opens Node's Windows build, which GNU tar can't.
+      - name: NSIS, LLVM, unzip and gh
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nsis lld llvm clang pkg-config unzip
+          curl -fsSL -o "$RUNNER_TEMP/gh.tar.gz" "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_amd64.tar.gz"
+          echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
+
+      - name: Rust
+        working-directory: apps/desktop/src-tauri
+        run: |
+          if ! command -v rustup > /dev/null; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup show active-toolchain || rustup install
+          cargo --version
+      - uses: https://github.com/taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-xwin@0.23.1
+      - uses: https://github.com/pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+      - name: JavaScript packages
+        run: pnpm install --frozen-lockfile
+
+      - name: The CLI and Windows' Node
+        run: |
+          pnpm build
+          pnpm --filter @grenier/desktop sidecar --target x86_64-pc-windows-msvc
+
+      - name: Cross-build the NSIS installer
+        run: |
+          pnpm --filter @grenier/desktop tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis \
+            -- --locked
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+          [ ${#files[@]} -eq 1 ] || { echo "no single installer was built: ${files[*]}" >&2; exit 1; }
+          gh release upload "v$VERSION" "${files[0]}" --clobber --repo "$RELEASES_REPOSITORY"
+
+  publish:
+    needs: [prepare, macos, linux, windows]
+    runs-on: home-linux
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE: repos/alaibe/grenier/releases/${{ needs.prepare.outputs.release_id }}
+      GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+    steps:
+      - name: gh
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/gh.tar.gz" "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_amd64.tar.gz"
+          echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
+
+      - name: The release's files
+        run: |
+          mkdir files && cd files
+          gh api "$RELEASE/assets" --paginate --jq '.[] | select(.name != "SHA256SUMS") | "\(.id) \(.name)"' |
+            while read -r id name; do
+              gh api -H "Accept: application/octet-stream" "repos/$RELEASES_REPOSITORY/releases/assets/$id" > "$name"
+            done
+          ls -l
+          [ "$(find . -maxdepth 1 -type f | wc -l)" -eq 5 ] || { echo "expected the DMG, deb, rpm, AppImage and installer" >&2; exit 1; }
+
+      - name: SHA256SUMS
+        working-directory: files
+        run: |
+          find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs sha256sum -- > "$RUNNER_TEMP/SHA256SUMS"
+          cat "$RUNNER_TEMP/SHA256SUMS"
+          gh release upload "v$VERSION" "$RUNNER_TEMP/SHA256SUMS" --clobber --repo "$RELEASES_REPOSITORY"
+
+      # Only a tag's run publishes; a run by hand leaves its draft for a look.
+      - name: Leave draft
+        if: startsWith(github.ref, 'refs/tags/')
+        run: gh api -X PATCH "$RELEASE" -F draft=false --silent
+
+  homebrew:
+    needs: [prepare, publish]
+    # As publish's Leave draft: the cask follows only a published release.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: home-linux
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The cask is written whole from here, so the tap gets one only once a published DMG exists.
+      - name: Move the cask to this release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/gh.tar.gz" "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_amd64.tar.gz"
+          echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
+          V="${{ needs.prepare.outputs.version }}"
+          DMG="Grenier-$V.dmg"
+          curl -fsSL -o "$DMG" "https://github.com/$RELEASES_REPOSITORY/releases/download/v$V/$DMG"
+          SHA=$(sha256sum "$DMG" | cut -d' ' -f1)
+          gh repo clone alaibe/homebrew-tap tap -- --depth 1
+          cat > tap/Casks/grenier.rb <<EOF
+          cask "grenier" do
+            version "$V"
+            sha256 "$SHA"
+
+            url "https://github.com/alaibe/grenier/releases/download/v#{version}/Grenier-#{version}.dmg"
+            name "Grenier"
+            desc "Caches what coding agents learn and controls their spend"
+            homepage "https://grenier.laibe.cc/"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            depends_on macos: :big_sur
+
+            app "Grenier.app"
+
+            zap trash: [
+              "~/Library/Application Support/cc.laibe.grenier",
+              "~/Library/Caches/cc.laibe.grenier",
+              "~/Library/WebKit/cc.laibe.grenier",
+            ]
+          end
+          EOF
+          cat tap/Casks/grenier.rb
+          gh auth setup-git
+          git -C tap add Casks/grenier.rb
+          git -C tap -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "grenier $V"
+          git -C tap push

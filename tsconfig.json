@@ -18,5 +18,14 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["packages/*/src", "packages/*/*.config.ts", "apps/cli/src", "bench/src", "tests", "types", "*.config.ts"]
+  "include": [
+    "packages/*/src",
+    "packages/*/*.config.ts",
+    "apps/cli/src",
+    "bench/src",
+    "scripts",
+    "tests",
+    "types",
+    "*.config.ts"
+  ]
 }
