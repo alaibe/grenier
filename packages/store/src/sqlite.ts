@@ -13,6 +13,25 @@ export interface SqliteStoreOptions {
   migrations?: readonly Migration[];
 }
 
+const BUSY_TIMEOUT = 5000;
+
+/**
+ * Switches the database to WAL. When processes create the file at the same moment, SQLite refuses the switch to all
+ * but one at once, without the busy timeout, so as not to deadlock: the others try again until it is done.
+ */
+function useWal(sqlite: Database.Database): void {
+  const deadline = Date.now() + BUSY_TIMEOUT;
+  for (;;) {
+    try {
+      sqlite.pragma("journal_mode = WAL");
+      return;
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== "SQLITE_BUSY" || Date.now() > deadline) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+}
+
 /** Opens (or creates, readable by this user only) the database at `file` and brings its schema up to date. */
 export function openSqliteStore(file: string, options: SqliteStoreOptions = {}): Store {
   if (file !== ":memory:") closeSync(openSync(file, "a", 0o600));
@@ -20,9 +39,9 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
   const sqlite = new Database(file);
   const db = drizzle(sqlite, { schema });
   try {
-    sqlite.pragma("journal_mode = WAL");
+    sqlite.pragma(`busy_timeout = ${BUSY_TIMEOUT}`);
+    useWal(sqlite);
     sqlite.pragma("foreign_keys = ON");
-    sqlite.pragma("busy_timeout = 5000");
     migrate(sqlite, db, file, options.migrations ?? allMigrations);
   } catch (error) {
     sqlite.close();
