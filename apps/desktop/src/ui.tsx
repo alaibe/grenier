@@ -3,7 +3,43 @@ import { ApiError } from "./api.ts";
 
 export const money = (amount: number) => `$${amount.toFixed(2)}`;
 export const count = (value: number) => value.toLocaleString("en");
-export const when = (ts: number | null) => (ts ? new Date(ts).toLocaleString() : "never");
+
+/** A token count short enough for a table cell: 950, 12.3k, 4.1M. */
+export function compact(value: number): string {
+  if (value < 1_000) return String(value);
+  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}k`;
+  return `${(value / 1_000_000).toFixed(1)}M`;
+}
+
+export function moment(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["day", 86_400_000],
+  ["hour", 3_600_000],
+  ["minute", 60_000],
+];
+
+export function ago(ts: number | null): string {
+  if (!ts) return "never";
+  const elapsed = Date.now() - ts;
+  for (const [unit, size] of STEPS) {
+    if (elapsed >= size) return relative.format(-Math.floor(elapsed / size), unit);
+  }
+  return "just now";
+}
+
+/** A report day (YYYY-MM-DD, local) as "Tue 17 Nov". */
+export function day(key: string): string {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!parts) return key;
+  const date = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  return date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
+const messageOf = (reason: unknown) => (reason instanceof ApiError ? reason.message : String(reason));
 
 /** Loads data for a view, with its error, and a reload for after an action. */
 export function useLoad<T>(load: () => Promise<T>): { data: T | null; error: string | null; reload: () => void } {
@@ -22,7 +58,7 @@ export function useLoad<T>(load: () => Promise<T>): { data: T | null; error: str
         }
       })
       .catch((reason: unknown) => {
-        if (current) setError(reason instanceof ApiError ? reason.message : String(reason));
+        if (current) setError(messageOf(reason));
       });
     return () => {
       current = false;
@@ -31,49 +67,83 @@ export function useLoad<T>(load: () => Promise<T>): { data: T | null; error: str
   return { data, error, reload };
 }
 
-/** Runs an action, showing its error in the view instead of losing it. */
+export interface Message {
+  text: string;
+  problem?: boolean;
+}
+
+/**
+ * Runs one action at a time. `busy` names the running one, so its button can say what it is doing; the action's
+ * message, or its error, stays on the page until the next action.
+ */
 export function useAction(onDone: () => void): {
-  run: (action: () => Promise<unknown>) => Promise<void>;
-  busy: boolean;
-  error: string | null;
+  run: (key: string, action: () => Promise<Message | undefined>) => Promise<boolean>;
+  busy: string | null;
+  message: Message | null;
 } {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const run = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    setError(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
+  const run = async (key: string, action: () => Promise<Message | undefined>) => {
+    setBusy(key);
+    setMessage(null);
     try {
-      await action();
+      setMessage((await action()) ?? null);
       onDone();
+      return true;
     } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : String(reason));
+      setMessage({ text: messageOf(reason), problem: true });
+      return false;
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
-  return { run, busy, error };
+  return { run, busy, message };
 }
 
-export function Problem({ message }: { message: string | null }) {
-  return message ? (
-    <p className="problem" role="alert">
-      {message}
-    </p>
-  ) : null;
-}
-
-export function Section({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+export function Page({
+  title,
+  intro,
+  action,
+  children,
+}: {
+  title: string;
+  intro: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <section className="section">
-      <header className="section-head">
-        <h2>{title}</h2>
+    <>
+      <header className="page-head">
+        <div>
+          <h1>{title}</h1>
+          <p className="intro">{intro}</p>
+        </div>
         {action}
       </header>
       {children}
-    </section>
+    </>
   );
 }
 
+export function Notice({ message }: { message: Message | string | null }) {
+  if (!message) return null;
+  const { text, problem } = typeof message === "string" ? { text: message, problem: true } : message;
+  return problem ? (
+    <p className="message problem" role="alert">
+      {text}
+    </p>
+  ) : (
+    <p className="message" role="status">
+      {text}
+    </p>
+  );
+}
+
+/** Shown only when loading takes long enough to notice. */
+export function Loading({ what }: { what: string }) {
+  return <p className="loading">Loading {what}…</p>;
+}
+
 export function Empty({ children }: { children: ReactNode }) {
-  return <p className="empty">{children}</p>;
+  return <div className="empty">{children}</div>;
 }

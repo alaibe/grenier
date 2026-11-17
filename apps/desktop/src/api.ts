@@ -73,6 +73,13 @@ export interface SourceView {
   lastSync: number | null;
 }
 
+export interface SourceSync {
+  name: string;
+  added: number;
+  removed: number;
+  error?: string;
+}
+
 export interface ClientView {
   name: string;
   scopes: string[];
