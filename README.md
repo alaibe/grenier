@@ -39,12 +39,14 @@ grenier mcp install claude-code          # the exploration cache, over MCP
 ```
 
 On Linux and Windows, the app is on the [download page](https://grenier.laibe.cc/download), and the command is built
-from source, with Node 22 or later and pnpm:
+from source, with Node 22 or later and pnpm, in any shell:
 
 ```bash
-git clone https://github.com/alaibe/grenier.git && cd grenier
-pnpm install && pnpm build
-alias grenier="node $PWD/apps/cli/dist/grenier.js"
+git clone https://github.com/alaibe/grenier.git
+cd grenier
+pnpm install
+pnpm build
+npm install --global ./apps/cli    # the grenier command, linked to this folder
 ```
 
 The [guide](https://grenier.laibe.cc/guide/getting-started) covers the rest:
