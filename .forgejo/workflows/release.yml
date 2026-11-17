@@ -9,23 +9,29 @@
 # - prepare (`home-linux`): the version files agree with the tag (scripts/version.ts), GitHub has the tag at this
 #   commit, and a draft release carries the commits since the last one.
 # - macOS (`mac`): the universal app built unsigned, signed inside out by apps/desktop/scripts/sign-macos.sh, its
-#   daemon started once from the signed bundle, then put in a DMG, notarized and stapled when NOTARIZE is on.
-# - Linux (`home-linux`): the deb, rpm and AppImage, the daemon started once from the deb's files.
-# - Windows (`home-linux`): the NSIS installer, cross-built with cargo-xwin.
-# - publish (`home-linux`): SHA256SUMS; then, on a tag's run only, the release leaves draft and the Homebrew cask
+#   daemon started once from the signed bundle, then put in a DMG, notarized and stapled when NOTARIZE is on, and
+#   packed as the update bundle Tauri's updater installs (Grenier_<version>_universal.app.tar.gz, signed with the
+#   Tauri key).
+# - Linux (`home-linux`): the deb, rpm and AppImage, each with its update signature, the daemon started once from the
+#   deb's files.
+# - Windows (`home-linux`): the NSIS installer and its update signature, cross-built with cargo-xwin.
+# - publish (`home-linux`): SHA256SUMS and latest.json, the feed every installed copy's updater reads, built as
+#   Kestrel's and Statim's are; then, on a tag's run only, the release leaves draft and the Homebrew cask
 #   (alaibe/homebrew-tap, Casks/grenier.rb) moves to its DMG.
 #
 # A run by hand builds the branch it's started on into a draft and goes no further. It refuses a version whose release
-# is already published, so it can't overwrite one. The app has no updater yet: no update key, no latest.json.
+# is already published, so it can't overwrite one.
 #
-# Secrets on git.laibe.cc, all shared by every repository (user level, set with the homeserver repository's
-# ci-secrets.sh, whose AGENTS.md maps every credential):
+# Secrets on git.laibe.cc: the APPLE_* ones and RELEASES_TOKEN are shared by every repository (user level, set with
+# the homeserver repository's ci-secrets.sh, whose AGENTS.md maps every credential); the TAURI_* ones are grenier's own:
 #   RELEASES_TOKEN              a GitHub fine-grained token with Contents read and write on alaibe/grenier and
 #                               alaibe/homebrew-tap
 #   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
 #   APPLE_CERTIFICATE_PASSWORD  its password
 #   APPLE_SIGNING_IDENTITY      "Developer ID Application: … (8N3Z3WWTK7)"
 #   APPLE_API_KEY, APPLE_API_ISSUER, APPLE_API_PRIVATE_KEY   notarization, read only when NOTARIZE is true
+#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD   the update key (~/.tauri/grenier.key; ci-secrets.sh
+#                               tauri-key grenier sets them), whose public half is plugins.updater.pubkey
 #
 # Actions are pinned to a commit, with their tag beside it, as in ci.yml; gh is checked against its SHA-256.
 
@@ -88,6 +94,12 @@ jobs:
             refs/tags/*) [ "${{ github.ref_name }}" = "v$V" ] || { echo "tag ${{ github.ref_name }} does not match the version files' $V" >&2; exit 1; } ;;
           esac
           echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      # A copy released without the key's public half could never update itself.
+      - name: The app carries the update key
+        run: |
+          node -e 'const c = require("./apps/desktop/src-tauri/tauri.conf.json"); process.exit(c.plugins?.updater?.pubkey ? 0 : 1)' ||
+            { echo "plugins.updater.pubkey is empty in tauri.conf.json: ci-secrets.sh tauri-key grenier prints it" >&2; exit 1; }
 
       # The mirror pushes the tag to GitHub within seconds of the push here. Publishing a release whose tag GitHub
       # doesn't have would make one from GitHub's main, and the mirror would then overwrite it.
@@ -164,8 +176,9 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          for name in APPLE_CERTIFICATE APPLE_SIGNING_IDENTITY; do
+          for name in APPLE_CERTIFICATE APPLE_SIGNING_IDENTITY TAURI_SIGNING_PRIVATE_KEY; do
             [ -n "${!name}" ] || { echo "The $name secret is not set." >&2; exit 1; }
           done
 
@@ -255,10 +268,28 @@ jobs:
           xcrun stapler staple "$DMG"
           spctl --assess --type open --context context:primary-signature --verbose "$DMG"
 
+      # What Tauri's updater unpacks over an installed Grenier: the signed app, packed without macOS's ._ files, its
+      # signature bound to this version (requireSignedVersion).
+      - name: Update bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          UPDATE="$WORK/Grenier_${VERSION}_universal.app.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "$UPDATE" -C "$(dirname "$APP")" "$(basename "$APP")"
+          pnpm --filter @grenier/desktop tauri signer sign --app-version "$VERSION" "$UPDATE"
+          [ -s "$UPDATE.sig" ] || { echo "no signature beside $UPDATE" >&2; exit 1; }
+          # The key that signed it must be the one whose public half the app carries: a copy out with another never updates.
+          key_id() { base64 -d | sed -n 2p | base64 -d | head -c 10 | tail -c 8 | xxd -p; }
+          signed=$(key_id < "$UPDATE.sig")
+          trusted=$(node -p 'require("./apps/desktop/src-tauri/tauri.conf.json").plugins.updater.pubkey' | key_id)
+          [ "$signed" = "$trusted" ] || { echo "signed with key $signed, but the app trusts $trusted" >&2; exit 1; }
+          echo "UPDATE=$UPDATE" >> "$GITHUB_ENV"
+
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: gh release upload "v$VERSION" "$DMG" --clobber --repo "$RELEASES_REPOSITORY"
+        run: gh release upload "v$VERSION" "$DMG" "$UPDATE" "$UPDATE.sig" --clobber --repo "$RELEASES_REPOSITORY"
 
       - name: Remove the signing keychain and the work folder
         if: always()
@@ -316,9 +347,14 @@ jobs:
 
       - name: Build the deb, rpm and AppImage
         env:
+          # Signs the update files an installed copy checks before applying them.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # linuxdeploy is an AppImage itself, and the job container has no FUSE to mount it.
           APPIMAGE_EXTRACT_AND_RUN: 1
-        run: pnpm --filter @grenier/desktop tauri build --bundles deb,rpm,appimage -- --locked
+        run: |
+          pnpm --filter @grenier/desktop tauri build --bundles deb,rpm,appimage \
+            --config '{"bundle":{"createUpdaterArtifacts":true}}' -- --locked
 
       # What the app does when it starts the daemon, from the files the deb installs.
       - name: The bundled daemon runs
@@ -341,7 +377,10 @@ jobs:
           bundle=apps/desktop/src-tauri/target/release/bundle
           files=($bundle/deb/*.deb $bundle/rpm/*.rpm $bundle/appimage/*.AppImage)
           [ ${#files[@]} -eq 3 ] || { echo "the deb, rpm and AppImage weren't all built: ${files[*]}" >&2; exit 1; }
-          gh release upload "v$VERSION" "${files[@]}" --clobber --repo "$RELEASES_REPOSITORY"
+          for file in "${files[@]}"; do
+            [ -f "$file.sig" ] || { echo "$file has no update signature" >&2; exit 1; }
+          done
+          gh release upload "v$VERSION" "${files[@]}" "${files[@]/%/.sig}" --clobber --repo "$RELEASES_REPOSITORY"
 
   windows:
     needs: prepare
@@ -394,9 +433,12 @@ jobs:
           pnpm --filter @grenier/desktop sidecar --target x86_64-pc-windows-msvc
 
       - name: Cross-build the NSIS installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           pnpm --filter @grenier/desktop tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis \
-            -- --locked
+            --config '{"bundle":{"createUpdaterArtifacts":true}}' -- --locked
 
       - name: Attach to the release
         env:
@@ -405,7 +447,8 @@ jobs:
           shopt -s nullglob
           files=(apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
           [ ${#files[@]} -eq 1 ] || { echo "no single installer was built: ${files[*]}" >&2; exit 1; }
-          gh release upload "v$VERSION" "${files[0]}" --clobber --repo "$RELEASES_REPOSITORY"
+          [ -f "${files[0]}.sig" ] || { echo "${files[0]} has no update signature" >&2; exit 1; }
+          gh release upload "v$VERSION" "${files[0]}" "${files[0]}.sig" --clobber --repo "$RELEASES_REPOSITORY"
 
   publish:
     needs: [prepare, macos, linux, windows]
@@ -428,19 +471,58 @@ jobs:
       - name: The release's files
         run: |
           mkdir files && cd files
-          gh api "$RELEASE/assets" --paginate --jq '.[] | select(.name != "SHA256SUMS") | "\(.id) \(.name)"' |
+          gh api "$RELEASE/assets" --paginate \
+            --jq '.[] | select(.name | test("\\.json$|^SHA256SUMS$") | not) | "\(.id) \(.name)"' |
             while read -r id name; do
               gh api -H "Accept: application/octet-stream" "repos/$RELEASES_REPOSITORY/releases/assets/$id" > "$name"
             done
           ls -l
-          [ "$(find . -maxdepth 1 -type f | wc -l)" -eq 5 ] || { echo "expected the DMG, deb, rpm, AppImage and installer" >&2; exit 1; }
+          [ "$(find . -maxdepth 1 -type f ! -name '*.sig' | wc -l)" -eq 6 ] ||
+            { echo "expected the DMG, the Mac's update bundle, deb, rpm, AppImage and installer" >&2; exit 1; }
+          [ "$(find . -maxdepth 1 -type f -name '*.sig' | wc -l)" -eq 5 ] ||
+            { echo "expected an update signature beside each of the five update files" >&2; exit 1; }
 
       - name: SHA256SUMS
         working-directory: files
         run: |
-          find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs sha256sum -- > "$RUNNER_TEMP/SHA256SUMS"
+          find . -maxdepth 1 -type f ! -name '*.sig' -printf '%f\n' | sort | xargs sha256sum -- > "$RUNNER_TEMP/SHA256SUMS"
           cat "$RUNNER_TEMP/SHA256SUMS"
-          gh release upload "v$VERSION" "$RUNNER_TEMP/SHA256SUMS" --clobber --repo "$RELEASES_REPOSITORY"
+
+      # The feed Tauri's updater reads, built alike in Kestrel's and Statim's release.yml: each key an installed copy
+      # looks up (its own installer's first, then the bare one) points at a file of this release, with that file's
+      # signature. FEED lists them, a key and a file name with {v} for the version.
+      - name: latest.json
+        working-directory: files
+        env:
+          FEED: |
+            windows-x86_64 Grenier_{v}_x64-setup.exe
+            windows-x86_64-nsis Grenier_{v}_x64-setup.exe
+            linux-x86_64 Grenier_{v}_amd64.AppImage
+            linux-x86_64-appimage Grenier_{v}_amd64.AppImage
+            linux-x86_64-deb Grenier_{v}_amd64.deb
+            linux-x86_64-rpm Grenier-{v}-1.x86_64.rpm
+            darwin-aarch64 Grenier_{v}_universal.app.tar.gz
+            darwin-x86_64 Grenier_{v}_universal.app.tar.gz
+            darwin-universal Grenier_{v}_universal.app.tar.gz
+            darwin-aarch64-app Grenier_{v}_universal.app.tar.gz
+            darwin-x86_64-app Grenier_{v}_universal.app.tar.gz
+            darwin-universal-app Grenier_{v}_universal.app.tar.gz
+        run: |
+          BASE="https://github.com/$RELEASES_REPOSITORY/releases/download/v$VERSION"
+          platforms='{}'
+          while read -r key name; do
+            [ -n "$key" ] || continue
+            file="${name//\{v\}/$VERSION}"
+            [ -f "$file" ] && [ -f "$file.sig" ] || { echo "$file or its signature is missing" >&2; exit 1; }
+            platforms=$(jq --arg key "$key" --arg url "$BASE/$file" --rawfile signature "$file.sig" \
+              '. + {($key): {signature: $signature, url: $url}}' <<< "$platforms")
+          done <<< "$FEED"
+          jq -n --arg version "$VERSION" --arg date "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" --argjson platforms "$platforms" \
+            '{version: $version, notes: "", pub_date: $date, platforms: $platforms}' > "$RUNNER_TEMP/latest.json"
+          jq '.platforms | map_values(.url)' "$RUNNER_TEMP/latest.json"
+
+      - name: Attach them
+        run: gh release upload "v$VERSION" "$RUNNER_TEMP/SHA256SUMS" "$RUNNER_TEMP/latest.json" --clobber --repo "$RELEASES_REPOSITORY"
 
       # Only a tag's run publishes; a run by hand leaves its draft for a look.
       - name: Leave draft
@@ -485,6 +567,7 @@ jobs:
               strategy :github_latest
             end
 
+            auto_updates true
             depends_on macos: :big_sur
 
             app "Grenier.app"

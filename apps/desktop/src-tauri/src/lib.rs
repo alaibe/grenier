@@ -5,9 +5,13 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::path::BaseDirectory;
-use tauri::{Manager, RunEvent, State};
-use tauri_plugin_shell::process::CommandChild;
+use tauri::{AppHandle, Manager, RunEvent};
+use tauri_plugin_shell::process::{Command, CommandChild};
 use tauri_plugin_shell::ShellExt;
+
+#[cfg(target_os = "macos")]
+mod menu_bar;
+mod updater;
 
 /// The daemon this app started, if it had to: stopped when the app quits. One started by `grenier start` is left alone.
 struct Sidecar(Mutex<Option<CommandChild>>);
@@ -52,32 +56,61 @@ fn answers(port: u16) -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_ok()
 }
 
+/// The bundled CLI with these arguments, run by the bundled Node.
+fn grenier(app: &AppHandle, args: &[&str]) -> Result<Command, String> {
+    let script = app
+        .path()
+        .resolve("grenier/dist/grenier.js", BaseDirectory::Resource)
+        .map_err(|error| error.to_string())?;
+    Ok(app
+        .shell()
+        .sidecar("grenier-node")
+        .map_err(|error| error.to_string())?
+        .arg(script)
+        .args(args))
+}
+
+/// The daemon's port, after starting the bundled daemon when none answers there.
+fn start_daemon(app: &AppHandle, home: &PathBuf) -> Result<u16, String> {
+    let port = daemon_port(home);
+    if answers(port) {
+        return Ok(port);
+    }
+    let (_events, child) = grenier(app, &["daemon"])?
+        .spawn()
+        .map_err(|error| format!("cannot start the Grenier daemon: {error}"))?;
+    *app.state::<Sidecar>().0.lock().map_err(|error| error.to_string())? = Some(child);
+    let started = Instant::now();
+    while !answers(port) {
+        if started.elapsed() > Duration::from_secs(15) {
+            return Err(format!("the Grenier daemon did not start on 127.0.0.1:{port}"));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(port)
+}
+
+/// Stops the daemon this app started, if it did, and waits for its port to close.
+fn stop_daemon(app: &AppHandle) {
+    let Some(child) = app.state::<Sidecar>().0.lock().ok().and_then(|mut child| child.take()) else {
+        return;
+    };
+    let _ = child.kill();
+    let Ok(home) = grenier_home() else {
+        return;
+    };
+    let port = daemon_port(&home);
+    let stopped = Instant::now();
+    while answers(port) && stopped.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// The daemon's address and admin token, starting the bundled daemon first when none answers.
 #[tauri::command]
-async fn daemon_connection(app: tauri::AppHandle, sidecar: State<'_, Sidecar>) -> Result<Connection, String> {
+async fn daemon_connection(app: AppHandle) -> Result<Connection, String> {
     let home = grenier_home()?;
-    let port = daemon_port(&home);
-    if !answers(port) {
-        let script = app
-            .path()
-            .resolve("grenier/dist/grenier.js", BaseDirectory::Resource)
-            .map_err(|error| error.to_string())?;
-        let (_events, child) = app
-            .shell()
-            .sidecar("grenier-node")
-            .map_err(|error| error.to_string())?
-            .args([script.to_string_lossy().to_string(), "daemon".to_string()])
-            .spawn()
-            .map_err(|error| format!("cannot start the Grenier daemon: {error}"))?;
-        *sidecar.0.lock().map_err(|error| error.to_string())? = Some(child);
-        let started = Instant::now();
-        while !answers(port) {
-            if started.elapsed() > Duration::from_secs(15) {
-                return Err(format!("the Grenier daemon did not start on 127.0.0.1:{port}"));
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    }
+    let port = start_daemon(&app, &home)?;
     let token = std::fs::read_to_string(home.join("admin-token"))
         .map_err(|error| format!("cannot read {}: {error}", home.join("admin-token").display()))?;
     Ok(Connection {
@@ -87,17 +120,28 @@ async fn daemon_connection(app: tauri::AppHandle, sidecar: State<'_, Sidecar>) -
 }
 
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Sidecar(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![daemon_connection])
+        .setup(|app| {
+            updater::schedule(app.handle());
+            #[cfg(target_os = "macos")]
+            menu_bar::install(app.handle())?;
+            Ok(())
+        });
+    #[cfg(target_os = "macos")]
+    let builder = builder.on_window_event(menu_bar::on_window_event);
+    let app = builder
         .build(tauri::generate_context!())
         .expect("the Grenier window could not start");
     app.run(|handle, event| {
+        #[cfg(target_os = "macos")]
+        menu_bar::on_run_event(handle, &event);
         if let RunEvent::Exit = event {
-            if let Some(child) = handle.state::<Sidecar>().0.lock().ok().and_then(|mut child| child.take()) {
-                let _ = child.kill();
-            }
+            stop_daemon(handle);
         }
     });
 }

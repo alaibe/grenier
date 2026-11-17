@@ -13,7 +13,8 @@ A release is a `v*` tag. The rest happens on git.laibe.cc's runners and on GitHu
    builds the three systems on our own runners.
 3. **Publish.** Once every build passes, the workflow attaches `SHA256SUMS`, publishes the release, and writes the
    Homebrew cask (`alaibe/homebrew-tap`, `Casks/grenier.rb`) for its DMG: `brew install --cask alaibe/tap/grenier`
-   installs the app and links the `grenier` command inside it (`Contents/Resources/grenier/bin/grenier`).
+   installs the app and links the `grenier` command inside it (`Contents/Resources/grenier/bin/grenier`). The release
+   also carries `latest.json`, which every installed copy reads at its next daily check (see "Updates").
 
 Running `release.yml` by hand ("Run workflow", on any branch) builds that branch's version into a draft and stops
 there: the way to check the builds without publishing anything. It refuses a version that's already published. The
@@ -31,7 +32,7 @@ nightly tags it as it is.
 
 | System | Files | Built on |
 | --- | --- | --- |
-| macOS 11 or later, Apple silicon and Intel | `Grenier-<version>.dmg`, a universal app | `mac` |
+| macOS 11 or later, Apple silicon and Intel | `Grenier-<version>.dmg`, a universal app, and its update bundle `Grenier_<version>_universal.app.tar.gz` | `mac` |
 | Linux x86_64 | `Grenier_<version>_amd64.deb`, `Grenier-<version>-1.x86_64.rpm`, `Grenier_<version>_amd64.AppImage` | `home-linux` |
 | Windows x86_64 | `Grenier_<version>_x64-setup.exe` (NSIS) | `home-linux`, cross-built with cargo-xwin |
 
@@ -43,12 +44,33 @@ the addon and creates a database; on the Mac, Intel's half runs too when Rosetta
 
 Not there yet:
 
-- **Updates.** The app has no updater plugin, so there is no `latest.json` and no update key: an installed copy
-  updates by installing the next release, or `brew upgrade`. Adding one needs the key the homeserver repository's
-  `ci-secrets.sh tauri-key` makes, whose password is the owner's.
 - **The CLI on npm.** `grenier` is free on npm, but nothing publishes it: that needs an npm token. The Mac app carries
   the `grenier` command; on Linux and Windows the app's bundle runs only its own daemon.
 - **Windows signing.** The installer isn't signed, so SmartScreen warns the first time it runs.
+
+## Updates
+
+Grenier updates itself as Kestrel and Statim do, on the Mac, Windows and Linux alike: Tauri's updater
+(`apps/desktop/src-tauri/src/updater.rs`) checks a minute after launch and then once a day, in a release build only,
+and asks before installing (Install and Restart, or Later). It reads `latest.json` at `plugins.updater.endpoints`
+(`tauri.conf.json`: the newest published release on `alaibe/grenier`) and installs only an update signed with the key
+whose public half is `plugins.updater.pubkey`, for the version `latest.json` announces (`requireSignedVersion`: an old
+release's file can't be offered as a new one). The private half is `~/.tauri/grenier.key` on the Mac and the
+`TAURI_SIGNING_PRIVATE_KEY` secret, with its password beside it; the homeserver repository's `ci-secrets.sh tauri-key
+grenier` sets both. Keep the key and its password: copies already out accept no update signed with another. `prepare`
+refuses to build while `pubkey` is empty.
+
+What each system installs, each with a `.sig` beside it on the release: the Mac's
+`Grenier_<version>_universal.app.tar.gz` (the signed app, unpacked over the installed one), Windows' NSIS installer
+(run quietly, `installMode: passive`), and Linux's AppImage (replaced in place), `.deb` (`dpkg -i`) or `.rpm`
+(`rpm -U`), asking for the administrator's password for the last two. `latest.json` lists them under the keys Tauri's
+updater looks for, a copy's own installer's first; the publish job writes it with the same step as Kestrel's and
+Statim's, only its list of files differs.
+
+Before installing, the app stops the daemon it started, which runs from the app's own files, and restarts into the new
+version, which starts a new one. A daemon it didn't start (`grenier start`, or one left over from a crash) keeps
+running the old version until it's stopped. The cask says `auto_updates true`, so `brew upgrade` leaves a copy that
+updates itself alone.
 
 ## Signing
 
@@ -70,9 +92,10 @@ notarized: opened from a download, macOS asks for "Open Anyway" in System Settin
 
 ## Secrets
 
-Grenier has none of its own. The release reads the user-level secrets Kestrel and Statim share, set with the homeserver
-repository's `ci-secrets.sh`: `RELEASES_TOKEN` (Contents read and write on `alaibe/grenier` and `alaibe/homebrew-tap`;
-also the push mirror's password) and the `APPLE_*` ones, whose list is at the top of `release.yml`.
+The release reads the user-level secrets Kestrel and Statim share, set with the homeserver repository's
+`ci-secrets.sh`: `RELEASES_TOKEN` (Contents read and write on `alaibe/grenier` and `alaibe/homebrew-tap`; also the push
+mirror's password) and the `APPLE_*` ones, whose list is at the top of `release.yml`. Its own are the update key's,
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, set with `ci-secrets.sh tauri-key grenier`.
 
 ## Checking a build on a Mac
 
