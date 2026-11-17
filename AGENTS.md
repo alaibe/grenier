@@ -76,6 +76,6 @@ code.
   scripts run only for the packages listed there.
 - Every package is private until the release workflow publishes it; the name is settled (Grenier).
 - The version is in six files kept equal by `scripts/version.ts`; change them together (`check` says when they differ).
-- The site, `grenier.laibe.cc`, lives in the laibe repository; its guide (`content/grenier/guide`) is a verbatim copy of
-  `docs/guide`. After changing the guide, copy it there: `cp docs/guide/*.md ../laibe/content/grenier/guide/`. Links
-  between guide pages are `./page.md`, and a test refuses a bare `<word>` outside code, which the site would drop.
+- The site, `grenier.laibe.cc`, and its user guide live in the laibe repository (`../laibe/content/grenier/guide`).
+  When a change alters how Grenier is used, update the guide there; a new or renamed config key gets its line in
+  `configuration.md`. Outside code, write `\<word>`: the site drops a bare `<word>`.

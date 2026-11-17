@@ -39,10 +39,11 @@ grenier budget set --daily 10            # a limit
 grenier mcp install claude-code          # the exploration cache, over MCP
 ```
 
-The [guide](docs/guide/getting-started.md) covers the rest: [budgets and loop guards](docs/guide/proxy.md),
-[the exploration cache](docs/guide/exploration-cache.md), [teams](docs/guide/team.md),
-[personal data](docs/guide/personal-data.md), [the desktop app](docs/guide/desktop.md),
-[configuration](docs/guide/configuration.md) and [security](docs/guide/security.md).
+The [guide](https://grenier.laibe.cc/guide/getting-started) covers the rest:
+[budgets and loop guards](https://grenier.laibe.cc/guide/proxy),
+[the exploration cache](https://grenier.laibe.cc/guide/exploration-cache), [teams](https://grenier.laibe.cc/guide/team),
+[personal data](https://grenier.laibe.cc/guide/personal-data), [the desktop app](https://grenier.laibe.cc/guide/desktop),
+[configuration](https://grenier.laibe.cc/guide/configuration) and [security](https://grenier.laibe.cc/guide/security).
 
 ## Benchmark
 
@@ -74,7 +75,7 @@ pnpm build && pnpm --filter @grenier/bench bench --budget 4
 
 The daemon only listens on 127.0.0.1; API keys pass through and are never stored; nothing leaves your machine unless
 you share a repository or put a source in the vault, which is end-to-end encrypted. The ten rules and how they are enforced are
-in [docs/guide/security.md](docs/guide/security.md).
+in the guide's [security page](https://grenier.laibe.cc/guide/security).
 
 ## Development
 
