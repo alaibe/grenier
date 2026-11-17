@@ -1,0 +1,89 @@
+# Releases Grenier every night when main has commits since the last release, as Kestrel's nightly does.
+#
+# On the home runner, `due` counts the commits since the last `v*` tag that change what ships (not only the workflows,
+# docs/, tests/, bench/ or the top-level notes); with none, the run ends there, and with no tag yet the first release is
+# due. Otherwise the Mac runs the tests, moves a version that's already tagged to its next patch in every version file
+# (scripts/version.ts) and commits it, then tags `v<version>` and pushes both over SSH, as Anthony. A tag pushed with
+# the job's own token starts no workflow; this one starts release.yml. Its "Run workflow" button does the same at once.
+#
+# For now it runs only by hand: the schedule, 21:00 UTC (22:00 in Paris in winter, an hour before Kestrel's nightly),
+# goes in once the owner has chosen to publish the first release. The job waits for the Mac when it's asleep.
+
+name: Nightly release
+
+on:
+  workflow_dispatch:
+
+# One run at a time, never cancelled: a cancelled one could stop between its version commit and its tag.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  ORIGIN: ssh://git@git.laibe.cc:2222/anthony/grenier.git
+
+jobs:
+  due:
+    runs-on: home-linux
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+    steps:
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - id: due
+        name: Commits since the last release
+        run: |
+          LAST=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+          if [ -z "$LAST" ]; then
+            echo "No release yet: the first is due."
+            echo "due=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          COUNT=$(git rev-list --count "$LAST..HEAD")
+          APP=$(git rev-list --count "$LAST..HEAD" -- . ':(exclude).forgejo' ':(exclude)docs' ':(exclude)tests' \
+            ':(exclude)bench' ':(exclude,glob)*.md')
+          echo "$COUNT commits since $LAST, $APP of them changing what ships"
+          if [ "$APP" -gt 0 ]; then echo "due=true" >> "$GITHUB_OUTPUT"; else echo "due=false" >> "$GITHUB_OUTPUT"; fi
+
+  tag:
+    needs: due
+    if: needs.due.outputs.due == 'true'
+    runs-on: mac
+    timeout-minutes: 30
+    steps:
+      # actions/checkout adds a safe.directory to the global git config: a throwaway one, not Anthony's ~/.gitconfig.
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+        env:
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/gitconfig
+
+      - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: JavaScript packages
+        run: pnpm install --frozen-lockfile
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Version, commit and tag
+        run: |
+          [ -z "$(git status --porcelain)" ] || { git status --short; echo "the checkout isn't clean" >&2; exit 1; }
+          V=$(node scripts/version.ts check)
+          if git rev-parse -q --verify "refs/tags/v$V" > /dev/null; then
+            V=$(node scripts/version.ts bump)
+            git diff --stat
+            git -c user.name="Grenier nightly" -c user.email="nightly@git.laibe.cc" commit -q -am "Grenier $V"
+            git push "$ORIGIN" HEAD:main
+          fi
+          git tag "v$V"
+          git push "$ORIGIN" "v$V"
+          echo "Tagged v$V: release.yml builds it."
