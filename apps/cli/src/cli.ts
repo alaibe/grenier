@@ -7,6 +7,7 @@ import { report } from "./commands/report.ts";
 import { resume } from "./commands/resume.ts";
 import { run as runAgent } from "./commands/run.ts";
 import { status } from "./commands/status.ts";
+import { statusline } from "./commands/statusline.ts";
 import { team } from "./commands/team.ts";
 import { vault } from "./commands/vault.ts";
 import { runDaemon, startDaemon, stopDaemon } from "./daemon.ts";
@@ -24,6 +25,7 @@ Commands:
                              Tokens, cache hit rate, cost and savings
   report --cache [--since 7d]
                              Prompt-cache writes and reads by session, flagging churn
+  statusline [--today]       One line for Claude Code's status line: what this session and today spent and saved
   budget                     Show the spending limits
   budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]
                              Set limits in dollars ("off" removes one)
@@ -104,6 +106,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
         return await runAgent(rest, io);
       case "report":
         io.out(await report(rest, io));
+        return 0;
+      case "statusline":
+        io.out(await statusline(rest, io));
         return 0;
       case "budget":
         for (const line of await budget(rest, io)) io.out(line);

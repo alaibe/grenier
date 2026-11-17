@@ -105,11 +105,9 @@ export function parseSince(value: string, now: number): number {
 
 const COLUMNS = ["", "requests", "input", "cache write", "cache read", "output", "cache hit", "cost", "saved"];
 
-/** A plain-text table of report rows with a total line. */
-export function formatReport(rows: readonly ReportRow[]): string {
-  if (rows.length === 0) return "No requests in this period.";
-
-  const total = rows.reduce<ReportRow>(
+/** The sum of report rows, as one row with the key "total". */
+export function totalOf(rows: readonly ReportRow[]): ReportRow {
+  return rows.reduce<ReportRow>(
     (sum, row) => ({
       key: "total",
       requests: sum.requests + row.requests,
@@ -133,7 +131,13 @@ export function formatReport(rows: readonly ReportRow[]): string {
       saved: 0,
     },
   );
+}
 
+/** A plain-text table of report rows with a total line. */
+export function formatReport(rows: readonly ReportRow[]): string {
+  if (rows.length === 0) return "No requests in this period.";
+
+  const total = totalOf(rows);
   const cells = (row: ReportRow) => [
     row.key,
     String(row.requests),
@@ -163,4 +167,20 @@ function tokens(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (count >= 10_000) return `${Math.round(count / 1000)}k`;
   return String(count);
+}
+
+const spentAndSaved = (row: ReportRow) => `$${row.cost.toFixed(2)} spent, $${row.saved.toFixed(2)} saved`;
+
+/**
+ * One line for an agent's status bar: what its session spent and saved, then today. `session` is null for an agent
+ * not started by `grenier run`.
+ */
+export function formatStatusLine(today: ReportRow, session: ReportRow | null): string {
+  const first = session ? `session ${spentAndSaved(session)}` : "not started with grenier run";
+  return `grenier · ${first} · today ${spentAndSaved(today)}`;
+}
+
+/** Today's spending and savings alone, for the desktop app's menu bar. */
+export function formatToday(today: ReportRow): string {
+  return `$${today.cost.toFixed(2)} spent · $${today.saved.toFixed(2)} saved`;
 }

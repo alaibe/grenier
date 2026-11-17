@@ -1,4 +1,15 @@
-import { buildReport, cacheHitRate, formatReport, loadPrices, parseSince, repoName, startOfToday } from "@grenier/log";
+import {
+  buildReport,
+  cacheHitRate,
+  formatReport,
+  formatStatusLine,
+  formatToday,
+  loadPrices,
+  parseSince,
+  repoName,
+  startOfToday,
+  totalOf,
+} from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { describe, expect, it } from "vitest";
 
@@ -68,6 +79,33 @@ describe("formatReport", () => {
 
   it("says so when there is nothing to show", () => {
     expect(formatReport([])).toBe("No requests in this period.");
+  });
+});
+
+describe("totalOf, formatStatusLine and formatToday", () => {
+  const today = totalOf(buildReport([row({ cost: 1.5 }), row({ sessionId: "s2", cost: 2 })], "session", prices));
+
+  it("adds up rows, and is all zeros for none", () => {
+    expect(today).toMatchObject({ key: "total", requests: 2, cost: 3.5, cacheReadTokens: 1800 });
+    expect(today.saved).toBeGreaterThan(0);
+    expect(totalOf([])).toMatchObject({ requests: 0, cost: 0, saved: 0 });
+  });
+
+  it("shows the session, then today", () => {
+    const session = totalOf(buildReport([row({ cost: 1.5 })], "session", prices));
+    expect(formatStatusLine(today, session)).toMatch(
+      /^grenier · session \$1\.50 spent, \$\d+\.\d\d saved · today \$3\.50 spent, \$\d+\.\d\d saved$/,
+    );
+  });
+
+  it("says when the agent was not started with grenier run", () => {
+    expect(formatStatusLine(totalOf([]), null)).toBe(
+      "grenier · not started with grenier run · today $0.00 spent, $0.00 saved",
+    );
+  });
+
+  it("shows today alone for the menu bar", () => {
+    expect(formatToday(totalOf([]))).toBe("$0.00 spent · $0.00 saved");
   });
 });
 

@@ -28,8 +28,8 @@ export function agentArgs(program: string, args: readonly string[], openaiBaseUr
 
 /**
  * `grenier run -- <command>`: registers a session, points the command at the proxy (ANTHROPIC_BASE_URL,
- * OPENAI_BASE_URL, and Codex's own setting), runs it, and closes the session when it exits. Returns the command's
- * exit code.
+ * OPENAI_BASE_URL, and Codex's own setting), runs it with the session's id in GRENIER_SESSION, and closes the session
+ * when it exits. Returns the command's exit code.
  */
 export async function run(argv: string[], io: Io, dependencies: RunDependencies = { startDaemon }): Promise<number> {
   const command = argv[0] === "--" ? argv.slice(1) : argv;
@@ -61,7 +61,7 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
     const child = spawn(program, agentArgs(program, args, openaiBaseUrl), {
       stdio: "inherit",
       cwd: io.cwd,
-      env: { ...io.env, ANTHROPIC_BASE_URL: baseUrl, OPENAI_BASE_URL: openaiBaseUrl },
+      env: { ...io.env, ANTHROPIC_BASE_URL: baseUrl, OPENAI_BASE_URL: openaiBaseUrl, GRENIER_SESSION: id },
     });
     // Ctrl-C reaches the command directly; a second copy from here would make an agent quit instead of interrupting.
     const ignore = () => {};

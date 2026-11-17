@@ -205,8 +205,54 @@ describe("grenier report", () => {
   });
 });
 
+describe("grenier statusline", () => {
+  beforeEach(async () => {
+    await grenier("status");
+    const store = db();
+    const yesterday = Date.now() - 2 * 86_400_000;
+    await store.sessions.create({ id: "s1", startedAt: yesterday });
+    await store.sessions.create({ id: "s2", startedAt: Date.now() });
+    await store.usage.add({ sessionId: "s1", ts: yesterday, model: "claude-opus-5-5", cost: 4 });
+    await store.usage.add({ sessionId: "s1", ts: Date.now(), model: "claude-opus-5-5", cost: 0.5 });
+    await store.usage.add({ sessionId: "s2", ts: Date.now(), model: "claude-opus-5-5", cost: 0.25 });
+    await store.close();
+  });
+
+  async function statusline(env: NodeJS.ProcessEnv, ...argv: string[]) {
+    const out: string[] = [];
+    const base = io(out);
+    const code = await run(["statusline", ...argv], { ...base, env: { ...base.env, ...env } });
+    return { code, out: out.join("\n") };
+  }
+
+  it("shows the session grenier run started, then today", async () => {
+    expect(await statusline({ GRENIER_SESSION: "s1" })).toEqual({
+      code: 0,
+      out: "grenier · session $4.50 spent, $0.00 saved · today $0.75 spent, $0.00 saved",
+    });
+  });
+
+  it("finds the session in the base URL when GRENIER_SESSION is not set", async () => {
+    expect((await statusline({ ANTHROPIC_BASE_URL: "http://127.0.0.1:7788/s/s2" })).out).toBe(
+      "grenier · session $0.25 spent, $0.00 saved · today $0.75 spent, $0.00 saved",
+    );
+  });
+
+  it("says when the agent was not started with grenier run", async () => {
+    const today = "today $0.75 spent, $0.00 saved";
+    expect((await statusline({})).out).toBe(`grenier · not started with grenier run · ${today}`);
+    expect((await statusline({ ANTHROPIC_BASE_URL: "http://127.0.0.1:7788" })).out).toBe(
+      `grenier · not started with grenier run · ${today}`,
+    );
+  });
+
+  it("shows today alone with --today, whatever the session", async () => {
+    expect((await statusline({ GRENIER_SESSION: "s1" }, "--today")).out).toBe("$0.75 spent · $0.00 saved");
+  });
+});
+
 describe("grenier run", () => {
-  it("gives the command the session's base URL, records the session and returns the command's exit code", async () => {
+  it("gives the command the session's base URL and id, records the session and returns its exit code", async () => {
     execFileSync("git", ["init", "-q", dir]);
     const err: string[] = [];
     const out = join(dir, "out.txt");
@@ -215,7 +261,7 @@ describe("grenier run", () => {
         "--",
         process.execPath,
         "-e",
-        `require("fs").writeFileSync(${JSON.stringify(out)}, process.env.ANTHROPIC_BASE_URL); process.exit(3)`,
+        `const { env } = process; require("fs").writeFileSync(${JSON.stringify(out)}, \`\${env.ANTHROPIC_BASE_URL} \${env.GRENIER_SESSION}\`); process.exit(3)`,
       ],
       io([], err),
       { startDaemon: async () => ({ pid: 1 }) },
@@ -227,7 +273,7 @@ describe("grenier run", () => {
     await store.close();
     expect(session).toMatchObject({ client: "node", cwd: dir, repoRoot: dir, repoId: null });
     expect(session?.endedAt).not.toBeNull();
-    expect(readFileSync(out, "utf8")).toBe(`http://127.0.0.1:7788/s/${session?.id}`);
+    expect(readFileSync(out, "utf8")).toBe(`http://127.0.0.1:7788/s/${session?.id} ${session?.id}`);
     expect(err[0]).toBe(`grenier: session ${session?.id}, through http://127.0.0.1:7788/s/${session?.id}`);
   });
 
