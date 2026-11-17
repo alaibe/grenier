@@ -1,6 +1,6 @@
 {
   "name": "@grenier/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Grenier's desktop app: usage, sources, clients and scopes, the audit log and the review queue. A Tauri shell that runs the daemon as a sidecar.",
   "license": "MIT",
