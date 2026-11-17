@@ -42,3 +42,9 @@ calendar.
 
 **First comment:** Why we built it, the benchmark table with its method (`bench/`), what stays on your machine, and the
 plan for what comes next.
+
+**Links:** website `https://grenier.laibe.cc`, source `https://github.com/alaibe/grenier`.
+
+**Images** (in `product-hunt/`, shot from the live site at 1270×760, twice that in pixels): the thumbnail
+`logo-240.png`, then the gallery in order: `gallery-1-home.png`, `gallery-2-features.png`, `gallery-3-benchmark.png`,
+`gallery-4-team.png`, `gallery-5-security.png`, `gallery-6-guide.png`.
