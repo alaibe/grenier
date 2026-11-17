@@ -75,7 +75,7 @@ also the push mirror's password) and the `APPLE_*` ones, whose list is at the to
 
 ## Checking a build on a Mac
 
-The Rust is `apps/desktop/src-tauri/rust-toolchain.toml`'s. Without notarizing or uploading anything:
+The Rust is `rust-toolchain.toml`'s. Without notarizing or uploading anything:
 
 ```bash
 pnpm build

@@ -1,0 +1,6 @@
+# The Rust the desktop app (apps/desktop/src-tauri) is built with, here and on the release runners, with every target
+# a release builds. At the root: Tauri's CLI asks rustc for the host from apps/desktop.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]

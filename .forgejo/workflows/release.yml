@@ -169,12 +169,13 @@ jobs:
             [ -n "${!name}" ] || { echo "The $name secret is not set." >&2; exit 1; }
           done
 
-      # The Rust in apps/desktop/src-tauri/rust-toolchain.toml, with its targets, through the Mac's own rustup.
+      # The Rust in rust-toolchain.toml, with its targets, through the Mac's own rustup.
       - name: The Mac's tools
         run: |
           WORK=$(mktemp -d)
           echo "WORK=$WORK" >> "$GITHUB_ENV"
-          (cd apps/desktop/src-tauri && { rustup show active-toolchain || rustup install; } && cargo --version)
+          rustup install --no-self-update
+          cargo --version
           # Whole outputs: `| head` would end a command early, and the pipe's SIGPIPE fails the step.
           xcodebuild -version; node --version; pnpm --version; gh --version
 
@@ -286,17 +287,16 @@ jobs:
           echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
           sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
 
-      # The Rust in apps/desktop/src-tauri/rust-toolchain.toml. The Linux image has no rustup: a minimal one goes in
+      # The Rust in rust-toolchain.toml. The Linux image has no rustup: a minimal one goes in
       # first, without a default toolchain, and on the PATH for the next steps.
       - name: Rust
-        working-directory: apps/desktop/src-tauri
         run: |
           if ! command -v rustup > /dev/null; then
             curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
             PATH="$HOME/.cargo/bin:$PATH"
           fi
-          rustup show active-toolchain || rustup install
+          rustup install --no-self-update
           cargo --version
 
       - uses: https://github.com/pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -367,14 +367,13 @@ jobs:
           sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
 
       - name: Rust
-        working-directory: apps/desktop/src-tauri
         run: |
           if ! command -v rustup > /dev/null; then
             curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
             PATH="$HOME/.cargo/bin:$PATH"
           fi
-          rustup show active-toolchain || rustup install
+          rustup install --no-self-update
           cargo --version
       - uses: https://github.com/taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
