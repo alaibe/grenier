@@ -312,9 +312,9 @@ Each task lists what must be true before its box is ticked.
 ### Phase 4: launch
 
 - [x] README with install, a quick start and the benchmark table
-- [ ] Docs site generated from `docs/`
-  - Built on laibe's `grenier-site` branch (not pushed), on the model of Statim's site: `grenier.laibe.cc`, its guide a
-    verbatim copy of `docs/guide`, laibe's checks green. Goes live once the host has a Cloudflare Tunnel hostname and the branch is merged.
+- [x] Docs site generated from `docs/`
+  - Live on `grenier.laibe.cc` since 2026-11-17, served by laibe's app on the model of Statim's site: its guide a
+    verbatim copy of `docs/guide`, with Markdown twins, `llms.txt` and `search.json`; laibe's checks green.
 - [x] Demo video script: the same task run cold, then cached, with the token counter on screen
   - `docs/launch/demo-script.md`.
 - [ ] Show HN post, then Product Hunt launch with real benchmark numbers
