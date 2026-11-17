@@ -1,7 +1,7 @@
 import { ConfigError, defaultConfig, parseConfig, parsePrices } from "@grenier/core";
 import { describe, expect, it } from "vitest";
 
-const PLAN_EXAMPLE = `
+const EXAMPLE = `
 [proxy]
 port = 7788
 upstream_anthropic = "https://api.anthropic.com"
@@ -54,8 +54,8 @@ describe("defaultConfig", () => {
 });
 
 describe("parseConfig", () => {
-  it("reads the example config from the plan", () => {
-    const config = parseConfig(PLAN_EXAMPLE, "config.toml");
+  it("reads a full example config", () => {
+    const config = parseConfig(EXAMPLE, "config.toml");
     expect(config.budgets).toEqual({ daily: 10, session: 3 });
     expect(config.guards.on_loop).toBe("notify");
   });

@@ -42,7 +42,8 @@ grenier mcp install claude-code          # the exploration cache, over MCP
 The [guide](https://grenier.laibe.cc/guide/getting-started) covers the rest:
 [budgets and loop guards](https://grenier.laibe.cc/guide/proxy),
 [the exploration cache](https://grenier.laibe.cc/guide/exploration-cache), [teams](https://grenier.laibe.cc/guide/team),
-[personal data](https://grenier.laibe.cc/guide/personal-data), [the desktop app](https://grenier.laibe.cc/guide/desktop),
+[personal data](https://grenier.laibe.cc/guide/personal-data),
+[the desktop app](https://grenier.laibe.cc/guide/desktop),
 [configuration](https://grenier.laibe.cc/guide/configuration) and [security](https://grenier.laibe.cc/guide/security).
 
 ## Benchmark
@@ -84,7 +85,6 @@ pnpm install
 pnpm format && pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e
 ```
 
-[PLAN.md](PLAN.md) is the build plan, [docs/decisions.md](docs/decisions.md) records every choice it left open, and
 [AGENTS.md](AGENTS.md) is the guide for working in this repository.
 
 This repository lives on git.laibe.cc, which runs its checks. The GitHub copy is a mirror.

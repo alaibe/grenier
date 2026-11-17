@@ -2,7 +2,7 @@
   "name": "@grenier/connectors",
   "version": "0.0.0",
   "private": true,
-  "description": "Where Grenier reads from: git repositories (phase 1); markdown, IMAP and CalDAV/ICS (phase 3). Node only.",
+  "description": "Where Grenier reads from: git repositories, markdown, IMAP and CalDAV/ICS. Node only.",
   "license": "MIT",
   "type": "module",
   "exports": {

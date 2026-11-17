@@ -1,9 +1,25 @@
 # Working in this repository
 
-`PLAN.md` is the build plan: work one phase at a time, one task and its tests at a time, and tick a task's box only
-once its acceptance criteria pass in CI. Anything the plan leaves open: pick the simplest option and add a line to
-`docs/decisions.md`. Stop and ask before building anything that depends on an item under **Open decisions**. Never
-weaken a rule under **Security and privacy rules** to make a test pass.
+## Security and privacy rules
+
+Hard rules: a failing test is never a reason to relax one.
+
+- The daemon binds to `127.0.0.1` only. Its HTTP endpoints need a client token, except the proxy path `grenier run`
+  uses. Client tokens are stored hashed, and a revoked one fails on its next call.
+- API keys and auth headers (`x-api-key`, `authorization`) are forwarded, never stored, logged or sent to the team
+  server.
+- Nothing leaves the machine by default: team sharing and sync are opt-in, per repository and per source.
+- The team server never stores file contents, prompts or keys, and a summary quotes at most a short snippet of code:
+  answers and summaries pass `unshareable` (`@grenier/core/policy`) on both sides, and usage goes up as numbers.
+- The vault key never leaves the user's devices: `seal`/`open` (`@grenier/core/vault`) run locally; the server stores
+  bytes it cannot read.
+- Personal data leaves the daemon only through `packages/index/src/personal.ts`: the client's scope filters it, the
+  audit row is written first (no row, no read), and every item is redacted (`redact` in `@grenier/core/policy`) and
+  wrapped in an untrusted-data block. A new read path goes through `deliver` there, and its test belongs in
+  `tests/unit/personal/scopes.test.ts`, against every scope.
+- The proxy changes a request body only when an opt-in flag is on, and logs every change.
+- Dependencies are exact versions and CI audits them; pnpm refuses releases younger than 7 days
+  (`pnpm-workspace.yaml`), and install scripts run only for the packages listed there.
 
 ## Before you finish
 
@@ -25,8 +41,9 @@ code.
 - `packages/*` are libraries, `apps/*` are what runs: `apps/cli` is the `grenier` command and the daemon.
   `core` holds config and policy (budgets, loop detection), `store` the schema and SQLite, `log` prices, cost and
   reports, `index` the exploration cache, embeddings and team sync, `gateway` the proxy (Anthropic, and OpenAI under
-  `/openai/`) and the MCP server (Hono), `connectors` git. `apps/server` is the team server, a Cloudflare Worker (D1,
-  a Durable Object per team), typechecked on its own (`apps/server/tsconfig.json`) and bundled into the CLI's
+  `/openai/`) and the MCP server (Hono), `connectors` the sources (git, markdown, IMAP, CalDAV/ICS). `apps/server` is
+  the team server, a Cloudflare Worker (D1, a Durable Object per team), typechecked on its own
+  (`apps/server/tsconfig.json`) and bundled into the CLI's
   `dist/server` for `grenier team deploy`. `apps/desktop` is the Tauri app (React UI in `src`, Rust shell in
   `src-tauri`), talking to the daemon's admin API (`packages/gateway/src/admin.ts`).
 - The desktop app bundle: `pnpm build`, `pnpm --filter @grenier/desktop sidecar [--target <triple>]` (downloads Node's
@@ -58,22 +75,10 @@ code.
 - The embedding model is downloaded on first use and checked against the SHA-256 pinned in
   `packages/index/src/node.ts`; a new model or revision is a new pin, and its vectors never mix with the old ones'
   (they are stored with the model's name). `tests/e2e/embeddings.test.ts` keeps its copy in `node_modules/.cache`.
-- The team server never stores file contents, prompts or keys: answers and summaries pass `unshareable`
-  (`@grenier/core/policy`) on both sides, and usage goes up as numbers. Its own migrations are in
-  `apps/server/migrations`, applied by Wrangler.
-- Personal data leaves the daemon only through `packages/index/src/personal.ts`: the client's scope filters it, the
-  audit row is written first (no row, no read), and every item is redacted (`redact` in `@grenier/core/policy`) and
-  wrapped in an untrusted-data block. A new read path goes through `deliver` there, and its test belongs in
-  `tests/unit/personal/scopes.test.ts`, against every scope.
-- The vault key never leaves the user's devices: `seal`/`open` (`@grenier/core/vault`) run locally; the server stores
-  bytes it cannot read.
+- The team server's own migrations are in `apps/server/migrations`, applied by Wrangler.
 - No test touches the real `~/.grenier`: set `GRENIER_HOME` to a temporary directory.
 - Prices live only in `packages/log/prices.toml` (overridable under `[prices]` in config.toml). Never write a price
   anywhere else.
-- The proxy never changes a request body unless an opt-in flag is on, and logs every change. It never stores or logs
-  `x-api-key` or `authorization`.
-- Dependencies are exact versions, and pnpm refuses releases younger than 7 days (`pnpm-workspace.yaml`). Install
-  scripts run only for the packages listed there.
 - Every package is private until the release workflow publishes it; the name is settled (Grenier).
 - The version is in six files kept equal by `scripts/version.ts`; change them together (`check` says when they differ).
 - The site, `grenier.laibe.cc`, and its user guide live in the laibe repository (`../laibe/content/grenier/guide`).
