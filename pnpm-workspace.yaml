@@ -19,3 +19,9 @@ ignoredBuiltDependencies:
 # the patched 0.25 that drizzle-kit itself uses.
 overrides:
   "@esbuild-kit/core-utils>esbuild": 0.25.12
+
+# picomatch through 4.0.7 hangs on crafted extglobs (GHSA-fc5q-39xc-vjpf) and no release fixes it yet. Only vite and
+# vitest use it, on our own globs, and neither the CLI's bundle nor the app carries it. Remove this once one does.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf
