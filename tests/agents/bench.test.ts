@@ -36,9 +36,15 @@ interface Content {
 }
 interface Request {
   model?: string;
+  system?: unknown;
   tools?: { name: string }[];
   messages?: { role: string; content: string | Content[] }[];
 }
+
+const ASK = "mcp__grenier__ask_codebase";
+const RECORD = "mcp__grenier__record_answer";
+/** Input tokens of the call made once ToolSearch has loaded Grenier's tools: small next to the prompt. */
+const LOADED = 500;
 
 // Settings of a Claude Code session this test may run inside stay out of the one it starts.
 const outside = Object.fromEntries(
@@ -56,44 +62,53 @@ function textOf(content: unknown): string {
   return Array.isArray(content) ? content.map((block: { text?: string }) => block.text ?? "").join("") : "";
 }
 
-/** What the stand-in model does next: ask the cache, record on a miss, answer on a hit or once recorded. */
+/**
+ * What the stand-in model does next: ask the cache, record on a miss, answer on a hit or once recorded. Claude Code
+ * defers MCP tools: it names them in the prompt, and a model loads them with ToolSearch before it calls one.
+ */
 function next(request: Request): [Block, number] {
-  if (!request.tools?.some((tool) => tool.name === "mcp__grenier__ask_codebase")) {
-    return [{ type: "text", text: "ok" }, 25];
-  }
+  const loaded = request.tools?.some((tool) => tool.name === ASK) ?? false;
+  const deferred = !loaded && JSON.stringify([request.system, request.messages]).includes(ASK);
+  if (!loaded && !deferred) return [{ type: "text", text: "ok" }, 25];
+  const ask: [Block, number] = [
+    { type: "tool_use", id: `toolu_ask_${toolResults.length}`, name: ASK, input: { question: QUESTION } },
+    20_000,
+  ];
+  const load: [Block, number] = [
+    {
+      type: "tool_use",
+      id: `toolu_search_${toolResults.length}`,
+      name: "ToolSearch",
+      input: { query: `select:${ASK},${RECORD}`, max_results: 5 },
+    },
+    20_000,
+  ];
   const messages = request.messages ?? [];
   // Claude Code may follow the tool results with a system message, and merges consecutive turns into one.
   const last = messages.findLast((message) => message.role !== "system")?.content;
   const result = Array.isArray(last) ? last.findLast((block) => block.type === "tool_result") : undefined;
-  if (!result) {
-    return [
-      {
-        type: "tool_use",
-        id: `toolu_ask_${toolResults.length}`,
-        name: "mcp__grenier__ask_codebase",
-        input: { question: QUESTION },
-      },
-      20_000,
-    ];
-  }
+  if (!result) return loaded ? ask : load;
   const call = messages
     .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
     .find((block) => block.type === "tool_use" && block.id === result.tool_use_id);
   const name = call?.name ?? "unknown";
+  if (name === "ToolSearch") {
+    return loaded ? [ask[0], LOADED] : [{ type: "text", text: "ToolSearch did not load the tools" }, 25];
+  }
   const text = textOf(result.content);
   toolResults.push({ name, text });
-  if (name === "mcp__grenier__ask_codebase" && !/"status":\s*"hit"/.test(text)) {
+  if (name === ASK && !/"status":\s*"hit"/.test(text)) {
     return [
       {
         type: "tool_use",
         id: `toolu_record_${toolResults.length}`,
-        name: "mcp__grenier__record_answer",
+        name: RECORD,
         input: { question: QUESTION, answer: ANSWER, files: ["app.ts"] },
       },
       20_000,
     ];
   }
-  return [{ type: "text", text: ANSWER }, name === "mcp__grenier__ask_codebase" ? 2_000 : 20_000];
+  return [{ type: "text", text: ANSWER }, name === ASK ? 2_000 : 20_000];
 }
 
 describe.skipIf(claude === null)("the benchmark with Claude Code", () => {
@@ -176,7 +191,8 @@ describe.skipIf(claude === null)("the benchmark with Claude Code", () => {
     expect(toolResults[2]?.text).toContain(ANSWER);
 
     const [result] = results;
-    // Three model calls cold, two warm, and the odd side request Claude Code makes without tools (25 tokens each).
+    // Cold: ToolSearch, ask, record, answer; warm: ToolSearch, ask, answer; the loaded step is 500 tokens, and the odd
+    // side request Claude Code makes without tools is 25.
     expect(result?.cold.inputTokens).toBeGreaterThanOrEqual(60_000);
     expect(result?.warm.inputTokens).toBeGreaterThanOrEqual(22_000);
     expect(result?.warm.inputTokens).toBeLessThan(23_000);
