@@ -24,6 +24,24 @@ hosted service.
   marked as untrusted. Memories an AI proposes wait for your approval.
 - **A desktop app** for all of it: dashboard, sources, clients and scopes, audit log, review queue.
 
+## Why not just an MCP server?
+
+Grenier is partly one: `grenier mcp install` connects it like any other. What it adds sits behind those tools, and in
+the part that cannot be a tool.
+
+- **The proxy sees what a tool cannot.** An MCP server runs only when the model calls it, and never sees the model's
+  own requests. It cannot count their tokens or cost, refuse one that would break a budget, or pause a session that
+  loops. `grenier run` puts Grenier on the path to the API instead.
+- **Cached answers expire on their own.** A memory server returns what was written, however old. Grenier keeps the git
+  blob hash of every file an answer came from, and once one of them changes the answer comes back stale, with the
+  files to re-read.
+- **One guarded door to personal data.** A mail or calendar connector gives the model the whole account, often with
+  tools that send and delete. Grenier's tools only read, each client reaches only the sources its scope allows, every
+  read is logged before it returns, and what comes back is redacted and marked as untrusted.
+
+What it does not do: the cache works only when the agent asks it first. Grenier's MCP instructions tell it to, and
+nothing forces it. And if you want an assistant that answers your mail, a mail connector does that; Grenier only reads.
+
 ## Quick start
 
 On a Mac, Homebrew installs the desktop app, with the daemon inside, and the `grenier` command. Open Grenier once from
@@ -39,8 +57,8 @@ grenier mcp install claude-code          # the exploration cache, over MCP
 ```
 
 On Linux, the `.deb` and the `.rpm` on the [download page](https://grenier.laibe.cc/download) install the app and the
-command, as `/usr/bin/grenier`. On Windows, or with the AppImage, the command is built from source, with Node 22 or
-later and pnpm, in any shell:
+command, as `/usr/bin/grenier`, and the Windows installer puts it on your PATH. With the DMG or the AppImage, the
+command is built from source, with Node 22 or later and pnpm, in any shell:
 
 ```bash
 git clone https://github.com/alaibe/grenier.git
