@@ -262,7 +262,8 @@ section > h2 {
   font-weight: 400;
 }
 
-section > .hint {
+section > .hint,
+.table + .hint {
   margin-top: 8px;
 }
 

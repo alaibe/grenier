@@ -1,7 +1,7 @@
 import { type FormEvent, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type ClientView } from "../api.ts";
-import { Loading, Notice, Page, useAction, useLoad } from "../ui.tsx";
+import { Empty, Loading, Notice, Page, useAction, useLoad } from "../ui.tsx";
 
 const load = () => api<{ clients: ClientView[]; scopes: string[] }>("/clients");
 
@@ -12,7 +12,6 @@ export function Clients(_: ViewProps) {
   const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
   const [copied, setCopied] = useState<boolean | null>(null);
   const tokenText = useRef<HTMLElement>(null);
-  const formOpen = adding || (data !== null && data.clients.length === 0 && !created);
 
   const add = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -46,9 +45,15 @@ export function Clients(_: ViewProps) {
   return (
     <Page
       title="Clients and scopes"
-      intro="Each app that reads your personal data through Grenier has its own token, and reads only the scopes you give it."
+      intro={
+        <>
+          Each app that reads your personal data through Grenier has its own token, and reads only the scopes you give
+          it. <code>grenier mcp install</code> creates the client for the app it installs into; create one here only for
+          another app or a script.
+        </>
+      }
       action={
-        !formOpen && (
+        !adding && (
           <button type="button" className="quiet" onClick={() => setAdding(true)}>
             New client
           </button>
@@ -79,9 +84,10 @@ export function Clients(_: ViewProps) {
         </div>
       )}
 
-      {formOpen && (
+      {adding && (
         <form className="panel form" onSubmit={add}>
           <h2>New client</h2>
+          <p className="hint">You get a token to give the app yourself. It is not installed anywhere.</p>
           <label>
             Name
             <input name="name" required pattern="[\w.@\-]+" placeholder="claude-desktop" autoComplete="off" />
@@ -102,16 +108,20 @@ export function Clients(_: ViewProps) {
             <button type="submit" disabled={action.busy !== null}>
               Create client
             </button>
-            {data && data.clients.length > 0 && (
-              <button type="button" className="quiet" onClick={() => setAdding(false)}>
-                Cancel
-              </button>
-            )}
+            <button type="button" className="quiet" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
           </div>
         </form>
       )}
 
       {!data && !error && <Loading what="clients" />}
+      {data && data.clients.length === 0 && !adding && !created && (
+        <Empty>
+          <p>No app reads your personal data yet. Install Grenier in one with the scopes it may read:</p>
+          <code>grenier mcp install claude-desktop --scope notes,calendar</code>
+        </Empty>
+      )}
       {data && data.clients.length > 0 && (
         <div className="table">
           <table>
@@ -175,6 +185,12 @@ export function Clients(_: ViewProps) {
             </tbody>
           </table>
         </div>
+      )}
+      {data && data.clients.length > 0 && (
+        <p className="hint">
+          To change what an app may read, run <code>grenier mcp install</code> for it again with the new{" "}
+          <code>--scope</code>: its old token is revoked.
+        </p>
       )}
     </Page>
   );

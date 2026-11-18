@@ -107,10 +107,14 @@ describe("grenier mcp install", () => {
 describe("client tokens from grenier mcp install", () => {
   it("gives each app a token with the scope asked for, and a new one replaces the old", async () => {
     const { openSqliteStore } = await import("@grenier/store/sqlite");
-    await install(["claude-desktop", "--scope", "notes,calendar"], io, { home, platform: "linux" });
+    expect(await install(["claude-desktop", "--scope", "notes,calendar"], io, { home, platform: "linux" })).toContain(
+      "may read notes, calendar",
+    );
     const config = JSON.parse(readFileSync(join(home, ".config", "Claude", "claude_desktop_config.json"), "utf8"));
     const first = config.mcpServers.grenier.env.GRENIER_CLIENT_TOKEN;
-    await install(["claude-desktop"], io, { home, platform: "linux" });
+    expect(await install(["claude-desktop"], io, { home, platform: "linux" })).toContain(
+      "reads no personal data; install again with --scope",
+    );
 
     const store = openSqliteStore(join(home, ".grenier", "grenier.db"));
     try {

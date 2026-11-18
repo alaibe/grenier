@@ -154,5 +154,9 @@ export async function install(
       ? withCodexServer(text, command, args, env)
       : withJsonServer(text, server, client === "claude-code" ? { type: "stdio" } : {}),
   );
-  return `Added Grenier's MCP server to ${path}, reading ${scopes.length > 0 ? scopes.join(", ") : "no personal data"}. Restart ${client} to load it.`;
+  const reads =
+    scopes.length > 0
+      ? `may read ${scopes.join(", ")}`
+      : "reads no personal data; install again with --scope notes,calendar (or mail, memory, a source's name) to change that";
+  return `Added Grenier's MCP server to ${path}, with a client token of its own that ${reads}. Restart ${client} to load it.`;
 }
