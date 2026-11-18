@@ -9,7 +9,7 @@ function base64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** A client token as clients are given them (`gc_` and 32 random bytes), and the SHA-256 kept instead (rule 8). */
+/** A client token as clients are given them (`gc_` and 32 random bytes), and the SHA-256 kept instead. */
 export async function newClientToken(): Promise<{ token: string; hash: string }> {
   const token = `gc_${base64Url(crypto.getRandomValues(new Uint8Array(32)))}`;
   return { token, hash: await sha256(token) };

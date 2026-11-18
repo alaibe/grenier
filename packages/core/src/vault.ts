@@ -1,5 +1,5 @@
 /**
- * End-to-end encryption for vault sync (rule 5): AES-256-GCM with Web Crypto, so the same code runs on Node and on
+ * End-to-end encryption for vault sync: AES-256-GCM with Web Crypto, so the same code runs on Node and on
  * Workers. The key is made and kept on the user's devices; the server only stores what `seal` returns.
  */
 

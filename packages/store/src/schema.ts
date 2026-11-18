@@ -133,7 +133,7 @@ export const answerEmbeddings = sqliteTable("answer_embeddings", {
   vector: blob("vector", { mode: "buffer" }).notNull(),
 });
 
-/** Repositories this machine shares with the team (rule 3: opt-in, per repository). */
+/** Repositories this machine shares with the team (opt-in, per repository). */
 export const teamRepos = sqliteTable("team_repos", {
   repoId: text("repo_id").primaryKey(),
   root: text("root").notNull(),
@@ -157,7 +157,7 @@ export const sources = sqliteTable("sources", {
   /** The connector's incremental-sync cursors, as JSON. */
   state: text("state", { mode: "json" }).$type<Record<string, unknown>>().notNull().default({}),
   lastSync: integer("last_sync"),
-  /** Whether `grenier vault share` put it in the encrypted vault: sync is opt-in per source (rule 3). */
+  /** Whether `grenier vault share` put it in the encrypted vault: sync is opt-in per source. */
   vault: integer("vault", { mode: "boolean" }).notNull().default(false),
 });
 
@@ -181,7 +181,7 @@ export const items = sqliteTable(
   (table) => [index("items_source").on(table.sourceId), index("items_ts").on(table.ts)],
 );
 
-/** Every read of personal data, written before the result is returned (rule 7). */
+/** Every read of personal data, written before the result is returned. */
 export const audit = sqliteTable(
   "audit",
   {
@@ -223,7 +223,6 @@ export const budgets = sqliteTable(
 export const clients = sqliteTable("clients", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
-  /** Tokens are stored hashed. */
   tokenHash: text("token_hash").notNull().unique(),
   /** Source ids this client may read. */
   scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull().default([]),

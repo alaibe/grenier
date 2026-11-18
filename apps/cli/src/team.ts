@@ -18,7 +18,7 @@ export function teamClient(config: Config, paths: GrenierPaths, env: NodeJS.Proc
   return token ? { url: config.team.url, token } : null;
 }
 
-/** A member token as the team server makes them, and the SHA-256 it keeps instead (rule 8). */
+/** A member token as the team server makes them, and the SHA-256 it keeps instead. */
 export function newTeamToken(): { token: string; hash: string } {
   const token = `gt_${randomBytes(32).toString("base64url")}`;
   return { token, hash: createHash("sha256").update(token).digest("hex") };

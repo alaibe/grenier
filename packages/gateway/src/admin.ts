@@ -8,7 +8,7 @@ import { Hono } from "hono";
 export interface AdminOptions {
   store: Store;
   prices: Prices;
-  /** The token the desktop app reads from ~/.grenier/admin-token; every /admin call needs it (rule 1). */
+  /** The token the desktop app reads from ~/.grenier/admin-token; every /admin call needs it. */
   token: string;
   version: string;
   log?: (line: string) => void;

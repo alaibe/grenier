@@ -184,7 +184,6 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
   ];
 }
 
-/** `grenier team …` */
 export async function team(argv: string[], io: Io, dependencies: TeamDependencies = {}): Promise<string[]> {
   const [action, ...rest] = argv;
   switch (action) {

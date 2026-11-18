@@ -132,7 +132,7 @@ export const MAX_CODE_LINES = 10;
 export const MAX_QUESTION = 2000;
 
 /**
- * Rule 4: an answer or summary describes code; it may quote a short snippet, never a file. Null when the text is
+ * An answer or summary describes code; it may quote a short snippet, never a file. Null when the text is
  * fine, else what is wrong with it.
  */
 export function unshareable(text: string): string | null {
@@ -149,7 +149,7 @@ export function unshareable(text: string): string | null {
 
 /**
  * The longest run of lines `text` copies from `source`, in order, comparing trimmed lines and skipping blank ones:
- * rule 4's check against the files an answer or summary was worked out from, which catches code quoted without fences.
+ * the check against the files an answer or summary was worked out from, which catches code quoted without fences.
  */
 export function copiedLines(text: string, source: string): number {
   const lines = (value: string) =>

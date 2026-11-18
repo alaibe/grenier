@@ -209,7 +209,7 @@ export function createProxy(options: ProxyOptions) {
       }
     }
 
-    // Rule 9: the body changes only behind an opt-in flag, and every change is logged.
+    // The body changes only behind an opt-in flag, and every change is logged.
     if (
       provider === "anthropic" &&
       config.proxy.inject_cache_control &&

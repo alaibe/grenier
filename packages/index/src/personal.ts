@@ -60,8 +60,8 @@ async function allowedSources(deps: PersonalDeps, reader: Reader, only?: readonl
 }
 
 /**
- * Rule 7: the audit row is written before anything is returned, and when it cannot be written the read fails.
- * Rules 6 and the redaction rules: every item leaves redacted, inside a block that marks it as untrusted.
+ * The audit row is written before anything is returned, and when it cannot be written the read fails.
+ * Every item leaves redacted, inside a block that marks it as untrusted.
  */
 async function deliver(
   deps: PersonalDeps,

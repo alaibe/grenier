@@ -6,7 +6,7 @@ import { DASHBOARD } from "./dashboard.ts";
 export interface Env {
   DB: D1Database;
   TEAM: DurableObjectNamespace<TeamCounter>;
-  /** Each member's encrypted vault objects. The server never holds the key (rule 5). */
+  /** Each member's encrypted vault objects. The server never holds the key. */
   VAULT: R2Bucket;
 }
 
@@ -30,7 +30,7 @@ function error(status: number, message: string): Response {
   return Response.json({ error: message }, { status });
 }
 
-/** A new random token, and the hash the database keeps instead (rule 8). */
+/** A new random token, and the hash the database keeps instead. */
 export async function newToken(): Promise<{ token: string; hash: string }> {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   const token = `gt_${btoa(String.fromCharCode(...bytes))
@@ -90,7 +90,7 @@ export function createApp(): Hono<App> {
 
   app.get("/", (c) => c.html(DASHBOARD));
 
-  // Every API call needs a member's token; a revoked one fails on its next call (rule 8).
+  // Every API call needs a member's token; a revoked one fails on its next call.
   app.use("/api/*", async (c, next) => {
     const token = /^Bearer (\S+)$/.exec(c.req.header("authorization") ?? "")?.[1];
     const member = token

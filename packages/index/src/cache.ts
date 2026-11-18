@@ -55,13 +55,13 @@ function stem(word: string): string {
   return word.replace(/(ing|ed|es|s)$/, "").padEnd(3, word);
 }
 
-/** Rule 4: a summary describes code; it may quote a short snippet, not the file. Throws CacheError. */
+/** A summary describes code; it may quote a short snippet, not the file. Throws CacheError. */
 export function checkSummary(summary: string): void {
   const problem = unshareable(summary);
   if (problem) throw new CacheError(`the summary is refused: ${problem}`);
 }
 
-/** Rule 4 again, against the files themselves: the text may not copy more than a short run of their lines. */
+/** Against the files themselves, the text may not copy more than a short run of their lines. */
 async function checkCopies(deps: CacheDeps, repo: Repo, what: string, text: string, paths: readonly string[]) {
   if (!deps.files.text) return;
   for (const path of paths) {
