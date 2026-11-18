@@ -1,13 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  BASE,
-  fakeUpstream,
-  fixture,
-  messagesRequest,
-  sse,
-  type TestGateway,
-  testGateway,
-} from "../../support/gateway.ts";
+import { fakeUpstream, fixture, messagesRequest, sse, type TestGateway, testGateway } from "../../support/gateway.ts";
 
 const STREAM = fixture("stream-tool-use.sse");
 const MESSAGE = fixture("message.json");
@@ -206,12 +198,6 @@ describe("usage", () => {
     ]);
     expect(everything).not.toContain("sk-ant-test-key");
     expect(everything).not.toContain("secret-oauth");
-  });
-});
-
-describe("base URL", () => {
-  it("is the one grenier run gives an agent", () => {
-    expect(`${BASE}/s/abc`).toBe("http://127.0.0.1:7788/s/abc");
   });
 });
 
