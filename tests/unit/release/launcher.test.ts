@@ -118,3 +118,27 @@ describe.skipIf(process.platform === "win32")("the grenier command in the deb an
     accessSync(join(desktop, "bin", "grenier-linux"), constants.X_OK);
   });
 });
+
+describe("the grenier command from the Windows installer", () => {
+  const tauri = join(desktop, "src-tauri");
+  const config = JSON.parse(readFileSync(join(tauri, "tauri.windows.conf.json"), "utf8"));
+
+  it("sits in bin under the install folder and runs the Node and the CLI the installer puts above it", () => {
+    expect(config.bundle.resources["../bin/grenier.cmd"]).toBe("bin/grenier.cmd");
+    const base = JSON.parse(readFileSync(join(tauri, "tauri.conf.json"), "utf8"));
+    expect(base.bundle.externalBin).toEqual(["binaries/grenier-node"]);
+    expect(base.bundle.resources["../resources/grenier/"]).toBe("grenier/");
+    expect(readFileSync(join(desktop, "bin", "grenier.cmd"), "utf8")).toContain(
+      '@"%~dp0..\\grenier-node.exe" "%~dp0..\\grenier\\dist\\grenier.js" %*',
+    );
+  });
+
+  it("puts that bin on the user's PATH when installed, and takes it off when uninstalled", () => {
+    const hooks = readFileSync(join(tauri, config.bundle.windows.nsis.installerHooks), "utf8");
+    for (const hook of ["NSIS_HOOK_POSTINSTALL", "NSIS_HOOK_POSTUNINSTALL"]) {
+      const body = hooks.split(`!macro ${hook}\n`)[1]?.split("!macroend")[0] ?? "";
+      expect(body).toContain("$INSTDIR\\bin");
+      expect(body).toContain("SetEnvironmentVariable");
+    }
+  });
+});

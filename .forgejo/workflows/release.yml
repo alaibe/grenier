@@ -444,8 +444,9 @@ jobs:
         run: |
           pnpm build
           pnpm --filter @grenier/desktop sidecar --target x86_64-pc-windows-msvc
-          test -f apps/desktop/resources/grenier/bin/grenier.cmd
 
+      # Then the installer's script holds tauri.windows.conf.json: bin\grenier.cmd, and the hook that puts bin on the
+      # PATH.
       - name: Cross-build the NSIS installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -453,6 +454,9 @@ jobs:
         run: |
           pnpm --filter @grenier/desktop tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis \
             --config '{"bundle":{"createUpdaterArtifacts":true}}' -- --locked
+          nsi=apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/nsis/x64/installer.nsi
+          grep -q 'cli-path\.nsh' "$nsi" || { echo "the installer has no PATH hook" >&2; exit 1; }
+          grep -qE 'oname=bin[\\/]+grenier\.cmd' "$nsi" || { echo "the installer has no bin\\grenier.cmd" >&2; exit 1; }
 
       - name: Attach to the release
         env:
