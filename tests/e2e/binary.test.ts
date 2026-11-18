@@ -35,7 +35,7 @@ describe("the built binary", () => {
 
   it("runs status on a fresh machine, creating the database", () => {
     const out = grenier("status");
-    expect(out).toContain("(schema 8)");
+    expect(out).toContain("(schema 9)");
     expect(out).toContain("daemon    stopped");
     expect(existsSync(join(dir, ".grenier", "grenier.db"))).toBe(true);
   });

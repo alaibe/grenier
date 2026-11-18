@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
+import { open, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -73,4 +74,32 @@ export async function trackedFiles(root: string): Promise<{ path: string; blob: 
       const [meta = "", path = ""] = entry.split("\t");
       return { path, blob: meta.split(" ")[1] ?? "" };
     });
+}
+
+/** The most a file shown in the desktop app's traces may weigh. */
+export const MAX_TEXT_BYTES = 1_000_000;
+
+/**
+ * A text file of the work tree as it is now, or null when it is missing, binary, too large, or outside the root once
+ * symbolic links are followed.
+ */
+export async function repoText(root: string, path: string, maxBytes = MAX_TEXT_BYTES): Promise<string | null> {
+  try {
+    const realRoot = await realpath(root);
+    const real = await realpath(resolve(realRoot, path));
+    const inside = relative(realRoot, real);
+    if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) return null;
+    const file = await open(real, "r");
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.size > maxBytes) return null;
+      const bytes = await file.readFile();
+      if (bytes.subarray(0, 8000).includes(0)) return null;
+      return new TextDecoder().decode(bytes);
+    } finally {
+      await file.close();
+    }
+  } catch {
+    return null;
+  }
 }

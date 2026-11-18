@@ -6,6 +6,14 @@ export interface ToolCall {
   hash: string;
 }
 
+/** A call with what it was given and, when the request carries it, what it returned. */
+export interface ToolUse {
+  id: string;
+  tool: string;
+  input: unknown;
+  result?: { error: boolean; text: string };
+}
+
 interface Block {
   type?: string;
   id?: string;
@@ -17,17 +25,20 @@ interface Block {
 }
 
 interface MessagesBody {
-  messages?: { role?: string; content?: unknown; tool_calls?: unknown }[];
+  messages?: { role?: string; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown }[];
   /** OpenAI's Responses API: the conversation as items. */
   input?: unknown;
 }
 
-interface OpenAIToolCall {
+interface OpenAIItem {
   id?: string;
   call_id?: string;
   type?: string;
   name?: string;
   arguments?: unknown;
+  input?: unknown;
+  action?: unknown;
+  output?: unknown;
   function?: { name?: string; arguments?: unknown };
 }
 
@@ -41,33 +52,64 @@ function argumentsOf(raw: unknown): unknown {
   }
 }
 
+function textOf(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => (part && typeof part === "object" && "text" in part ? String((part as { text: unknown }).text) : ""))
+    .join("\n");
+}
+
+/** What each call returned, by call id. */
+function resultsOf(body: MessagesBody): Map<string, { error: boolean; text: string }> {
+  const results = new Map<string, { error: boolean; text: string }>();
+  for (const message of body.messages ?? []) {
+    if (message.role === "tool" && typeof message.tool_call_id === "string") {
+      results.set(message.tool_call_id, { error: false, text: textOf(message.content) });
+    }
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content as Block[]) {
+      if (block.type === "tool_result" && block.tool_use_id) {
+        results.set(block.tool_use_id, { error: block.is_error === true, text: textOf(block.content) });
+      }
+    }
+  }
+  if (Array.isArray(body.input)) {
+    for (const item of body.input as OpenAIItem[]) {
+      if (item.type?.endsWith("_call_output") && item.call_id) {
+        results.set(item.call_id, { error: false, text: textOf(item.output) });
+      }
+    }
+  }
+  return results;
+}
+
 /**
  * Every tool call in the conversation, keyed by its id, in order: Anthropic's tool_use blocks and tool_result blocks
- * marked as errors, OpenAI's Chat Completions tool_calls and Responses function_call items.
+ * marked as errors, OpenAI's Chat Completions tool_calls and Responses function, custom tool and shell call items.
  */
-export async function toolCalls(body: MessagesBody): Promise<{ key: string; call: ToolCall }[]> {
-  const calls: { key: string; call: ToolCall }[] = [];
-  const openai = async (id: string | undefined, name: string | undefined, args: unknown) => {
+export async function toolCalls(body: MessagesBody): Promise<{ key: string; call: ToolCall; use?: ToolUse }[]> {
+  const calls: { key: string; call: ToolCall; use?: ToolUse }[] = [];
+  const results = resultsOf(body);
+  const use = async (id: string | undefined, name: string | undefined, input: unknown) => {
     if (!id) return;
     const tool = name ?? "";
+    const result = results.get(id);
     calls.push({
       key: `use:${id}`,
-      call: { tool, hash: await sha256(`${tool}\0${canonicalJson(argumentsOf(args))}`) },
+      call: { tool, hash: await sha256(`${tool}\0${canonicalJson(input)}`) },
+      use: { id, tool, input, ...(result ? { result } : {}) },
     });
   };
   for (const message of body.messages ?? []) {
     if (Array.isArray(message.tool_calls)) {
-      for (const call of message.tool_calls as OpenAIToolCall[])
-        await openai(call.id, call.function?.name, call.function?.arguments);
+      for (const call of message.tool_calls as OpenAIItem[])
+        await use(call.id, call.function?.name, argumentsOf(call.function?.arguments));
     }
     if (!Array.isArray(message.content)) continue;
     for (const block of message.content as Block[]) {
       if (block.type === "tool_use" && block.id) {
-        const tool = block.name ?? "";
-        calls.push({
-          key: `use:${block.id}`,
-          call: { tool, hash: await sha256(`${tool}\0${canonicalJson(block.input)}`) },
-        });
+        await use(block.id, block.name, block.input);
       } else if (block.type === "tool_result" && block.is_error && block.tool_use_id) {
         calls.push({
           key: `error:${block.tool_use_id}`,
@@ -77,8 +119,11 @@ export async function toolCalls(body: MessagesBody): Promise<{ key: string; call
     }
   }
   if (Array.isArray(body.input)) {
-    for (const item of body.input as OpenAIToolCall[]) {
-      if (item.type === "function_call") await openai(item.call_id ?? item.id, item.name, item.arguments);
+    for (const item of body.input as OpenAIItem[]) {
+      const id = item.call_id ?? item.id;
+      if (item.type === "function_call") await use(id, item.name, argumentsOf(item.arguments));
+      else if (item.type === "custom_tool_call") await use(id, item.name, item.input);
+      else if (item.type === "local_shell_call") await use(id, "local_shell", item.action);
     }
   }
   return calls;
@@ -87,7 +132,7 @@ export async function toolCalls(body: MessagesBody): Promise<{ key: string; call
 /**
  * The tool calls each session has made, across its requests. Each request resends the whole conversation, so only
  * calls not seen before are observed. For a session that started before this process (the daemon restarted under
- * it), the first request only marks what it carries as seen, so old history is not counted twice.
+ * it), the first request only marks what it carries as seen, so old history is not counted twice as a loop.
  */
 export class LoopWatch {
   readonly #sessions = new Map<string, { seen: Set<string>; detector: LoopDetector }>();
@@ -97,24 +142,28 @@ export class LoopWatch {
     readonly window: number,
   ) {}
 
-  /** The calls in this request that complete a loop. */
-  async observe(sessionId: string, body: MessagesBody, startedBeforeUs: boolean): Promise<ToolCall[]> {
+  /** The calls in this request that complete a loop, and every call this process had not seen yet. */
+  async observe(
+    sessionId: string,
+    body: MessagesBody,
+    startedBeforeUs: boolean,
+  ): Promise<{ loops: ToolCall[]; fresh: ToolUse[] }> {
     const calls = await toolCalls(body);
     let state = this.#sessions.get(sessionId);
+    let counting = true;
     if (!state) {
       state = { seen: new Set(), detector: new LoopDetector(this.threshold, this.window) };
       this.#sessions.set(sessionId, state);
-      if (startedBeforeUs) {
-        for (const { key } of calls) state.seen.add(key);
-        return [];
-      }
+      counting = !startedBeforeUs;
     }
     const loops: ToolCall[] = [];
-    for (const { key, call } of calls) {
+    const fresh: ToolUse[] = [];
+    for (const { key, call, use } of calls) {
       if (state.seen.has(key)) continue;
       state.seen.add(key);
-      if (state.detector.observe(call.hash)) loops.push(call);
+      if (use) fresh.push(use);
+      if (counting && state.detector.observe(call.hash)) loops.push(call);
     }
-    return loops;
+    return { loops, fresh };
   }
 }

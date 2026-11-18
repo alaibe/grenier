@@ -1,6 +1,7 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { repoText } from "@grenier/connectors/git";
 import { defaultConfig } from "@grenier/core";
 import { createGateway } from "@grenier/gateway";
 import { loadPrices } from "@grenier/log";
@@ -22,7 +23,7 @@ beforeEach(() => {
     config: defaultConfig(),
     prices: loadPrices(),
     port: 7788,
-    admin: { token: TOKEN, version: "test" },
+    admin: { token: TOKEN, version: "test", readFile: repoText },
   });
 });
 
@@ -161,5 +162,46 @@ describe("the admin API", () => {
     expect(overview.days[0]?.requests).toBe(1);
     expect((await call("/report?by=week")).status).toBe(400);
     expect((await call("/report?since=forever")).status).toBe(400);
+  });
+
+  it("lists traces, gives one with its requests' cost, and shows only the files it touched", async () => {
+    const repo = realpathSync(mkdtempSync(join(dir, "repo-")));
+    mkdirSync(join(repo, "src"));
+    writeFileSync(join(repo, "src/a.ts"), "export const a = 1;\n");
+    writeFileSync(join(repo, "src/untouched.ts"), "export const b = 2;\n");
+    writeFileSync(join(dir, "outside.txt"), "not in the repository\n");
+    symlinkSync(join(dir, "outside.txt"), join(repo, "link.txt"));
+    const now = Date.now();
+    await store.sessions.create({ id: "s1", client: "claude", repoRoot: repo, cwd: repo, startedAt: now - 1000 });
+    await store.sessions.create({ id: "loose", startedAt: now });
+    const step = { sessionId: "s1", tool: "Read", kind: "read" as const, ts: now };
+    await store.steps.add([
+      { ...step, callId: "c1", path: "src/a.ts", startLine: 1, endLine: 1 },
+      { ...step, callId: "c2", path: "link.txt" },
+      { ...step, callId: "c3", tool: "Grep", kind: "search", path: null, label: "needle" },
+    ]);
+    await store.steps.add([{ ...step, sessionId: "loose", callId: "c1", path: "x.ts" }]);
+    await store.usage.add({ sessionId: "s1", ts: now, model: "claude-opus-5-5", cost: 0.25 });
+
+    const list = (await (await call("/traces")).json()) as { traces: { id: string; steps: number; files: number }[] };
+    expect(list.traces).toEqual([
+      expect.objectContaining({ id: "s1", client: "claude", repo: repo.split("/").at(-1), steps: 3, files: 2 }),
+    ]);
+
+    const trace = (await (await call("/traces/s1")).json()) as {
+      steps: Record<string, unknown>[];
+      requests: { cost: number }[];
+    };
+    expect(trace.steps.map((entry) => entry.path)).toEqual(["src/a.ts", "link.txt", null]);
+    expect(trace.steps[0]).not.toHaveProperty("sessionId");
+    expect(trace.requests).toEqual([{ ts: now, cost: 0.25 }]);
+    expect((await call("/traces/loose")).status).toBe(404);
+    expect((await call("/traces/nobody")).status).toBe(404);
+
+    const file = (await (await call("/traces/s1/file?path=src/a.ts")).json()) as { text: string };
+    expect(file.text).toBe("export const a = 1;\n");
+    for (const path of ["src/untouched.ts", "link.txt", "../outside.txt", "", "src"]) {
+      expect((await call(`/traces/s1/file?path=${encodeURIComponent(path)}`)).status).toBe(404);
+    }
   });
 });

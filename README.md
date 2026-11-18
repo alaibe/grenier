@@ -22,7 +22,8 @@ hosted service.
 - **Personal data, scoped and audited.** Notes, mail and calendars over MCP, for the tools you allow and only the
   sources you allow. Every read is logged before it returns; IBANs, phone numbers and addresses are removed; content is
   marked as untrusted. Memories an AI proposes wait for your approval.
-- **A desktop app** for all of it: dashboard, sources, clients and scopes, audit log, review queue.
+- **A desktop app** for all of it: dashboard, traces of where your agents went in the code, sources, clients and scopes,
+  audit log, review queue.
 
 ## Why not just an MCP server?
 

@@ -90,6 +90,43 @@ describe("events", () => {
   });
 });
 
+describe("steps", () => {
+  const step = (sessionId: string, callId: string, ts: number, path: string | null, part = 0) => ({
+    sessionId,
+    callId,
+    part,
+    ts,
+    tool: "Read",
+    kind: "read" as const,
+    path,
+  });
+
+  it("keeps the first copy of a call's step and lists a session's steps in order", async () => {
+    await store.steps.add([step("s1", "c2", 20, "b.ts"), step("s1", "c1", 10, "a.ts")]);
+    await store.steps.add([{ ...step("s1", "c1", 30, "other.ts") }, step("s1", "c1", 30, "c.ts", 1)]);
+    expect((await store.steps.list("s1")).map((row) => [row.callId, row.part, row.path])).toEqual([
+      ["c1", 0, "a.ts"],
+      ["c2", 0, "b.ts"],
+      ["c1", 1, "c.ts"],
+    ]);
+    expect(await store.steps.list("s2")).toEqual([]);
+  });
+
+  it("sums up the sessions with steps, newest first", async () => {
+    await store.steps.add([
+      step("s1", "c1", 10, "a.ts"),
+      step("s1", "c2", 20, "a.ts"),
+      step("s1", "c3", 30, null),
+      step("s2", "c1", 50, "b.ts"),
+      step("s3", "c1", 1, "old.ts"),
+    ]);
+    expect(await store.steps.sessions(5)).toEqual([
+      { sessionId: "s2", steps: 1, files: 1, first: 50, last: 50 },
+      { sessionId: "s1", steps: 3, files: 1, first: 10, last: 30 },
+    ]);
+  });
+});
+
 describe("budgets", () => {
   it("sets, replaces and removes limits", async () => {
     await store.budgets.set("daily", "", 10);

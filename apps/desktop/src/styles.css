@@ -12,6 +12,11 @@
   --accent-soft: #f7ede0;
   --problem: #b42318;
   --problem-soft: #fdf1ef;
+  /* What an agent did, in traces: reading takes the accent, changing and asking the cache one colour each. */
+  --edit: #2f6b48;
+  --ask: #3c6688;
+  --look: #8d8576;
+  --tok-string: #5f6f1f;
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23645e54' stroke-width='1.5'/%3E%3C/svg%3E");
   --serif: ui-serif, "New York", Georgia, serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
@@ -33,6 +38,10 @@
     --accent-soft: #2b2217;
     --problem: #f97066;
     --problem-soft: #2c1815;
+    --edit: #7cc49a;
+    --ask: #8fb5d6;
+    --look: #8a8475;
+    --tok-string: #b8c77e;
     --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a8a193' stroke-width='1.5'/%3E%3C/svg%3E");
   }
 }
@@ -546,7 +555,575 @@ legend {
   font-size: 14.5px;
 }
 
+/* Traces: the files an agent touched on the left, the code on the right, one dot for where it is. */
+
+.page.wide {
+  max-width: 1280px;
+}
+
+.k-read {
+  --kind: var(--accent);
+}
+
+.k-edit {
+  --kind: var(--edit);
+}
+
+.k-look {
+  --kind: var(--look);
+}
+
+.k-ask {
+  --kind: var(--ask);
+}
+
+.k-again {
+  --kind: var(--problem);
+}
+
+.figures.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.figures .of {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.trace-stage {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  height: clamp(360px, calc(100vh - 400px), 820px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.trace-tree {
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  background: var(--side);
+}
+
+.tree-body {
+  position: relative;
+  min-width: 100%;
+}
+
+.tree-arcs {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.arc {
+  fill: none;
+  stroke: var(--kind);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.arc.drawing {
+  stroke-dasharray: 1;
+  animation: draw-arc ease-in-out both;
+}
+
+@keyframes draw-arc {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.tree-arcs .head {
+  fill: var(--kind);
+}
+
+/* The one glow on the page: it is the agent. */
+.tree-arcs .halo {
+  fill: var(--kind);
+  opacity: 0.2;
+}
+
+.tree-arcs .ping {
+  fill: none;
+  stroke: var(--kind);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ping 0.6s ease-out both;
+}
+
+@keyframes ping {
+  from {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+
+.tree-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding-right: 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+button.tree-row:hover {
+  background: var(--hover);
+}
+
+.tree-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.tree-row .name,
+.tree-row .visits {
+  position: relative;
+}
+
+.tree-row .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-row.dir .name {
+  color: var(--muted);
+}
+
+.tree-row.ahead .name,
+.tree-row.ahead {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.tree-row.current {
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.tree-row.current .name {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.tree-row .heat {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 46px;
+  max-width: calc(100% - 52px);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  transition: width 0.3s ease;
+}
+
+.tree-row .visits {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.again-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--problem);
+}
+
+.trace-code {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.code-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.code-path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-head .hint:last-child {
+  margin-left: auto;
+}
+
+.code-scroll {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  padding-right: 14px;
+}
+
+.code-note {
+  padding: 18px;
+  color: var(--muted);
+}
+
+.code-scroll .code-note {
+  position: absolute;
+}
+
+.code-body {
+  position: relative;
+  min-width: max-content;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 20px;
+  tab-size: 4;
+}
+
+.trace-code.elsewhere .code-lines {
+  opacity: 0.55;
+  transition: opacity 0.3s ease;
+}
+
+.code-line {
+  display: flex;
+  height: 20px;
+  white-space: pre;
+}
+
+.code-line .ln {
+  flex: none;
+  width: var(--gutter);
+  padding-right: 12px;
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.t-keyword {
+  color: var(--accent);
+}
+
+.t-string,
+.t-number {
+  color: var(--tok-string);
+}
+
+.t-comment {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.band {
+  position: absolute;
+  left: 0;
+  right: -14px;
+  background: color-mix(in srgb, var(--kind) 13%, transparent);
+  border-left: 3px solid var(--kind);
+}
+
+.band.faded {
+  opacity: 0.45;
+}
+
+.reading-head {
+  position: absolute;
+  top: 5px;
+  left: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--kind);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--kind) 25%, transparent);
+  z-index: 1;
+}
+
+.reading-head.hidden {
+  display: none;
+}
+
+.code-map {
+  position: absolute;
+  top: 37px;
+  right: 3px;
+  bottom: 6px;
+  width: 6px;
+  border-radius: 3px;
+  background: var(--hover);
+}
+
+.code-map span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
+  background: var(--kind);
+  opacity: 0.45;
+}
+
+.code-map span.now {
+  opacity: 1;
+}
+
+.trace-caption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 8px;
+  min-height: 24px;
+}
+
+.trace-caption p {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-caption .hint {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-caption .again {
+  color: var(--problem);
+}
+
+.swatch {
+  flex: none;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--kind);
+}
+
+.timeline {
+  position: relative;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.ticks {
+  position: absolute;
+  inset: 6px 0;
+  display: flex;
+  align-items: flex-end;
+}
+
+/* Each step gets an equal slot, and a bar at most 6px wide in it: thin with few steps, solid with many. */
+.tick {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 45%;
+  opacity: 0.3;
+}
+
+.tick::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: min(6px, calc(100% - 1px));
+  border-radius: 1px;
+  background: var(--kind);
+  transform: translateX(-50%);
+}
+
+.tick.k-edit {
+  height: 100%;
+}
+
+.tick.k-read {
+  height: 70%;
+}
+
+.tick.past {
+  opacity: 1;
+}
+
+.tick.again::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--problem);
+}
+
+.tick.failed::before {
+  background: repeating-linear-gradient(0deg, var(--kind) 0 2px, transparent 2px 4px);
+}
+
+/* The slider sits on the ticks, its thumb on the current one: a click or the arrow keys move the agent. */
+.scrub {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% / var(--n) - 1.5px);
+  right: calc(50% / var(--n) - 1.5px);
+  width: auto;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.scrub::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+
+.scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 3px;
+  height: 38px;
+  border-radius: 2px;
+  background: var(--fg);
+}
+
+.scrub::-moz-range-thumb {
+  width: 3px;
+  height: 38px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--fg);
+}
+
+.scrub:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.trace-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.trace-controls .step {
+  width: 36px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.trace-controls .play {
+  min-width: 76px;
+}
+
+.trace-controls .speed select {
+  width: auto;
+}
+
+.trace-controls .position {
+  margin-right: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 14px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  list-style: none;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend .hint {
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-row .heat,
+  .trace-code.elsewhere .code-lines {
+    transition: none;
+  }
+}
+
 /* The window's narrowest sizes (it opens at 1100 wide and goes down to 720). */
+
+@media (max-width: 1000px) {
+  .figures.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .figures.four > div:nth-child(3) {
+    border-left: 0;
+  }
+
+  .figures.four > div:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .trace-stage {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 200px minmax(0, 1fr);
+    height: clamp(520px, calc(100vh - 340px), 900px);
+  }
+
+  .trace-tree {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
 
 @media (max-width: 860px) {
   .main {

@@ -52,6 +52,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     sessions,
     usage,
     events,
+    steps,
     budgets,
     answers,
     answerSources,
@@ -163,6 +164,34 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
             ),
           )
           .orderBy(asc(events.ts), asc(events.id))
+          .all(),
+    },
+
+    steps: {
+      add: async (rows) => {
+        // A daemon restarted under a long session sees its whole history at once: stay below SQLite's variable limit.
+        for (let at = 0; at < rows.length; at += 500) {
+          db.insert(steps)
+            .values(rows.slice(at, at + 500))
+            .onConflictDoNothing()
+            .run();
+        }
+      },
+      list: async (sessionId) =>
+        db.select().from(steps).where(eq(steps.sessionId, sessionId)).orderBy(asc(steps.ts), asc(steps.id)).all(),
+      sessions: async (since) =>
+        db
+          .select({
+            sessionId: steps.sessionId,
+            steps: count(),
+            files: sql<number>`count(distinct ${steps.path})`,
+            first: sql<number>`min(${steps.ts})`,
+            last: sql<number>`max(${steps.ts})`,
+          })
+          .from(steps)
+          .where(gte(steps.ts, since))
+          .groupBy(steps.sessionId)
+          .orderBy(desc(sql`max(${steps.ts})`))
           .all(),
     },
 

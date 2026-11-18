@@ -1,4 +1,4 @@
-import { blob, index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { blob, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // Times are Unix milliseconds. Edit this file, then `pnpm db:generate` writes the migration.
 // The full-text index on answers and its triggers are hand-written SQL in a custom migration, not modelled here.
@@ -46,6 +46,33 @@ export const events = sqliteTable(
     detail: text("detail"),
   },
   (table) => [index("events_session_ts").on(table.sessionId, table.ts)],
+);
+
+/**
+ * Where an agent went in its repository: one row per file (or search) a tool call touched, for the desktop app to
+ * replay. Paths and line ranges only, never a command or what a file holds.
+ */
+export const steps = sqliteTable(
+  "steps",
+  {
+    id: integer("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    callId: text("call_id").notNull(),
+    /** Which of the call's files this is: a shell command can read several. */
+    part: integer("part").notNull().default(0),
+    ts: integer("ts").notNull(),
+    tool: text("tool").notNull(),
+    kind: text("kind", { enum: ["read", "edit", "search", "list", "ask"] }).notNull(),
+    /** Relative to the repository's root; null for the whole repository. */
+    path: text("path"),
+    startLine: integer("start_line"),
+    endLine: integer("end_line"),
+    /** A search's pattern or a question to the cache, shortened, with anything like a key taken out. */
+    label: text("label"),
+    /** "error" for a failed call; the cache's hit, stale or miss for an ask. */
+    outcome: text("outcome"),
+  },
+  (table) => [uniqueIndex("steps_call").on(table.sessionId, table.callId, table.part)],
 );
 
 export const fileSummaries = sqliteTable(
@@ -207,6 +234,8 @@ export type NewUsage = typeof usage.$inferInsert;
 export type Event = typeof events.$inferSelect;
 export type NewEvent = typeof events.$inferInsert;
 export type Budget = typeof budgets.$inferSelect;
+export type Step = typeof steps.$inferSelect;
+export type NewStep = typeof steps.$inferInsert;
 export type Answer = typeof answers.$inferSelect;
 export type AnswerSource = typeof answerSources.$inferSelect;
 export type FileSummary = typeof fileSummaries.$inferSelect;

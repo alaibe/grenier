@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { blobHashes, repoId, repoPath, repoRoot, trackedFiles } from "@grenier/connectors/git";
+import { blobHashes, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/connectors/git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let dir: string;
@@ -90,5 +90,31 @@ describe("trackedFiles", () => {
   it("lists tracked files with their staged blob", async () => {
     expect((await trackedFiles(dir)).map((file) => file.path)).toEqual(["README.md", "src/a.ts"]);
     expect((await trackedFiles(dir))[1]?.blob).toBe(git("rev-parse", "HEAD:src/a.ts"));
+  });
+});
+
+describe("repoText", () => {
+  it("reads a text file of the work tree", async () => {
+    expect(await repoText(dir, "src/a.ts")).toBe("export const a = 1;\n");
+  });
+
+  it("refuses what is outside the root, by path or by link, and binary, large or missing files", async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "grenier-outside-")));
+    try {
+      writeFileSync(join(outside, "secret.txt"), "not yours\n");
+      symlinkSync(join(outside, "secret.txt"), join(dir, "link.txt"));
+      writeFileSync(join(dir, "image.bin"), Buffer.from([1, 0, 2]));
+      writeFileSync(join(dir, "big.txt"), "x".repeat(100));
+
+      expect(await repoText(dir, `../${outside.split("/").at(-1)}/secret.txt`)).toBeNull();
+      expect(await repoText(dir, join(outside, "secret.txt"))).toBeNull();
+      expect(await repoText(dir, "link.txt")).toBeNull();
+      expect(await repoText(dir, "image.bin")).toBeNull();
+      expect(await repoText(dir, "big.txt", 50)).toBeNull();
+      expect(await repoText(dir, "missing.ts")).toBeNull();
+      expect(await repoText(dir, "src")).toBeNull();
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

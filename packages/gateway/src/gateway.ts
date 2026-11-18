@@ -1,7 +1,7 @@
 import { sha256 } from "@grenier/core";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Hono } from "hono";
-import { createAdmin } from "./admin.ts";
+import { type AdminOptions, createAdmin } from "./admin.ts";
 import { createMcpServer, type McpDeps } from "./mcp.ts";
 import { createProxy, errorResponse, type ProxyOptions, UNTAGGED } from "./proxy.ts";
 
@@ -11,7 +11,7 @@ export interface GatewayOptions extends ProxyOptions {
   /** Serves the MCP tools at /mcp (Streamable HTTP), for clients holding a token. */
   mcp?: Omit<McpDeps, "store">;
   /** Serves the desktop app's API at /admin, for the holder of this token. */
-  admin?: { token: string; version: string; log?: (line: string) => void };
+  admin?: Omit<AdminOptions, "store" | "prices">;
 }
 
 /**

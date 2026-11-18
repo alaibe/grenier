@@ -6,6 +6,7 @@ import { Clients } from "./views/Clients.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
 import { Review } from "./views/Review.tsx";
 import { Sources } from "./views/Sources.tsx";
+import { Traces } from "./views/Traces.tsx";
 
 export interface ViewProps {
   go: (view: ViewName) => void;
@@ -15,6 +16,7 @@ export interface ViewProps {
 
 const VIEWS = {
   dashboard: { label: "Dashboard", view: Dashboard },
+  traces: { label: "Traces", view: Traces },
   sources: { label: "Sources", view: Sources },
   clients: { label: "Clients and scopes", view: Clients },
   audit: { label: "Audit log", view: Audit },
@@ -58,7 +60,7 @@ export function App() {
         {overview.data && <p className="version">Version {overview.data.version}</p>}
       </nav>
       <main className="main">
-        <div className="page">
+        <div className={current === "traces" ? "page wide" : "page"}>
           <View key={current} go={go} changed={overview.reload} />
         </div>
       </main>

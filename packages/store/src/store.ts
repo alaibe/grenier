@@ -13,10 +13,12 @@ import type {
   NewItem,
   NewSession,
   NewSource,
+  NewStep,
   NewUsage,
   ReviewEntry,
   Session,
   Source,
+  Step,
   TeamRepo,
   Usage,
 } from "./schema.ts";
@@ -29,6 +31,7 @@ export interface Store {
   sessions: SessionStore;
   usage: UsageStore;
   events: EventStore;
+  steps: StepStore;
   budgets: BudgetStore;
   answers: AnswerStore;
   summaries: SummaryStore;
@@ -74,6 +77,23 @@ export interface UsageStore {
 export interface EventStore {
   add(event: NewEvent): Promise<void>;
   list(filter?: { sessionId?: string; kind?: string; since?: number }): Promise<Event[]>;
+}
+
+export interface StepSummary {
+  sessionId: string;
+  steps: number;
+  files: number;
+  first: number;
+  last: number;
+}
+
+export interface StepStore {
+  /** Adds steps; one already recorded for the same call and part is left as it is. */
+  add(rows: readonly NewStep[]): Promise<void>;
+  /** A session's steps in the order they were taken. */
+  list(sessionId: string): Promise<Step[]>;
+  /** The sessions with steps since `since`, newest first, with how many steps and distinct files each has. */
+  sessions(since: number): Promise<StepSummary[]>;
 }
 
 export type BudgetScope = "daily" | "session" | "repo";

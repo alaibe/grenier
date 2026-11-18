@@ -1,6 +1,6 @@
 import { syncSources } from "@grenier/connectors";
 import { addClient, approveMemory, CacheError, SCOPE_KINDS } from "@grenier/index";
-import { buildReport, cacheReport, type GroupBy, type Prices, parseSince } from "@grenier/log";
+import { buildReport, cacheReport, type GroupBy, type Prices, parseSince, repoName } from "@grenier/log";
 import type { Source, Store } from "@grenier/store";
 import { Hono } from "hono";
 
@@ -11,6 +11,8 @@ export interface AdminOptions {
   token: string;
   version: string;
   log?: (line: string) => void;
+  /** A text file of a repository's work tree, or null when it cannot be shown. Without it, traces show no code. */
+  readFile?: (root: string, path: string) => Promise<string | null>;
 }
 
 /** The desktop app's webview: Tauri serves it from these origins; the Vite dev server from the last. */
@@ -131,6 +133,47 @@ export function createAdmin(options: AdminOptions): Hono {
     if (!GROUPS.includes(by)) return problem(400, "by takes day, session or repo");
     const rows = await store.usage.list({ since: parseSince(c.req.query("since") ?? "7d", Date.now()) });
     return c.json({ rows: buildReport(rows, by, prices), cache: cacheReport(rows) });
+  });
+
+  app.get("/traces", async (c) => {
+    const summaries = await store.steps.sessions(parseSince(c.req.query("since") ?? "30d", Date.now()));
+    const traces: Record<string, unknown>[] = [];
+    for (const summary of summaries) {
+      const session = await store.sessions.get(summary.sessionId);
+      if (!session?.repoRoot) continue;
+      const { steps, files, last } = summary;
+      const { id, client, startedAt, endedAt } = session;
+      traces.push({ id, client, repo: repoName(session.repoRoot), startedAt, endedAt, steps, files, last });
+    }
+    return c.json({ traces });
+  });
+
+  app.get("/traces/:id", async (c) => {
+    const session = await store.sessions.get(c.req.param("id"));
+    if (!session?.repoRoot) return problem(404, `no trace for session ${c.req.param("id")}`);
+    const usage = await store.usage.list({ sessionId: session.id });
+    return c.json({
+      id: session.id,
+      client: session.client,
+      repo: repoName(session.repoRoot),
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      steps: (await store.steps.list(session.id)).map(({ sessionId: _session, ...step }) => step),
+      requests: usage.map((row) => ({ ts: row.ts, cost: row.cost ?? 0 })),
+    });
+  });
+
+  // Only a file the session itself touched, read where the session's repository is now.
+  app.get("/traces/:id/file", async (c) => {
+    const path = c.req.query("path") ?? "";
+    const session = await store.sessions.get(c.req.param("id"));
+    const touched =
+      session?.repoRoot && options.readFile && (await store.steps.list(session.id)).some((step) => step.path === path);
+    const text = touched ? await options.readFile?.(session.repoRoot as string, path) : null;
+    if (typeof text !== "string") {
+      return problem(404, `${path} cannot be shown: it is not a text file this session touched, or it is gone`);
+    }
+    return c.json({ path, text });
   });
 
   app.get("/sources", async (c) => {

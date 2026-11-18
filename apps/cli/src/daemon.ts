@@ -4,6 +4,7 @@ import { closeSync, existsSync, type FSWatcher, openSync, readFileSync, rmSync, 
 import { connect } from "node:net";
 import { join } from "node:path";
 import { syncSources, watchMarkdown } from "@grenier/connectors";
+import { repoText } from "@grenier/connectors/git";
 import { createGateway } from "@grenier/gateway";
 import { syncOnce, type TeamBudget, teamApi, vaultPull, vaultPush } from "@grenier/index";
 import { cacheSavingsOf, loadPrices } from "@grenier/log";
@@ -96,8 +97,9 @@ export async function runDaemon(io: Io): Promise<number> {
     prices,
     port,
     notify: desktopNotifier(io.err),
+    log: io.err,
     mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), version },
-    admin: { token: adminToken(paths.home), version, log: io.err },
+    admin: { token: adminToken(paths.home), version, log: io.err, readFile: repoText },
     ...(team ? { teamBudget: () => teamApi<TeamBudget>(team, "/api/budget") } : {}),
   });
 

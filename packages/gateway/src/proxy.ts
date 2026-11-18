@@ -1,8 +1,9 @@
 import { budgetMessage, type Config, effectiveLimits, firstBreach } from "@grenier/core";
 import { costOf, type Prices, repoName, startOfToday } from "@grenier/log";
 import type { Session, Store } from "@grenier/store";
-import { LoopWatch, type ToolCall } from "./loops.ts";
+import { LoopWatch, type ToolCall, type ToolUse } from "./loops.ts";
 import { OpenAIUsageReader } from "./openai.ts";
+import { placeEdits, stepsOf } from "./trace.ts";
 import { UsageReader } from "./usage.ts";
 
 /** Which API a request is for: Anthropic's Messages API, or OpenAI's (under /openai/ on the proxy). */
@@ -23,6 +24,7 @@ export interface ProxyOptions {
   now?: () => number;
   /** Shows a desktop notification. The daemon passes one; tests record the calls. */
   notify?: (title: string, message: string) => void;
+  log?: (line: string) => void;
   /** How often a held request looks for `grenier resume`, in milliseconds. */
   pollInterval?: number;
   /** When this process started: sessions older than it get their history marked as seen, not counted. */
@@ -64,6 +66,7 @@ export function createProxy(options: ProxyOptions) {
   const fetchUpstream = options.fetch ?? fetch;
   const now = options.now ?? Date.now;
   const notify = options.notify ?? (() => {});
+  const log = options.log ?? (() => {});
   const pollInterval = options.pollInterval ?? 500;
   const startedAt = options.startedAt ?? now();
   const loops = new LoopWatch(config.guards.loop_repeat_threshold, config.guards.loop_window);
@@ -98,6 +101,22 @@ export function createProxy(options: ProxyOptions) {
       } else {
         notify("Grenier: possible loop", `${repeated} (session ${session.id}).`);
       }
+    }
+  }
+
+  /**
+   * Keeps where the session's new calls went in its repository, for the desktop app's traces. The request does not
+   * wait for it, and it never fails one.
+   */
+  async function recordSteps(session: Session, uses: ToolUse[]): Promise<void> {
+    if (!session.repoRoot || uses.length === 0) return;
+    try {
+      const rows = stepsOf({ id: session.id, repoRoot: session.repoRoot, cwd: session.cwd }, uses, now());
+      if (rows.length === 0) return;
+      await placeEdits(session.repoRoot, rows, uses);
+      await store.steps.add(rows);
+    } catch (error) {
+      log(`grenier: could not record the steps of session ${session.id}: ${(error as Error).message}`);
     }
   }
 
@@ -169,7 +188,11 @@ export function createProxy(options: ProxyOptions) {
     let body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
     const parsed = inference && body ? parseJson(body) : undefined;
 
-    if (parsed) await onLoops(session, await loops.observe(session.id, parsed, session.startedAt < startedAt));
+    if (parsed) {
+      const { loops: found, fresh } = await loops.observe(session.id, parsed, session.startedAt < startedAt);
+      void recordSteps(session, fresh);
+      await onLoops(session, found);
+    }
 
     if (!(await waitWhilePaused(session.id, request.signal))) {
       return errorResponse(
