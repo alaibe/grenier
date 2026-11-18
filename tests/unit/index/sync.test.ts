@@ -1,4 +1,4 @@
-import { syncOnce, type TeamClient } from "@grenier/index";
+import { forgetAnswer, syncOnce, type TeamClient } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import type { Miniflare } from "miniflare";
@@ -40,11 +40,10 @@ beforeEach(async () => {
 const sync = (store: Store, team: TeamClient, shareAll = false) =>
   syncOnce({ store, embedder: null, team, savedOf: (row) => (row.cacheReadTokens ?? 0) / 1_000_000, shareAll });
 
-async function record(store: Store, id: string, question: string, repoId = "repo-1") {
-  await store.answers.add(
-    { id, repoId, question, answer: `Answer to ${question}`, createdAt: Date.now(), author: "local" },
-    [{ path: "src/a.ts", blobHash: "1".repeat(40) }],
-  );
+async function record(store: Store, id: string, question: string, repoId = "repo-1", answer = `Answer to ${question}`) {
+  await store.answers.add({ id, repoId, question, answer, createdAt: Date.now(), author: "local" }, [
+    { path: "src/a.ts", blobHash: "1".repeat(40) },
+  ]);
 }
 
 describe("team sync", () => {
@@ -127,6 +126,55 @@ describe("team sync", () => {
       await teamA.fetch?.("https://team.test/api/budget", { headers: { authorization: "Bearer gt_ada" } })
     )?.json();
     expect((budget as { member: { spent: number } }).member.spent).toBeCloseTo(0.5, 10);
+  });
+
+  it("sets aside an answer the server refuses, with the reason, and goes on with the others", async () => {
+    const stamp = Date.now();
+    await record(machineA, `long-${stamp}`, `A long one ${stamp}`, "repo-1", "x".repeat(4001));
+    await record(machineA, `fine-${stamp}`, `A fine one ${stamp}`);
+    await machineA.summaries.put({
+      repoId: "repo-1",
+      path: "big",
+      blobHash: `tree:${stamp}`,
+      summary: "y".repeat(4001),
+      createdAt: 1,
+    });
+
+    const first = await sync(machineA, teamA);
+    expect(first.pushed.answers).toBe(1);
+    expect(first.refused).toEqual({ answers: 1, summaries: 1 });
+    expect((await machineA.answers.get(`long-${stamp}`))?.shareError).toMatch(/at most 4000 characters/);
+    expect((await machineA.summaries.get("repo-1", "big", `tree:${stamp}`))?.shareError).toMatch(/at most 4000/);
+
+    const again = await sync(machineA, teamA);
+    expect(again.refused).toEqual({ answers: 0, summaries: 0 });
+    expect(again.pushed.answers).toBe(0);
+    await sync(machineB, teamB);
+    expect(await machineB.answers.get(`fine-${stamp}`)).toBeDefined();
+    expect(await machineB.answers.get(`long-${stamp}`)).toBeUndefined();
+  });
+
+  it("forgets on every machine an answer one machine forgot", async () => {
+    const id = `forget-${Date.now()}`;
+    await record(machineA, id, `Which file parses config? ${id}`);
+    await sync(machineA, teamA);
+    await sync(machineB, teamB);
+    expect(await machineB.answers.get(id)).toBeDefined();
+
+    expect(await forgetAnswer(machineB, id)).toEqual({ shared: true });
+    expect(await machineB.answers.get(id)).toBeUndefined();
+    expect((await sync(machineB, teamB)).pushed.forgotten).toBe(1);
+    expect((await sync(machineA, teamA)).pulled.removed).toBeGreaterThanOrEqual(1);
+    expect(await machineA.answers.get(id)).toBeUndefined();
+    expect((await sync(machineB, teamB)).pushed.forgotten).toBe(0);
+  });
+
+  it("keeps a forgotten answer local to this machine when it was never shared", async () => {
+    const id = `local-forget-${Date.now()}`;
+    await record(machineA, id, "Never shared", "repo-private");
+    expect(await forgetAnswer(machineA, id)).toEqual({ shared: false });
+    expect((await sync(machineA, teamA)).pushed.forgotten).toBe(0);
+    expect(await forgetAnswer(machineA, id)).toBeNull();
   });
 
   it("fails without changing anything local when the server cannot be reached", async () => {

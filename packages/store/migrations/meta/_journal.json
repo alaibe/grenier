@@ -64,6 +64,13 @@
       "when": 1794990956686,
       "tag": "0008_agent_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794996689488,
+      "tag": "0009_share_error",
+      "breakpoints": true
     }
   ]
 }

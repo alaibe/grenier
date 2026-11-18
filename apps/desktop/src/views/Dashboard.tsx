@@ -1,9 +1,24 @@
 import { useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api, type Overview } from "../api.ts";
-import { Button, day, Empty, Figure, Figures, Loading, money, Notice, Page, Table, useLoad } from "../ui.tsx";
+import { api, type Overview, type PausedSession } from "../api.ts";
+import {
+  ago,
+  Button,
+  day,
+  Empty,
+  Figure,
+  Figures,
+  Loading,
+  money,
+  Notice,
+  Page,
+  Table,
+  useAction,
+  useLoad,
+} from "../ui.tsx";
 
 const load = () => api<Overview>("/overview");
+const loadPaused = () => api<{ sessions: PausedSession[] }>("/sessions/paused");
 const REFRESH_MS = 30_000;
 
 export function Dashboard({ go }: ViewProps) {
@@ -25,6 +40,7 @@ export function Dashboard({ go }: ViewProps) {
     <Page title="Dashboard" intro="Your agents' requests through Grenier in the last 7 days, priced at API rates.">
       <Notice message={error} />
       {!data && !error && <Loading what="usage" />}
+      {data && data.paused > 0 && <Paused key={data.paused} changed={reload} />}
       {data && data.pendingReview > 0 && (
         <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-accent bg-accent-soft py-2.5 pr-2.5 pl-4">
           <p>{data.pendingReview === 1 ? "1 memory waits" : `${data.pendingReview} memories wait`} for your review.</p>
@@ -67,5 +83,40 @@ export function Dashboard({ go }: ViewProps) {
         </>
       )}
     </Page>
+  );
+}
+
+/** The sessions the loop guard paused: their requests wait until they are resumed, or time out. */
+function Paused({ changed }: { changed: () => void }) {
+  const { data, error, reload } = useLoad(loadPaused);
+  const action = useAction(() => {
+    reload();
+    changed();
+  });
+  if (!data || data.sessions.length === 0) return <Notice message={error} />;
+  return (
+    <div className="mb-5 rounded-xl border border-problem bg-problem-soft py-1 pr-2.5 pl-4">
+      <Notice message={action.message?.problem ? action.message : null} />
+      {data.sessions.map((session) => (
+        <div className="flex items-center justify-between gap-4 py-1.5" key={session.id}>
+          <p>
+            Paused after a possible loop: <b className="font-semibold">{session.client ?? "an agent"}</b>
+            {session.repo ? ` in ${session.repo}` : ""}
+            {session.pausedAt ? `, ${ago(session.pausedAt)}` : ""}. Its requests wait until you resume it.
+          </p>
+          <Button
+            disabled={action.busy !== null}
+            onClick={() =>
+              void action.run(`resume:${session.id}`, async () => {
+                await api(`/sessions/${encodeURIComponent(session.id)}/resume`, { method: "POST" });
+                return undefined;
+              })
+            }
+          >
+            Resume
+          </Button>
+        </div>
+      ))}
+    </div>
   );
 }

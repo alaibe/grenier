@@ -1,6 +1,7 @@
 import {
   budgetMessage,
   canonicalJson,
+  copiedLines,
   defaultConfig,
   effectiveLimits,
   firstBreach,
@@ -104,6 +105,26 @@ describe("firstBreach", () => {
 
   it("is null under every limit", () => {
     expect(firstBreach(limits, () => 1)).toBeNull();
+  });
+
+  it("is a limit the next request would pass, with what it is expected to cost", () => {
+    expect(firstBreach(limits, () => 2.5, 0.75)).toEqual({
+      scope: "session",
+      key: "",
+      limit: 3,
+      spent: 2.5,
+      next: 0.75,
+    });
+    expect(firstBreach(limits, () => 2.5, 0.5)).toBeNull();
+  });
+});
+
+describe("copiedLines", () => {
+  it("is the longest run of lines copied in order, ignoring indentation and blank lines", () => {
+    const source = "a();\nb();\n\nc();\nd();\ne();\n";
+    expect(copiedLines("See:\n  b();\n  c();\n\n  d();\nThen more.", source)).toBe(3);
+    expect(copiedLines("d();\nc();", source)).toBe(1);
+    expect(copiedLines("Nothing in common.", source)).toBe(0);
   });
 });
 

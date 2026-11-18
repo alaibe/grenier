@@ -22,8 +22,8 @@ hosted service.
 - **Personal data, scoped and audited.** Notes, mail and calendars over MCP, for the tools you allow and only the
   sources you allow. Every read is logged before it returns; IBANs, phone numbers and addresses are removed; content is
   marked as untrusted. Memories an AI proposes wait for your approval.
-- **A desktop app** for all of it: dashboard, traces of where your agents went in the code, sources, clients and scopes,
-  audit log, review queue.
+- **A desktop app** for all of it: dashboard, traces of where your agents went in the code, the exploration cache,
+  budgets, sources, clients and scopes, audit log, review queue.
 
 ## Why not just an MCP server?
 
@@ -41,7 +41,8 @@ the part that cannot be a tool.
   read is logged before it returns, and what comes back is redacted and marked as untrusted.
 
 What it does not do: the cache works only when the agent asks it first. Grenier's MCP instructions tell it to, and
-nothing forces it. And if you want an assistant that answers your mail, a mail connector does that; Grenier only reads.
+nothing forces it; with Claude Code, `grenier mcp install claude-code --hook` passes a close, unchanged answer along with
+your prompt, and the desktop app's Traces show whether each session asked. And if you want an assistant that answers your mail, a mail connector does that; Grenier only reads.
 
 ## Quick start
 

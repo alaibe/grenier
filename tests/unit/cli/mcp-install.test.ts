@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { configPath, install, withCodexServer } from "../../../apps/cli/src/commands/mcp.ts";
+import { configPath, install, withCodexServer, withPromptHook } from "../../../apps/cli/src/commands/mcp.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
 let home: string;
@@ -92,6 +92,45 @@ describe("grenier mcp install", () => {
     expect(config.mcp_servers.grenier).toEqual({ command: "node", args: ["g.js"] });
     expect(config.other).toEqual({ a: 1 });
     expect(withCodexServer(once, "node", ["g.js"], {})).toBe(once);
+  });
+
+  it("adds the prompt hook to Claude Code's settings with --hook, keeping the other hooks, once", async () => {
+    mkdirSync(join(home, ".claude"));
+    const other = { hooks: [{ type: "command", command: "echo hi" }] };
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      JSON.stringify({ model: "opus", hooks: { UserPromptSubmit: [other], Stop: [other] } }),
+    );
+    expect(await install(["claude-code", "--hook"], io, { home })).toContain("Added the prompt hook");
+    await install(["claude-code", "--hook"], io, { home });
+
+    const settings = JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"));
+    expect(settings.model).toBe("opus");
+    expect(settings.hooks.Stop).toEqual([other]);
+    expect(settings.hooks.UserPromptSubmit).toEqual([
+      other,
+      {
+        hooks: [
+          {
+            type: "command",
+            command: `GRENIER_HOME=${join(home, ".grenier")} /usr/local/bin/node /opt/grenier/grenier.js hook prompt`,
+            timeout: 10,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("quotes the hook's command for the shell, and takes --hook for Claude Code only", async () => {
+    const text = withPromptHook("", "'/Applications/Grenier.app/x y/grenier' hook prompt");
+    expect(JSON.parse(text).hooks.UserPromptSubmit).toHaveLength(1);
+    const spaced = { ...io, self: ["/Applications/Grenier.app/it's here/grenier"] };
+    await install(["claude-code", "--hook"], spaced, { home });
+    const settings = JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"));
+    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toBe(
+      `GRENIER_HOME=${join(home, ".grenier")} '/Applications/Grenier.app/it'\\''s here/grenier' hook prompt`,
+    );
+    await expect(install(["cursor", "--hook"], io, { home })).rejects.toThrow("--hook is for claude-code only");
   });
 
   it("refuses an unknown client, and a config that is not JSON", async () => {

@@ -63,6 +63,50 @@ export interface Overview {
   items: number;
   clients: number;
   pendingReview: number;
+  /** Sessions the loop guard paused, waiting to be resumed. */
+  paused: number;
+}
+
+export interface CacheRepo {
+  id: string;
+  name: string;
+  answers: number;
+  hits: number;
+  summaries: number;
+  shared: boolean;
+}
+
+export interface CachedAnswer {
+  id: string;
+  question: string;
+  answer: string;
+  author: string;
+  createdAt: number;
+  hits: number;
+  shared: boolean;
+  /** Why the team server refused it, when it did. */
+  shareError: string | null;
+  files: string[];
+  /** The files changed since it was recorded; null when the repository is not on this machine. */
+  changed: string[] | null;
+}
+
+export interface BudgetsView {
+  daily: number | null;
+  session: number | null;
+  /** Whether the limit shown comes from config.toml, as no limit was set here or with the command. */
+  fromConfig: { daily: boolean; session: boolean };
+  repos: { name: string; limit: number }[];
+  /** Repositories Grenier has seen a session in, for a new repository limit. */
+  known: string[];
+  spentToday: number;
+}
+
+export interface PausedSession {
+  id: string;
+  client: string | null;
+  repo: string | null;
+  pausedAt: number | null;
 }
 
 export interface SourceView {

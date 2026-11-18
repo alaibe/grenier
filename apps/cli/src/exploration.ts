@@ -1,11 +1,11 @@
 import { join, resolve } from "node:path";
-import { blobHashes, repoId, repoPath, repoRoot, trackedFiles } from "@grenier/connectors/git";
+import { blobHashes, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/connectors/git";
 import type { Config } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import { CacheError, type Embedder, type Repo, type RepoFiles } from "@grenier/index";
 import { loadLocalEmbedder } from "@grenier/index/node";
 
-export const gitFiles: RepoFiles = { hashes: blobHashes, tracked: trackedFiles, relative: repoPath };
+export const gitFiles: RepoFiles = { hashes: blobHashes, tracked: trackedFiles, relative: repoPath, text: repoText };
 
 /**
  * Finds the repository for a tool call: `repo` resolved against `base`, or `base` itself. With no base (the daemon,
@@ -28,18 +28,22 @@ export function repoResolver(base: string | null): (repo: string | undefined) =>
   };
 }
 
-/** Loads the embedding model on first use, once. When it cannot be loaded, search falls back to full text. */
+/**
+ * Loads the embedding model on first use, once. When it cannot be loaded, search falls back to full text. `offline`
+ * uses only a model already downloaded.
+ */
 export function embedderLoader(
   config: Config,
   paths: GrenierPaths,
   log: (line: string) => void,
+  options: { offline?: boolean } = {},
 ): () => Promise<Embedder | null> {
   let loading: Promise<Embedder | null> | undefined;
   return () => {
     loading ??=
       config.cache.embeddings === "off"
         ? Promise.resolve(null)
-        : loadLocalEmbedder(join(paths.home, "models")).catch((error: unknown) => {
+        : loadLocalEmbedder(join(paths.home, "models"), options).catch((error: unknown) => {
             log(`grenier: embeddings unavailable, using full-text search only: ${(error as Error).message}`);
             return null;
           });

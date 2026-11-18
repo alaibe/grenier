@@ -29,11 +29,11 @@ export function modelDir(modelsDir: string, model: ModelFiles = DEFAULT_MODEL): 
 
 /**
  * Loads the model from `modelsDir`, downloading from huggingface.co any file that is missing or does not match its
- * hash. Throws when a download fails or a downloaded file does not match.
+ * hash, unless `offline`. Throws when a file is missing offline, a download fails or a downloaded file does not match.
  */
 export async function loadLocalEmbedder(
   modelsDir: string,
-  options: { fetch?: typeof fetch; model?: ModelFiles } = {},
+  options: { fetch?: typeof fetch; model?: ModelFiles; offline?: boolean } = {},
 ): Promise<Embedder> {
   const model = options.model ?? DEFAULT_MODEL;
   const fetchFile = options.fetch ?? fetch;
@@ -45,6 +45,7 @@ export async function loadLocalEmbedder(
     const path = join(dir, name);
     let bytes = existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
     if (!bytes || sha256(bytes) !== expected) {
+      if (options.offline) throw new Error(`${path} is missing or damaged, and downloading is off`);
       const url = `https://huggingface.co/${model.repository}/resolve/${model.revision}/${name}`;
       const response = await fetchFile(url);
       if (!response.ok) throw new Error(`could not download ${url}: HTTP ${response.status}`);

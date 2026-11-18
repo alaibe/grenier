@@ -80,6 +80,9 @@ function canConnect(port: number): Promise<boolean> {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const DAY = 86_400_000;
+const PRUNE_EVERY = 6 * 60 * 60 * 1000;
+
 /** `grenier daemon`: serves the proxy in the foreground until SIGTERM or SIGINT. */
 export async function runDaemon(io: Io): Promise<number> {
   const { paths, config } = environment(io);
@@ -99,7 +102,7 @@ export async function runDaemon(io: Io): Promise<number> {
     notify: desktopNotifier(io.err),
     log: io.err,
     mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), version },
-    admin: { token: adminToken(paths.home), version, log: io.err, readFile: repoText },
+    admin: { token: adminToken(paths.home), version, log: io.err, readFile: repoText, files: gitFiles },
     ...(team ? { teamBudget: () => teamApi<TeamBudget>(team, "/api/budget") } : {}),
   });
 
@@ -128,13 +131,18 @@ export async function runDaemon(io: Io): Promise<number> {
     syncing = true;
     try {
       const resolved = await embedder();
-      await syncOnce({
+      const { refused } = await syncOnce({
         store,
         embedder: resolved,
         team,
         savedOf: (row) => cacheSavingsOf(row.model, row.cacheReadTokens ?? 0, prices),
         shareAll: config.cache.share_with_team,
       });
+      if (refused.answers + refused.summaries > 0) {
+        io.err(
+          `grenier: the team server refused ${refused.answers} answer(s) and ${refused.summaries} summary(ies); they stay on this machine, and the desktop app's Cache page says why`,
+        );
+      }
       const key = vaultKey(paths);
       if (key) {
         const device = await deviceId(store);
@@ -191,12 +199,29 @@ export async function runDaemon(io: Io): Promise<number> {
   const sourceTimer = setInterval(() => void pull(), config.sources.sync_interval * 1000);
   void pull();
 
+  const prune = async () => {
+    const { steps_days, usage_days } = config.retention;
+    const before = (days: number) => Date.now() - days * DAY;
+    try {
+      if (steps_days > 0) await store.steps.prune(before(steps_days));
+      if (usage_days > 0) {
+        await store.usage.prune(before(usage_days));
+        await store.events.prune(before(usage_days));
+      }
+    } catch (error) {
+      io.err(`grenier: could not remove old traces and usage: ${(error as Error).message}`);
+    }
+  };
+  const pruneTimer = setInterval(() => void prune(), PRUNE_EVERY);
+  void prune();
+
   await new Promise<void>((resolve) => {
     process.once("SIGTERM", () => resolve());
     process.once("SIGINT", () => resolve());
   });
   if (timer) clearInterval(timer);
   clearInterval(sourceTimer);
+  clearInterval(pruneTimer);
   for (const watcher of watchers.values()) watcher.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   rmSync(pidFile(paths.home), { force: true });

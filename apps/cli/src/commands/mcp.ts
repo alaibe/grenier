@@ -112,10 +112,44 @@ export function withJsonServer(
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 
+/** A word for a POSIX shell, quoted unless it is plain. */
+function shellWord(word: string): string {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, "'\\''")}'`;
+}
+
+const isPromptHook = (command: unknown) =>
+  typeof command === "string" && command.includes("grenier") && command.endsWith(" hook prompt");
+
 /**
- * `grenier mcp install <client> [--scope …]`: adds Grenier's MCP server (over stdio) to that client's config, with a
- * client token of its own whose scope says which personal data it may read (none by default). Installing again
- * revokes the previous token.
+ * Adds Grenier's UserPromptSubmit hook to Claude Code's settings, in place of one added before, keeping every other
+ * key and hook.
+ */
+export function withPromptHook(text: string, command: string): string {
+  let settings: Record<string, unknown> = {};
+  if (text.trim() !== "") {
+    try {
+      settings = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new CommandError("Claude Code's settings.json is not valid JSON; fix it or move it aside first");
+    }
+  }
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+  const groups = Array.isArray(hooks.UserPromptSubmit) ? (hooks.UserPromptSubmit as unknown[]) : [];
+  const ours = (group: unknown) =>
+    Array.isArray((group as { hooks?: unknown })?.hooks) &&
+    ((group as { hooks: { command?: unknown }[] }).hooks ?? []).some((hook) => isPromptHook(hook?.command));
+  hooks.UserPromptSubmit = [
+    ...groups.filter((group) => !ours(group)),
+    { hooks: [{ type: "command", command, timeout: 10 }] },
+  ];
+  settings.hooks = hooks;
+  return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
+/**
+ * `grenier mcp install <client> [--scope …] [--hook]`: adds Grenier's MCP server (over stdio) to that client's
+ * config, with a client token of its own whose scope says which personal data it may read (none by default).
+ * Installing again revokes the previous token. `--hook`, for Claude Code only, also adds the prompt hook.
  */
 export async function install(
   argv: string[],
@@ -124,7 +158,12 @@ export async function install(
 ): Promise<string> {
   const [client, ...rest] = argv;
   if (!CLIENTS.includes(client as McpClient)) throw new UsageError(`mcp install takes one of: ${CLIENTS.join(", ")}`);
-  const { values } = parseArgs({ args: rest, strict: true, options: { scope: { type: "string", default: "" } } });
+  const { values } = parseArgs({
+    args: rest,
+    strict: true,
+    options: { scope: { type: "string", default: "" }, hook: { type: "boolean", default: false } },
+  });
+  if (values.hook && client !== "claude-code") throw new UsageError("--hook is for claude-code only");
   const scopes = values.scope
     .split(",")
     .map((scope) => scope.trim())
@@ -158,5 +197,14 @@ export async function install(
     scopes.length > 0
       ? `may read ${scopes.join(", ")}`
       : "reads no personal data; install again with --scope notes,calendar (or mail, memory, a source's name) to change that";
-  return `Added Grenier's MCP server to ${path}, with a client token of its own that ${reads}. Restart ${client} to load it.`;
+  const added = `Added Grenier's MCP server to ${path}, with a client token of its own that ${reads}.`;
+  if (!values.hook) return `${added} Restart ${client} to load it.`;
+
+  const settings = join(where.home ?? homedir(), ".claude", "settings.json");
+  const variables = ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"].flatMap((name) =>
+    io.env[name] ? [`${name}=${shellWord(io.env[name] as string)}`] : [],
+  );
+  const hook = [...variables, ...[command, ...prefix].map(shellWord), "hook", "prompt"].join(" ");
+  writeAtomically(settings, withPromptHook(existsSync(settings) ? readFileSync(settings, "utf8") : "", hook));
+  return `${added} Added the prompt hook to ${settings}: a recorded answer close to a prompt reaches the agent with it. Restart ${client} to load both.`;
 }

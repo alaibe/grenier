@@ -87,12 +87,16 @@ function resultsOf(body: MessagesBody): Map<string, { error: boolean; text: stri
 /**
  * Every tool call in the conversation, keyed by its id, in order: Anthropic's tool_use blocks and tool_result blocks
  * marked as errors, OpenAI's Chat Completions tool_calls and Responses function, custom tool and shell call items.
+ * Calls whose key is in `seen` are left out before they are hashed: each request resends the whole conversation.
  */
-export async function toolCalls(body: MessagesBody): Promise<{ key: string; call: ToolCall; use?: ToolUse }[]> {
+export async function toolCalls(
+  body: MessagesBody,
+  seen: ReadonlySet<string> = new Set(),
+): Promise<{ key: string; call: ToolCall; use?: ToolUse }[]> {
   const calls: { key: string; call: ToolCall; use?: ToolUse }[] = [];
   const results = resultsOf(body);
   const use = async (id: string | undefined, name: string | undefined, input: unknown) => {
-    if (!id) return;
+    if (!id || seen.has(`use:${id}`)) return;
     const tool = name ?? "";
     const result = results.get(id);
     calls.push({
@@ -111,6 +115,7 @@ export async function toolCalls(body: MessagesBody): Promise<{ key: string; call
       if (block.type === "tool_use" && block.id) {
         await use(block.id, block.name, block.input);
       } else if (block.type === "tool_result" && block.is_error && block.tool_use_id) {
+        if (seen.has(`error:${block.tool_use_id}`)) continue;
         calls.push({
           key: `error:${block.tool_use_id}`,
           call: { tool: "error", hash: await sha256(`error\0${canonicalJson(block.content)}`) },
@@ -129,17 +134,27 @@ export async function toolCalls(body: MessagesBody): Promise<{ key: string; call
   return calls;
 }
 
+/** How long a session may go without a request before its state is dropped. */
+export const IDLE_SESSION = 6 * 60 * 60 * 1000;
+const SWEEP_EVERY = 60 * 1000;
+
 /**
  * The tool calls each session has made, across its requests. Each request resends the whole conversation, so only
  * calls not seen before are observed. For a session that started before this process (the daemon restarted under
- * it), the first request only marks what it carries as seen, so old history is not counted twice as a loop.
+ * it), the first request only marks what it carries as seen, so old history is not counted twice as a loop. A
+ * session idle for `idle` is dropped; when it comes back, its history is marked as seen again, neither counted nor
+ * returned as fresh, since it was both when it was first seen.
  */
 export class LoopWatch {
-  readonly #sessions = new Map<string, { seen: Set<string>; detector: LoopDetector }>();
+  readonly #sessions = new Map<string, { seen: Set<string>; detector: LoopDetector; at: number }>();
+  readonly #dropped = new Set<string>();
+  #swept = 0;
 
   constructor(
     readonly threshold: number,
     readonly window: number,
+    readonly now: () => number = Date.now,
+    readonly idle = IDLE_SESSION,
   ) {}
 
   /** The calls in this request that complete a loop, and every call this process had not seen yet. */
@@ -148,22 +163,42 @@ export class LoopWatch {
     body: MessagesBody,
     startedBeforeUs: boolean,
   ): Promise<{ loops: ToolCall[]; fresh: ToolUse[] }> {
-    const calls = await toolCalls(body);
+    const now = this.now();
+    this.#sweep(now);
     let state = this.#sessions.get(sessionId);
     let counting = true;
+    let recording = true;
     if (!state) {
-      state = { seen: new Set(), detector: new LoopDetector(this.threshold, this.window) };
+      const returning = this.#dropped.delete(sessionId);
+      state = { seen: new Set(), detector: new LoopDetector(this.threshold, this.window), at: now };
       this.#sessions.set(sessionId, state);
-      counting = !startedBeforeUs;
+      counting = !startedBeforeUs && !returning;
+      recording = !returning;
     }
+    state.at = now;
     const loops: ToolCall[] = [];
     const fresh: ToolUse[] = [];
-    for (const { key, call, use } of calls) {
+    for (const { key, call, use } of await toolCalls(body, state.seen)) {
       if (state.seen.has(key)) continue;
       state.seen.add(key);
-      if (use) fresh.push(use);
+      if (use && recording) fresh.push(use);
       if (counting && state.detector.observe(call.hash)) loops.push(call);
     }
     return { loops, fresh };
+  }
+
+  /** How many sessions are held in memory. */
+  get size(): number {
+    return this.#sessions.size;
+  }
+
+  #sweep(now: number): void {
+    if (now - this.#swept < SWEEP_EVERY) return;
+    this.#swept = now;
+    for (const [id, state] of this.#sessions) {
+      if (now - state.at <= this.idle) continue;
+      this.#sessions.delete(id);
+      this.#dropped.add(id);
+    }
   }
 }

@@ -1,7 +1,8 @@
 import { syncSources } from "@grenier/connectors";
-import { addClient, approveMemory, CacheError, SCOPE_KINDS } from "@grenier/index";
-import { buildReport, cacheReport, type GroupBy, type Prices, parseSince, repoName } from "@grenier/log";
-import type { Source, Store } from "@grenier/store";
+import type { Config } from "@grenier/core";
+import { addClient, approveMemory, CacheError, forgetAnswer, type RepoFiles, SCOPE_KINDS } from "@grenier/index";
+import { buildReport, cacheReport, type GroupBy, type Prices, parseSince, repoName, startOfToday } from "@grenier/log";
+import type { BudgetScope, Source, Store } from "@grenier/store";
 import { Hono } from "hono";
 
 export interface AdminOptions {
@@ -13,7 +14,23 @@ export interface AdminOptions {
   log?: (line: string) => void;
   /** A text file of a repository's work tree, or null when it cannot be shown. Without it, traces show no code. */
   readFile?: (root: string, path: string) => Promise<string | null>;
+  /** The files' current blob hashes, to say which cached answers are stale. Without it, none is said to be. */
+  files?: Pick<RepoFiles, "hashes">;
+  /** The config file's limits, which a limit set here or with `grenier budget set` replaces. */
+  budgets?: Config["budgets"];
 }
+
+/** Where each repository is on this machine: the root it was shared from, else the latest session's. */
+async function repoRoots(store: Store): Promise<Map<string, string>> {
+  const roots = new Map<string, string>();
+  for (const session of await store.sessions.list()) {
+    if (session.repoId && session.repoRoot) roots.set(session.repoId, session.repoRoot);
+  }
+  for (const repo of await store.team.repos()) roots.set(repo.repoId, repo.root);
+  return roots;
+}
+
+const BUDGET_SCOPES: readonly BudgetScope[] = ["daily", "session", "repo"];
 
 /** The desktop app's webview: Tauri serves it from these origins; the Vite dev server from the last. */
 const APP_ORIGINS = new Set([
@@ -125,6 +142,7 @@ export function createAdmin(options: AdminOptions): Hono {
       items: counts.reduce((total, row) => total + row.items, 0),
       clients: (await store.clients.list()).filter((client) => client.revokedAt === null).length,
       pendingReview: (await store.review.list("pending")).length,
+      paused: (await store.sessions.paused()).length,
     });
   });
 
@@ -141,9 +159,10 @@ export function createAdmin(options: AdminOptions): Hono {
     for (const summary of summaries) {
       const session = await store.sessions.get(summary.sessionId);
       if (!session?.repoRoot) continue;
-      const { steps, files, last } = summary;
+      const { steps, files, last, asks, hits, readsBeforeAsk } = summary;
       const { id, client, startedAt, endedAt } = session;
-      traces.push({ id, client, repo: repoName(session.repoRoot), startedAt, endedAt, steps, files, last });
+      const repo = repoName(session.repoRoot);
+      traces.push({ id, client, repo, startedAt, endedAt, steps, files, last, asks, hits, readsBeforeAsk });
     }
     return c.json({ traces });
   });
@@ -174,6 +193,124 @@ export function createAdmin(options: AdminOptions): Hono {
       return problem(404, `${path} cannot be shown: it is not a text file this session touched, or it is gone`);
     }
     return c.json({ path, text });
+  });
+
+  app.get("/cache", async (c) => {
+    const roots = await repoRoots(store);
+    const answers = new Map((await store.answers.stats()).map((row) => [row.repoId, row]));
+    const summaries = new Map((await store.summaries.stats()).map((row) => [row.repoId, row.summaries]));
+    const shared = new Set((await store.team.repos()).map((repo) => repo.repoId));
+    const ids = [...new Set([...answers.keys(), ...summaries.keys()])];
+    const name = (id: string) => {
+      const root = roots.get(id);
+      return root ? repoName(root) : id.slice(0, 12);
+    };
+    return c.json({
+      repos: ids
+        .map((id) => ({
+          id,
+          name: name(id),
+          answers: answers.get(id)?.answers ?? 0,
+          hits: answers.get(id)?.hits ?? 0,
+          summaries: summaries.get(id) ?? 0,
+          shared: shared.has(id),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    });
+  });
+
+  // An answer's `changed` is null when its repository is not on this machine, so whether it is stale is unknown.
+  app.get("/cache/:repo", async (c) => {
+    const id = c.req.param("repo");
+    const root = (await repoRoots(store)).get(id);
+    const answers = await store.answers.list(id);
+    const paths = [...new Set(answers.flatMap((answer) => answer.sources.map((source) => source.path)))];
+    const current =
+      root && options.files && paths.length > 0 ? await options.files.hashes(root, paths).catch(() => null) : null;
+    return c.json({
+      answers: answers.map((answer) => ({
+        id: answer.id,
+        question: answer.question,
+        answer: answer.answer,
+        author: answer.author,
+        createdAt: answer.createdAt,
+        hits: answer.hits,
+        shared: answer.shared,
+        shareError: answer.shareError,
+        files: answer.sources.map((source) => source.path),
+        changed: current
+          ? answer.sources.filter((source) => current.get(source.path) !== source.blobHash).map((source) => source.path)
+          : null,
+      })),
+    });
+  });
+
+  app.delete("/cache/answers/:id", async (c) => {
+    const forgotten = await forgetAnswer(store, c.req.param("id"));
+    if (!forgotten) return problem(404, `no answer ${c.req.param("id")} in the cache`);
+    return c.json({ forgotten: c.req.param("id"), shared: forgotten.shared });
+  });
+
+  app.get("/budgets", async (c) => {
+    const stored = await store.budgets.list();
+    const find = (scope: BudgetScope, key = "") =>
+      stored.find((budget) => budget.scope === scope && budget.key === key)?.limitAmount ?? null;
+    const roots = await repoRoots(store);
+    return c.json({
+      daily: find("daily") ?? options.budgets?.daily ?? null,
+      session: find("session") ?? options.budgets?.session ?? null,
+      fromConfig: {
+        daily: find("daily") === null && options.budgets?.daily !== undefined,
+        session: find("session") === null && options.budgets?.session !== undefined,
+      },
+      repos: stored
+        .filter((budget) => budget.scope === "repo")
+        .map((budget) => ({ name: budget.key, limit: budget.limitAmount })),
+      known: [...new Set([...roots.values()].map(repoName))].sort(),
+      spentToday: await store.usage.spend({ since: startOfToday(Date.now()) }),
+    });
+  });
+
+  app.post("/budgets", async (c) => {
+    const body = await c.req
+      .json<{ scope?: unknown; key?: unknown; limit?: unknown }>()
+      .catch(() => ({}) as { scope?: unknown; key?: unknown; limit?: unknown });
+    const scope = body.scope as BudgetScope;
+    if (!BUDGET_SCOPES.includes(scope)) return problem(400, `scope takes ${BUDGET_SCOPES.join(", ")}`);
+    const key = scope === "repo" ? body.key : "";
+    if (typeof key !== "string" || (scope === "repo" && !/^[^\s=]{1,128}$/.test(key))) {
+      return problem(400, "a repo limit needs the repository's name as key");
+    }
+    if (body.limit === null) {
+      await store.budgets.remove(scope, key);
+      return c.json({ removed: { scope, key } });
+    }
+    if (typeof body.limit !== "number" || !Number.isFinite(body.limit) || body.limit < 0) {
+      return problem(400, "limit takes an amount in dollars, or null to remove it");
+    }
+    await store.budgets.set(scope, key, body.limit);
+    return c.json({ set: { scope, key, limit: body.limit } });
+  });
+
+  app.get("/sessions/paused", async (c) => {
+    const loops = await store.events.list({ kind: "pause" });
+    return c.json({
+      sessions: (await store.sessions.paused()).map((session) => ({
+        id: session.id,
+        client: session.client,
+        repo: session.repoRoot ? repoName(session.repoRoot) : null,
+        pausedAt: loops.filter((event) => event.sessionId === session.id).at(-1)?.ts ?? null,
+      })),
+    });
+  });
+
+  app.post("/sessions/:id/resume", async (c) => {
+    const session = await store.sessions.get(c.req.param("id"));
+    if (!session) return problem(404, `no session ${c.req.param("id")}`);
+    if (!session.paused) return c.json({ resumed: null });
+    await store.sessions.setPaused(session.id, false);
+    await store.events.add({ sessionId: session.id, ts: Date.now(), kind: "resume", detail: null });
+    return c.json({ resumed: session.id });
   });
 
   app.get("/sources", async (c) => {

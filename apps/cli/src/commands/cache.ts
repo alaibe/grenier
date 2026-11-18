@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { repoId, repoRoot } from "@grenier/connectors/git";
+import { forgetAnswer } from "@grenier/index";
 import { repoName } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
@@ -29,7 +30,7 @@ async function repoIdsFor(store: Store, cwd: string, repo: string): Promise<stri
   return ids;
 }
 
-/** `grenier cache stats` and `grenier cache clear [--repo <name or path>]`. */
+/** `grenier cache stats`, `grenier cache forget <id>` and `grenier cache clear [--repo <name or path>]`. */
 export async function cache(argv: string[], io: Io): Promise<string[]> {
   const [action, ...rest] = argv;
   const { paths } = environment(io);
@@ -55,6 +56,20 @@ export async function cache(argv: string[], io: Io): Promise<string[]> {
     });
   }
 
+  if (action === "forget") {
+    const [id, ...more] = rest;
+    if (id === undefined || more.length > 0) throw new UsageError("cache forget takes one answer id");
+    return withStore(paths, async (store) => {
+      const forgotten = await forgetAnswer(store, id);
+      if (!forgotten) throw new CommandError(`no answer ${id} in the cache`);
+      return [
+        forgotten.shared
+          ? `Forgot answer ${id}; the team's cache forgets it at the next sync.`
+          : `Forgot answer ${id}.`,
+      ];
+    });
+  }
+
   if (action === "clear") {
     const { values } = parseArgs({ args: rest, strict: true, options: { repo: { type: "string" } } });
     return withStore(paths, async (store) => {
@@ -69,5 +84,5 @@ export async function cache(argv: string[], io: Io): Promise<string[]> {
     });
   }
 
-  throw new UsageError("cache takes: stats, or clear [--repo <name or path>]");
+  throw new UsageError("cache takes: stats, forget <id>, or clear [--repo <name or path>]");
 }

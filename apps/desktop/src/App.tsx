@@ -2,6 +2,8 @@ import { useState } from "react";
 import { api, type Overview } from "./api.ts";
 import { useLoad } from "./ui.tsx";
 import { Audit } from "./views/Audit.tsx";
+import { Budgets } from "./views/Budgets.tsx";
+import { Cache } from "./views/Cache.tsx";
 import { Clients } from "./views/Clients.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
 import { Review } from "./views/Review.tsx";
@@ -17,6 +19,8 @@ export interface ViewProps {
 const VIEWS = {
   dashboard: { label: "Dashboard", view: Dashboard },
   traces: { label: "Traces", view: Traces },
+  cache: { label: "Exploration cache", view: Cache },
+  budgets: { label: "Budgets", view: Budgets },
   sources: { label: "Sources", view: Sources },
   clients: { label: "Clients and scopes", view: Clients },
   audit: { label: "Audit log", view: Audit },

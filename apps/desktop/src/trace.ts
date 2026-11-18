@@ -34,6 +34,11 @@ export interface TraceSummary {
   steps: number;
   files: number;
   last: number;
+  /** Questions to Grenier's cache, and how many it answered with a hit. */
+  asks: number;
+  hits: number;
+  /** Reads before the first question to the cache: all of them when it never asked. */
+  readsBeforeAsk: number;
 }
 
 export interface TreeRow {

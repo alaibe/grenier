@@ -1,4 +1,4 @@
-import { budgetMessage, type Config, effectiveLimits, firstBreach } from "@grenier/core";
+import { type BudgetLimit, budgetMessage, type Config, effectiveLimits, firstBreach } from "@grenier/core";
 import { costOf, type Prices, repoName, startOfToday } from "@grenier/log";
 import type { Session, Store } from "@grenier/store";
 import { LoopWatch, type ToolCall, type ToolUse } from "./loops.ts";
@@ -69,7 +69,7 @@ export function createProxy(options: ProxyOptions) {
   const log = options.log ?? (() => {});
   const pollInterval = options.pollInterval ?? 500;
   const startedAt = options.startedAt ?? now();
-  const loops = new LoopWatch(config.guards.loop_repeat_threshold, config.guards.loop_window);
+  const loops = new LoopWatch(config.guards.loop_repeat_threshold, config.guards.loop_window, now);
   const upstreams: Record<Provider, URL> = {
     anthropic: new URL(config.proxy.upstream_anthropic),
     openai: new URL(config.proxy.upstream_openai),
@@ -131,7 +131,7 @@ export function createProxy(options: ProxyOptions) {
   }
 
   let teamStatus: { at: number; value: Awaited<ReturnType<NonNullable<ProxyOptions["teamBudget"]>>> } | undefined;
-  async function teamBreach() {
+  async function teamBreach(next: number) {
     if (!options.teamBudget) return null;
     if (!teamStatus || now() - teamStatus.at > TEAM_BUDGET_TTL) {
       // A team server that cannot be reached does not stop anyone's work: the request goes through.
@@ -139,20 +139,19 @@ export function createProxy(options: ProxyOptions) {
     }
     const status = teamStatus.value;
     if (!status) return null;
-    if (status.team.limit !== null && status.team.spent >= status.team.limit) {
-      return { scope: "team" as const, key: "", limit: status.team.limit, spent: status.team.spent };
-    }
-    if (status.member.limit !== null && status.member.spent >= status.member.limit) {
-      return { scope: "member" as const, key: "", limit: status.member.limit, spent: status.member.spent };
-    }
-    return null;
+    const limits: BudgetLimit[] = [];
+    if (status.team.limit !== null) limits.push({ scope: "team", key: "", limit: status.team.limit });
+    if (status.member.limit !== null) limits.push({ scope: "member", key: "", limit: status.member.limit });
+    return firstBreach(limits, (limit) => (limit.scope === "team" ? status.team.spent : status.member.spent), next);
   }
 
+  /** The first limit reached, or that the next request would pass if it cost what the session's last one did. */
   async function budgetBreach(session: Session) {
     const stored = await store.budgets.list();
     const name = session.repoRoot ? repoName(session.repoRoot) : null;
     const limits = effectiveLimits(config.budgets, stored, name);
-    if (limits.length === 0) return teamBreach();
+    const next = (await store.usage.lastCost(session.id)) ?? 0;
+    if (limits.length === 0) return teamBreach(next);
     const today = startOfToday(now());
     const spent = new Map<string, number>();
     for (const limit of limits) {
@@ -162,7 +161,7 @@ export function createProxy(options: ProxyOptions) {
         spent.set("repo", await store.usage.spend({ since: today, repoId: session.repoId }));
       }
     }
-    return firstBreach(limits, (limit) => spent.get(limit.scope) ?? 0) ?? teamBreach();
+    return firstBreach(limits, (limit) => spent.get(limit.scope) ?? 0, next) ?? teamBreach(next);
   }
 
   return async function proxy(

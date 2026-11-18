@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { blobHashes, repoPath, trackedFiles } from "@grenier/connectors/git";
+import { blobHashes, repoPath, repoText, trackedFiles } from "@grenier/connectors/git";
 import {
   askCodebase,
   type CacheDeps,
@@ -55,7 +55,7 @@ function deps(embedder: Embedder | null = null): CacheDeps {
   return {
     store,
     embedder,
-    files: { hashes: blobHashes, tracked: trackedFiles, relative: repoPath },
+    files: { hashes: blobHashes, tracked: trackedFiles, relative: repoPath, text: repoText },
     now: () => 1_000,
   };
 }
@@ -169,6 +169,36 @@ describe("record_answer and ask_codebase", () => {
     await expect(record(["src/nope.ts"])).rejects.toThrow("no such file: src/nope.ts");
     await expect(record([])).rejects.toThrow("list the files");
     await expect(record(["src/proxy.ts"], " ")).rejects.toThrow("must not be empty");
+  });
+
+  it("refuses what the team server would refuse: a long answer or question, or too much quoted code", async () => {
+    const record = (question: string, answer: string) =>
+      recordAnswer(deps(), repo, { question, answer, files: ["src/proxy.ts"] });
+    await expect(record(STREAM_Q, "x".repeat(4001))).rejects.toThrow(
+      "the answer is refused: it holds at most 4000 characters",
+    );
+    await expect(record(STREAM_Q, `\`\`\`ts\n${"line\n".repeat(11)}\`\`\``)).rejects.toThrow(
+      "it may quote at most 10 lines of code",
+    );
+    await expect(record("q".repeat(2001), STREAM_A)).rejects.toThrow("the question holds at most 2000 characters");
+    expect(await store.answers.stats()).toEqual([]);
+  });
+
+  it("refuses an answer or a summary that copies more than ten lines of a source file, fenced or not", async () => {
+    const code = Array.from({ length: 30 }, (_, line) => `  const value${line} = compute(${line});`).join("\n");
+    write("src/long.ts", `${code}\n`);
+    const copied = `It starts like this:\n${code.split("\n").slice(5, 17).join("\n")}\nand goes on.`;
+    await expect(
+      recordAnswer(deps(), repo, { question: "What does long.ts do?", answer: copied, files: ["src/long.ts"] }),
+    ).rejects.toThrow("the answer is refused: it copies 12 lines of src/long.ts");
+    await expect(recordSummary(deps(), repo, { path: "src/long.ts", summary: copied })).rejects.toThrow(
+      "the summary is refused: it copies 12 lines of src/long.ts",
+    );
+
+    const snippet = `It computes values, as in:\n${code.split("\n").slice(0, 10).join("\n")}`;
+    await expect(
+      recordAnswer(deps(), repo, { question: "What does long.ts do?", answer: snippet, files: ["src/long.ts"] }),
+    ).resolves.toMatchObject({ id: expect.any(String) });
   });
 
   it("takes absolute paths inside the repository", async () => {

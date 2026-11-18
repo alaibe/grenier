@@ -1,6 +1,22 @@
 import { closeSync, openSync } from "node:fs";
 import Database from "better-sqlite3";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, notInArray, type SQL, sql, sum } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  type SQL,
+  sql,
+  sum,
+} from "drizzle-orm";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { migrations as allMigrations, type Migration, StoreError } from "./index.ts";
 import * as schema from "./schema.ts";
@@ -78,6 +94,16 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       .filter((term) => term.trim() !== "")
       .map((term) => `"${term.replace(/"/g, '""')}"`)
       .join(" OR ");
+  const withSources = (rows: (typeof answers.$inferSelect)[]) =>
+    rows.map((answer) => ({
+      ...answer,
+      sources: db
+        .select({ path: answerSources.path, blobHash: answerSources.blobHash })
+        .from(answerSources)
+        .where(eq(answerSources.answerId, answer.id))
+        .orderBy(asc(answerSources.path))
+        .all(),
+    }));
 
   return {
     schemaVersion: async () => schemaVersion(db),
@@ -103,6 +129,8 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .where(filter.since === undefined ? undefined : gte(sessions.startedAt, filter.since))
           .orderBy(asc(sessions.startedAt))
           .all(),
+      paused: async () =>
+        db.select().from(sessions).where(eq(sessions.paused, true)).orderBy(asc(sessions.startedAt)).all(),
     },
 
     usage: {
@@ -146,6 +174,15 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .all(),
       after: async (id, limit) =>
         db.select().from(usage).where(gt(usage.id, id)).orderBy(asc(usage.id)).limit(limit).all(),
+      lastCost: async (sessionId) =>
+        db
+          .select({ cost: usage.cost })
+          .from(usage)
+          .where(eq(usage.sessionId, sessionId))
+          .orderBy(desc(usage.ts), desc(usage.id))
+          .limit(1)
+          .get()?.cost ?? null,
+      prune: async (before) => db.delete(usage).where(lt(usage.ts, before)).run().changes,
     },
 
     events: {
@@ -165,6 +202,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           )
           .orderBy(asc(events.ts), asc(events.id))
           .all(),
+      prune: async (before) => db.delete(events).where(lt(events.ts, before)).run().changes,
     },
 
     steps: {
@@ -187,12 +225,16 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
             files: sql<number>`count(distinct ${steps.path})`,
             first: sql<number>`min(${steps.ts})`,
             last: sql<number>`max(${steps.ts})`,
+            asks: sql<number>`coalesce(sum(${steps.kind} = 'ask'), 0)`,
+            hits: sql<number>`coalesce(sum(${steps.kind} = 'ask' AND ${steps.outcome} = 'hit'), 0)`,
+            readsBeforeAsk: sql<number>`coalesce(sum(${steps.kind} = 'read' AND ${steps.ts} < coalesce((SELECT min(asked.ts) FROM steps AS asked WHERE asked.session_id = ${steps.sessionId} AND asked.kind = 'ask'), ${Number.MAX_SAFE_INTEGER})), 0)`,
           })
           .from(steps)
           .where(gte(steps.ts, since))
           .groupBy(steps.sessionId)
           .orderBy(desc(sql`max(${steps.ts})`))
           .all(),
+      prune: async (before) => db.delete(steps).where(lt(steps.ts, before)).run().changes,
     },
 
     budgets: {
@@ -285,24 +327,19 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
             .from(answers)
             .get()?.total ?? 0,
         ),
+      list: async (repoId) =>
+        withSources(db.select().from(answers).where(eq(answers.repoId, repoId)).orderBy(desc(answers.createdAt)).all()),
       unshared: async (repoIds, limit) => {
         if (repoIds.length === 0) return [];
-        const rows = db
-          .select()
-          .from(answers)
-          .where(and(inArray(answers.repoId, [...repoIds]), eq(answers.shared, false)))
-          .orderBy(asc(answers.createdAt))
-          .limit(limit)
-          .all();
-        return rows.map((answer) => ({
-          ...answer,
-          sources: db
-            .select({ path: answerSources.path, blobHash: answerSources.blobHash })
-            .from(answerSources)
-            .where(eq(answerSources.answerId, answer.id))
-            .orderBy(asc(answerSources.path))
+        return withSources(
+          db
+            .select()
+            .from(answers)
+            .where(and(inArray(answers.repoId, [...repoIds]), eq(answers.shared, false), isNull(answers.shareError)))
+            .orderBy(asc(answers.createdAt))
+            .limit(limit)
             .all(),
-        }));
+        );
       },
       markShared: async (ids) => {
         if (ids.length > 0)
@@ -310,6 +347,9 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
             .set({ shared: true })
             .where(inArray(answers.id, [...ids]))
             .run();
+      },
+      refuse: async (id, reason) => {
+        db.update(answers).set({ shareError: reason }).where(eq(answers.id, id)).run();
       },
       remove: async (id) => {
         db.delete(answers).where(eq(answers.id, id)).run();
@@ -502,7 +542,12 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .values(summary)
           .onConflictDoUpdate({
             target: [fileSummaries.repoId, fileSummaries.path, fileSummaries.blobHash],
-            set: { summary: summary.summary, createdAt: summary.createdAt, shared: summary.shared ?? false },
+            set: {
+              summary: summary.summary,
+              createdAt: summary.createdAt,
+              shared: summary.shared ?? false,
+              shareError: summary.shareError ?? null,
+            },
           })
           .run();
       },
@@ -531,7 +576,13 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           : db
               .select()
               .from(fileSummaries)
-              .where(and(inArray(fileSummaries.repoId, [...repoIds]), eq(fileSummaries.shared, false)))
+              .where(
+                and(
+                  inArray(fileSummaries.repoId, [...repoIds]),
+                  eq(fileSummaries.shared, false),
+                  isNull(fileSummaries.shareError),
+                ),
+              )
               .orderBy(asc(fileSummaries.createdAt))
               .limit(limit)
               .all(),
@@ -548,6 +599,18 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
             )
             .run();
         }
+      },
+      refuse: async (key, reason) => {
+        db.update(fileSummaries)
+          .set({ shareError: reason })
+          .where(
+            and(
+              eq(fileSummaries.repoId, key.repoId),
+              eq(fileSummaries.path, key.path),
+              eq(fileSummaries.blobHash, key.blobHash),
+            ),
+          )
+          .run();
       },
       clear: async (repoId) =>
         db

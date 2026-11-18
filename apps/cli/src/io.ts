@@ -10,6 +10,8 @@ export interface Io {
   err: (line: string) => void;
   /** How to start this program again, for the daemon: [node, script]. */
   self: string[];
+  /** All of standard input, for a command that reads it. */
+  stdin?: () => Promise<string>;
 }
 
 /** A failure to report as `grenier: <message>` with exit code 1. */

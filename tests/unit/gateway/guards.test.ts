@@ -1,3 +1,4 @@
+import { LoopWatch, toolCalls } from "@grenier/gateway";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeUpstream, fixture, messagesRequest, sse, type TestGateway, testGateway } from "../../support/gateway.ts";
 
@@ -93,6 +94,23 @@ describe("budgets", () => {
 
     await gateway.store.budgets.set("daily", "", 50);
     expect((await send("/s/s1/v1/messages")).status).toBe(200);
+  });
+
+  it("stops a request that would pass the limit if it cost what the session's last one did", async () => {
+    const upstream = fakeUpstream(() => sse(STREAM));
+    gateway = testGateway(upstream, (config) => {
+      config.budgets.daily = 10;
+    });
+    await spend("s1", 9);
+    await gateway.store.usage.add({ sessionId: "s1", ts: gateway.clock.now, model: "claude-opus-5-5", cost: 0.6 });
+
+    const response = await send("/s/s1/v1/messages");
+    expect(response.status).toBe(429);
+    expect(JSON.parse(response.text).error.message).toBe(
+      "Grenier stopped this request: the daily budget of $10.00 would be passed ($9.60 spent, and this session's last request cost $0.60). To change it, run: grenier budget set --daily <amount>",
+    );
+    expect(upstream.requests).toEqual([]);
+    expect((await send("/s/s2/v1/messages")).status).toBe(200);
   });
 
   it("does not hold back requests other than inference", async () => {
@@ -280,6 +298,17 @@ describe("team budgets", () => {
     expect(asked).toBe(2);
   });
 
+  it("stops a request that would pass the team's limit at the session's last cost", async () => {
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      () => {},
+      { teamBudget: async () => status(5, 4.5) },
+    );
+    await gateway.store.usage.add({ sessionId: "s1", ts: gateway.clock.now, model: "m", cost: 0.75 });
+    expect((await send("/s/s1/v1/messages")).text).toContain("the team's daily budget of $5.00 would be passed");
+    expect((await send("/s/s2/v1/messages")).status).toBe(200);
+  });
+
   it("checks this machine's own limits before the team's", async () => {
     gateway = testGateway(
       fakeUpstream(() => sse(STREAM)),
@@ -290,5 +319,40 @@ describe("team budgets", () => {
     );
     await gateway.store.usage.add({ sessionId: "s0", ts: gateway.clock.now, model: "m", cost: 2 });
     expect((await send("/s/s1/v1/messages")).text).toContain("the daily budget of $1.00");
+  });
+});
+
+describe("LoopWatch", () => {
+  const call = (id: string) => ({
+    role: "assistant",
+    content: [{ type: "tool_use", id, name: "Bash", input: { command: "npm test" } }],
+  });
+
+  it("leaves out the calls already seen before hashing them", async () => {
+    const body = { messages: [call("a"), call("b")] };
+    expect((await toolCalls(body, new Set(["use:a"]))).map((entry) => entry.key)).toEqual(["use:b"]);
+  });
+
+  it("drops a session idle for too long, and neither counts nor returns its history when it comes back", async () => {
+    let now = 0;
+    const watch = new LoopWatch(3, 10, () => now, 1_000);
+    const messages = [call("a"), call("b")];
+    expect((await watch.observe("s1", { messages }, false)).fresh).toHaveLength(2);
+    expect(watch.size).toBe(1);
+
+    now = 120_000;
+    await watch.observe("s2", { messages: [] }, false);
+    expect(watch.size).toBe(1);
+
+    messages.push(call("c"));
+    const back = await watch.observe("s1", { messages }, false);
+    expect(back).toEqual({ loops: [], fresh: [] });
+
+    messages.push(call("d"));
+    const next = await watch.observe("s1", { messages }, false);
+    expect(next.fresh.map((use) => use.id)).toEqual(["d"]);
+    expect(next.loops).toHaveLength(0);
+    messages.push(call("e"), call("f"));
+    expect((await watch.observe("s1", { messages }, false)).loops).toHaveLength(1);
   });
 });

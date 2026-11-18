@@ -7,6 +7,7 @@ import personalData from "../migrations/0005_personal_data.sql";
 import itemsFts from "../migrations/0006_items_fts.sql";
 import sourceVault from "../migrations/0007_source_vault.sql";
 import agentSteps from "../migrations/0008_agent_steps.sql";
+import shareError from "../migrations/0009_share_error.sql";
 
 export interface Migration {
   /** 1 for the first migration: the schema version a database has once it is applied. */
@@ -30,4 +31,5 @@ export const migrations: readonly Migration[] = [
   { version: 7, name: "0006_items_fts", sql: itemsFts },
   { version: 8, name: "0007_source_vault", sql: sourceVault },
   { version: 9, name: "0008_agent_steps", sql: agentSteps },
+  { version: 10, name: "0009_share_error", sql: shareError },
 ];

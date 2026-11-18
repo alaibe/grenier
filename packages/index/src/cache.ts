@@ -1,4 +1,4 @@
-import { sha256, unshareable } from "@grenier/core";
+import { copiedLines, MAX_CODE_LINES, MAX_QUESTION, sha256, unshareable } from "@grenier/core";
 import type { Store } from "@grenier/store";
 import { cosine, type Embedder } from "./embeddings.ts";
 
@@ -16,6 +16,8 @@ export interface RepoFiles {
   tracked(root: string): Promise<{ path: string; blob: string }[]>;
   /** The path relative to the root with forward slashes, or null when it is outside the repository. */
   relative(root: string, path: string): string | null;
+  /** A text file of the work tree, or null. Without it, answers are not checked against their files. */
+  text?(root: string, path: string): Promise<string | null>;
 }
 
 export interface CacheDeps {
@@ -59,6 +61,20 @@ export function checkSummary(summary: string): void {
   if (problem) throw new CacheError(`the summary is refused: ${problem}`);
 }
 
+/** Rule 4 again, against the files themselves: the text may not copy more than a short run of their lines. */
+async function checkCopies(deps: CacheDeps, repo: Repo, what: string, text: string, paths: readonly string[]) {
+  if (!deps.files.text) return;
+  for (const path of paths) {
+    const source = await deps.files.text(repo.root, path);
+    const copied = source === null ? 0 : copiedLines(text, source);
+    if (copied > MAX_CODE_LINES) {
+      throw new CacheError(
+        `the ${what} is refused: it copies ${copied} lines of ${path}; describe the code and quote at most ${MAX_CODE_LINES} lines of it`,
+      );
+    }
+  }
+}
+
 function newId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -83,12 +99,16 @@ export async function recordAnswer(
   const question = input.question.trim();
   const answer = input.answer.trim();
   if (question === "" || answer === "") throw new CacheError("question and answer must not be empty");
+  if (question.length > MAX_QUESTION) throw new CacheError(`the question holds at most ${MAX_QUESTION} characters`);
+  const problem = unshareable(answer);
+  if (problem) throw new CacheError(`the answer is refused: ${problem}`);
   if (input.files.length === 0) throw new CacheError("list the files the answer was worked out from");
 
   const paths = inRepo(deps, repo, input.files);
   const hashes = await deps.files.hashes(repo.root, paths);
   const missing = paths.filter((path) => !hashes.get(path));
   if (missing.length > 0) throw new CacheError(`no such file: ${missing.join(", ")}`);
+  await checkCopies(deps, repo, "answer", answer, paths);
 
   const id = newId();
   const [vector] = deps.embedder ? await deps.embedder.embed([question]) : [];
@@ -109,6 +129,8 @@ export interface AskResult {
   /** Files edited or deleted since the answer was recorded: re-read these before relying on it. */
   changed: string[];
   id?: string;
+  /** How close the recorded question is to the one asked (cosine of their vectors), when embeddings are on. */
+  similarity?: number;
 }
 
 /**
@@ -116,7 +138,11 @@ export interface AskResult {
  * while every source file still has its recorded blob hash, `stale` with the changed paths otherwise, `miss` when
  * nothing recorded is close enough.
  */
-export async function askCodebase(deps: CacheDeps, repo: Repo, input: { question: string }): Promise<AskResult> {
+export async function askCodebase(
+  deps: CacheDeps,
+  repo: Repo,
+  input: { question: string /** False to look without counting a hit as a reuse. */; count?: boolean },
+): Promise<AskResult> {
   const words = terms(input.question);
   const candidates = new Map<string, number>();
   const fuse = (id: string, rank: number) => candidates.set(id, (candidates.get(id) ?? 0) + 1 / (60 + rank));
@@ -134,6 +160,7 @@ export async function askCodebase(deps: CacheDeps, repo: Repo, input: { question
     if (shared.size >= SHARED_TERMS) fuse(match.id, rank);
   }
 
+  const similarities = new Map<string, number>();
   if (deps.embedder) {
     const [query] = await deps.embedder.embed([input.question]);
     if (query) {
@@ -141,7 +168,10 @@ export async function askCodebase(deps: CacheDeps, repo: Repo, input: { question
         .map(({ id, vector }) => ({ id, similarity: cosine(query, vector) }))
         .filter(({ similarity }) => similarity >= SIMILAR)
         .sort((a, b) => b.similarity - a.similarity);
-      for (const [rank, { id }] of scored.entries()) fuse(id, rank);
+      for (const [rank, { id, similarity }] of scored.entries()) {
+        fuse(id, rank);
+        similarities.set(id, similarity);
+      }
     }
   }
 
@@ -154,7 +184,8 @@ export async function askCodebase(deps: CacheDeps, repo: Repo, input: { question
     answer.sources.map((source) => source.path),
   );
   const changed = answer.sources.filter((source) => current.get(source.path) !== source.blobHash).map((s) => s.path);
-  if (changed.length === 0) await deps.store.answers.hit(answer.id);
+  if (changed.length === 0 && input.count !== false) await deps.store.answers.hit(answer.id);
+  const similarity = similarities.get(answer.id);
   return {
     status: changed.length === 0 ? "hit" : "stale",
     question: answer.question,
@@ -162,6 +193,7 @@ export async function askCodebase(deps: CacheDeps, repo: Repo, input: { question
     sources: answer.sources,
     changed,
     id: answer.id,
+    ...(similarity === undefined ? {} : { similarity }),
   };
 }
 
@@ -185,6 +217,7 @@ export async function recordSummary(
   const [path] = inRepo(deps, repo, [input.path]);
   const hash = path ? await contentHash(deps, repo, path) : null;
   if (!path || !hash) throw new CacheError(`no such file or directory: ${input.path}`);
+  if (!hash.startsWith("tree:")) await checkCopies(deps, repo, "summary", input.summary, [path]);
   await deps.store.summaries.put({
     repoId: repo.id,
     path,

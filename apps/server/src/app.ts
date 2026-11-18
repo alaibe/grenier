@@ -1,4 +1,4 @@
-import { sha256, unshareable } from "@grenier/core/policy";
+import { MAX_QUESTION, sha256, unshareable } from "@grenier/core/policy";
 import { Hono } from "hono";
 import type { TeamCounter } from "./counter.ts";
 import { DASHBOARD } from "./dashboard.ts";
@@ -119,7 +119,7 @@ export function createApp(): Hono<App> {
       const valid =
         isString(answer.id, 64) &&
         isString(answer.repoId, 128) &&
-        isString(answer.question, 2000) &&
+        isString(answer.question, MAX_QUESTION) &&
         typeof answer.answer === "string" &&
         isCount(answer.createdAt) &&
         Array.isArray(answer.sources) &&
@@ -147,6 +147,22 @@ export function createApp(): Hono<App> {
     }
     if (statements.length > 0) await c.env.DB.batch(statements);
     return c.json({ accepted: answers.length });
+  });
+
+  /** Any member may forget an answer: it becomes a tombstone, without its text, that every machine pulls. */
+  app.post("/api/answers/forget", async (c) => {
+    const body = await c.req.json<{ ids?: unknown }>().catch(() => ({}) as { ids?: unknown });
+    const ids = body.ids;
+    if (!Array.isArray(ids) || ids.length > MAX_BATCH || !ids.every((id) => isString(id, 64))) {
+      return error(400, `send ids: at most ${MAX_BATCH} answer ids`);
+    }
+    const statements = ids.map((id) =>
+      c.env.DB.prepare(
+        "INSERT OR REPLACE INTO answers (id, repo_id, question, answer, sources, author, created_at, deleted) SELECT id, repo_id, question, '', sources, author, created_at, 1 FROM answers WHERE id = ? AND deleted = 0",
+      ).bind(id),
+    );
+    if (statements.length > 0) await c.env.DB.batch(statements);
+    return c.json({ forgotten: ids.length });
   });
 
   app.post("/api/summaries", async (c) => {

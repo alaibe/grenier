@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { repoText } from "@grenier/connectors/git";
 import { defaultConfig } from "@grenier/core";
 import { createGateway } from "@grenier/gateway";
+import type { RepoFiles } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
@@ -13,17 +14,25 @@ const TOKEN = "ga_admin-test";
 let store: Store;
 let dir: string;
 let app: ReturnType<typeof createGateway>;
+/** Current blob hashes, as the stand-in for git: a path left out is a deleted file. */
+let blobs: Record<string, string>;
+const files: Pick<RepoFiles, "hashes"> = {
+  hashes: async (_root, paths) => new Map(paths.map((path) => [path, blobs[path] ?? null])),
+};
 
 beforeEach(() => {
   store = openSqliteStore(":memory:");
   dir = mkdtempSync(join(tmpdir(), "grenier-admin-"));
   writeFileSync(join(dir, "plans.md"), "# Plans\n\nShip the desktop app.\n");
+  blobs = {};
+  const config = defaultConfig();
+  config.budgets.session = 4;
   app = createGateway({
     store,
-    config: defaultConfig(),
+    config,
     prices: loadPrices(),
     port: 7788,
-    admin: { token: TOKEN, version: "test", readFile: repoText },
+    admin: { token: TOKEN, version: "test", readFile: repoText, files },
   });
 });
 
@@ -185,7 +194,16 @@ describe("the admin API", () => {
 
     const list = (await (await call("/traces")).json()) as { traces: { id: string; steps: number; files: number }[] };
     expect(list.traces).toEqual([
-      expect.objectContaining({ id: "s1", client: "claude", repo: repo.split("/").at(-1), steps: 3, files: 2 }),
+      expect.objectContaining({
+        id: "s1",
+        client: "claude",
+        repo: repo.split("/").at(-1),
+        steps: 3,
+        files: 2,
+        asks: 0,
+        hits: 0,
+        readsBeforeAsk: 2,
+      }),
     ]);
 
     const trace = (await (await call("/traces/s1")).json()) as {
@@ -203,5 +221,86 @@ describe("the admin API", () => {
     for (const path of ["src/untouched.ts", "link.txt", "../outside.txt", "", "src"]) {
       expect((await call(`/traces/s1/file?path=${encodeURIComponent(path)}`)).status).toBe(404);
     }
+  });
+
+  it("lists the cache by repository, its answers with what changed, and forgets one", async () => {
+    await store.sessions.create({ id: "s1", repoRoot: "/work/app", repoId: "r1", startedAt: 1 });
+    const add = (id: string, question: string, blob: string) =>
+      store.answers.add({ id, repoId: "r1", question, answer: `About ${question}`, createdAt: 5, author: "local" }, [
+        { path: "src/a.ts", blobHash: blob },
+      ]);
+    await add("a1", "Where is routing?", "aaa");
+    await add("a2", "How are budgets checked?", "old");
+    await store.answers.refuse("a2", "the team server answered: too long");
+    await store.answers.add(
+      { id: "x1", repoId: "elsewhere-id-123456", question: "q", answer: "a", createdAt: 1, author: "ada" },
+      [],
+    );
+    blobs = { "src/a.ts": "aaa" };
+
+    const repos = (await (await call("/cache")).json()) as { repos: Record<string, unknown>[] };
+    expect(repos.repos).toEqual([
+      { id: "r1", name: "app", answers: 2, hits: 0, summaries: 0, shared: false },
+      { id: "elsewhere-id-123456", name: "elsewhere-id", answers: 1, hits: 0, summaries: 0, shared: false },
+    ]);
+
+    const listed = (await (await call("/cache/r1")).json()) as { answers: Record<string, unknown>[] };
+    expect(listed.answers.map((answer) => [answer.id, answer.changed, answer.shareError])).toEqual([
+      ["a1", [], null],
+      ["a2", ["src/a.ts"], "the team server answered: too long"],
+    ]);
+    const unknown = (await (await call("/cache/elsewhere-id-123456")).json()) as { answers: { changed: unknown }[] };
+    expect(unknown.answers[0]?.changed).toBeNull();
+
+    expect((await call("/cache/answers/a1", { method: "DELETE" })).status).toBe(200);
+    expect(await store.answers.get("a1")).toBeUndefined();
+    expect((await call("/cache/answers/a1", { method: "DELETE" })).status).toBe(404);
+  });
+
+  it("shows the limits, from the config until one is set, and sets and removes them", async () => {
+    await store.sessions.create({ id: "s1", repoRoot: "/work/app", repoId: "r1", startedAt: 1 });
+    await store.usage.add({ sessionId: "s1", ts: Date.now(), cost: 1.5 });
+    const budgets = async () => (await (await call("/budgets")).json()) as Record<string, unknown>;
+    expect(await budgets()).toEqual({
+      daily: null,
+      session: 4,
+      fromConfig: { daily: false, session: true },
+      repos: [],
+      known: ["app"],
+      spentToday: 1.5,
+    });
+
+    const set = (body: unknown) => call("/budgets", { method: "POST", body: JSON.stringify(body) });
+    expect((await set({ scope: "daily", limit: 10 })).status).toBe(200);
+    expect((await set({ scope: "session", limit: 2 })).status).toBe(200);
+    expect((await set({ scope: "repo", key: "app", limit: 1 })).status).toBe(200);
+    expect(await budgets()).toMatchObject({
+      daily: 10,
+      session: 2,
+      fromConfig: { daily: false, session: false },
+      repos: [{ name: "app", limit: 1 }],
+    });
+
+    expect((await set({ scope: "session", limit: null })).status).toBe(200);
+    expect((await budgets()).session).toBe(4);
+    expect((await set({ scope: "weekly", limit: 1 })).status).toBe(400);
+    expect((await set({ scope: "daily", limit: -1 })).status).toBe(400);
+    expect((await set({ scope: "repo", limit: 1 })).status).toBe(400);
+  });
+
+  it("lists the paused sessions and resumes one", async () => {
+    await store.sessions.create({ id: "s1", client: "claude", repoRoot: "/work/app", startedAt: 1 });
+    await store.sessions.setPaused("s1", true);
+    await store.events.add({ sessionId: "s1", ts: 42, kind: "pause", detail: null });
+
+    expect(await (await call("/sessions/paused")).json()).toEqual({
+      sessions: [{ id: "s1", client: "claude", repo: "app", pausedAt: 42 }],
+    });
+    expect(((await (await call("/overview")).json()) as { paused: number }).paused).toBe(1);
+
+    expect(await (await call("/sessions/s1/resume", { method: "POST" })).json()).toEqual({ resumed: "s1" });
+    expect((await store.sessions.get("s1"))?.paused).toBe(false);
+    expect((await store.events.list({ kind: "resume" })).map((event) => event.sessionId)).toEqual(["s1"]);
+    expect((await call("/sessions/nobody/resume", { method: "POST" })).status).toBe(404);
   });
 });

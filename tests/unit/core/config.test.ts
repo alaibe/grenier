@@ -48,6 +48,7 @@ describe("defaultConfig", () => {
       cache: { embeddings: "local", share_with_team: false },
       team: { url: "", token_env: "GRENIER_TEAM_TOKEN", sync_interval: 20 },
       sources: { sync_interval: 300 },
+      retention: { steps_days: 90, usage_days: 0 },
       prices: {},
     });
   });

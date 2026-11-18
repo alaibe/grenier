@@ -72,8 +72,32 @@ export function Traces(_: ViewProps) {
           <code>grenier run -- claude</code>
         </Empty>
       )}
+      {id && <CacheUse traces={traces} current={traces.find((trace) => trace.id === id)} />}
       {id && <Player key={id} id={id} />}
     </Page>
+  );
+}
+
+const times = (n: number, one: string, many = `${one}s`) => `${count(n)} ${n === 1 ? one : many}`;
+
+/** Whether agents ask the exploration cache before they explore: this session, and every session listed. */
+function CacheUse({ traces, current }: { traces: TraceSummary[]; current: TraceSummary | undefined }) {
+  if (!current) return null;
+  const first = traces.filter((trace) => trace.asks > 0 && trace.readsBeforeAsk === 0).length;
+  const never = traces.filter((trace) => trace.asks === 0).length;
+  const session =
+    current.asks === 0
+      ? `This session never asked Grenier's cache: its ${times(current.readsBeforeAsk, "read")} went to exploring.`
+      : `This session asked Grenier's cache ${times(current.asks, "time")} (${times(current.hits, "hit")}), ${current.readsBeforeAsk === 0 ? "before reading any code" : `after ${times(current.readsBeforeAsk, "read")}`}.`;
+  const across =
+    traces.length > 1
+      ? ` Of the ${times(traces.length, "session")} listed, ${count(first)} asked before reading code and ${count(never)} never asked.`
+      : "";
+  return (
+    <p className="mb-4 text-muted">
+      {session}
+      {across}
+    </p>
   );
 }
 

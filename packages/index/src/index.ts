@@ -31,6 +31,7 @@ export {
   timeline,
 } from "./personal.ts";
 export {
+  forgetAnswer,
   type SyncDeps,
   type SyncResult,
   syncOnce,

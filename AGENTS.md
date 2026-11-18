@@ -81,7 +81,8 @@ code.
   `packages/index/src/node.ts`; a new model or revision is a new pin, and its vectors never mix with the old ones'
   (they are stored with the model's name). `tests/e2e/embeddings.test.ts` keeps its copy in `node_modules/.cache`.
 - The team server's own migrations are in `apps/server/migrations`, applied by Wrangler.
-- No test touches the real `~/.grenier`: set `GRENIER_HOME` to a temporary directory.
+- No test touches the real `~/.grenier`: set `GRENIER_HOME` to a temporary directory. As a backstop, the unit tests
+  run with `HOME` pointed at a throwaway folder (`tests/support/home.ts`).
 - Prices live only in `packages/log/prices.toml` (overridable under `[prices]` in config.toml). Never write a price
   anywhere else.
 - Every package is private until the release workflow publishes it; the name is settled (Grenier).

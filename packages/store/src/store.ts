@@ -50,6 +50,8 @@ export interface SessionStore {
   end(id: string, endedAt: number): Promise<void>;
   setPaused(id: string, paused: boolean): Promise<void>;
   list(filter?: { since?: number }): Promise<Session[]>;
+  /** The sessions the loop guard paused, oldest first. */
+  paused(): Promise<Session[]>;
 }
 
 export interface UsageWithSession extends Usage {
@@ -72,11 +74,17 @@ export interface UsageStore {
   list(filter?: { since?: number; sessionId?: string }): Promise<UsageWithSession[]>;
   /** Rows with an id above `id`, in order, at most `limit`. */
   after(id: number, limit: number): Promise<Usage[]>;
+  /** What the session's latest request cost, or null before its first. */
+  lastCost(sessionId: string): Promise<number | null>;
+  /** Removes the rows older than `before`; returns how many. */
+  prune(before: number): Promise<number>;
 }
 
 export interface EventStore {
   add(event: NewEvent): Promise<void>;
   list(filter?: { sessionId?: string; kind?: string; since?: number }): Promise<Event[]>;
+  /** Removes the events older than `before`; returns how many. */
+  prune(before: number): Promise<number>;
 }
 
 export interface StepSummary {
@@ -85,6 +93,11 @@ export interface StepSummary {
   files: number;
   first: number;
   last: number;
+  /** Questions to the exploration cache, and how many it answered with a hit. */
+  asks: number;
+  hits: number;
+  /** Reads before the session's first question to the cache: all of its reads when it never asked. */
+  readsBeforeAsk: number;
 }
 
 export interface StepStore {
@@ -94,6 +107,8 @@ export interface StepStore {
   list(sessionId: string): Promise<Step[]>;
   /** The sessions with steps since `since`, newest first, with how many steps and distinct files each has. */
   sessions(since: number): Promise<StepSummary[]>;
+  /** Removes the steps older than `before`; returns how many. */
+  prune(before: number): Promise<number>;
 }
 
 export type BudgetScope = "daily" | "session" | "repo";
@@ -128,9 +143,13 @@ export interface AnswerStore {
   hit(id: string): Promise<void>;
   /** Reuses counted over every answer. */
   totalHits(): Promise<number>;
-  /** Answers of these repositories not yet on the team server, oldest first. */
+  /** A repository's answers, newest first. */
+  list(repoId: string): Promise<AnswerWithSources[]>;
+  /** Answers of these repositories not yet on the team server, oldest first, without those it refused. */
   unshared(repoIds: readonly string[], limit: number): Promise<AnswerWithSources[]>;
   markShared(ids: readonly string[]): Promise<void>;
+  /** Keeps why the team server refused an answer, so sync passes over it. */
+  refuse(id: string, reason: string): Promise<void>;
   remove(id: string): Promise<void>;
   /** Removes the answers of one repository, or all; returns how many. */
   clear(repoId?: string): Promise<number>;
@@ -142,8 +161,10 @@ export interface SummaryStore {
   get(repoId: string, path: string, blobHash: string): Promise<FileSummary | undefined>;
   /** The newest summary of each path in a repository. */
   latest(repoId: string): Promise<FileSummary[]>;
+  /** Summaries of these repositories not yet on the team server, oldest first, without those it refused. */
   unshared(repoIds: readonly string[], limit: number): Promise<FileSummary[]>;
   markShared(keys: readonly { repoId: string; path: string; blobHash: string }[]): Promise<void>;
+  refuse(key: { repoId: string; path: string; blobHash: string }, reason: string): Promise<void>;
   clear(repoId?: string): Promise<number>;
   stats(): Promise<{ repoId: string; summaries: number }[]>;
 }

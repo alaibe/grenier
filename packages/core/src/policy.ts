@@ -82,16 +82,23 @@ export function effectiveLimits(
 
 export interface BudgetBreach extends BudgetLimit {
   spent: number;
+  /** What the request was expected to cost, when that, not what was spent, would pass the limit. */
+  next?: number;
 }
 
-/** The first limit that `spent` has reached, or null. A limit is reached once spending equals it. */
+/**
+ * The first limit that `spent` has reached, or that the next request, expected to cost `next`, would pass; null when
+ * there is none. A limit is reached once spending equals it.
+ */
 export function firstBreach(
   limits: readonly BudgetLimit[],
   spent: (limit: BudgetLimit) => number,
+  next = 0,
 ): BudgetBreach | null {
   for (const limit of limits) {
     const amount = spent(limit);
     if (amount >= limit.limit) return { ...limit, spent: amount };
+    if (next > 0 && amount + next > limit.limit) return { ...limit, spent: amount, next };
   }
   return null;
 }
@@ -113,11 +120,16 @@ export function budgetMessage(breach: BudgetBreach): string {
     team: "grenier team budget --team <amount> (a team admin)",
     member: "grenier team budget --member <amount> (a team admin)",
   }[breach.scope];
-  return `Grenier stopped this request: ${what} is reached (${money(breach.spent)} spent). To change it, run: ${change}`;
+  const why =
+    breach.next === undefined
+      ? `${what} is reached (${money(breach.spent)} spent)`
+      : `${what} would be passed (${money(breach.spent)} spent, and this session's last request cost ${money(breach.next)})`;
+  return `Grenier stopped this request: ${why}. To change it, run: ${change}`;
 }
 
 export const MAX_SHARED_TEXT = 4000;
 export const MAX_CODE_LINES = 10;
+export const MAX_QUESTION = 2000;
 
 /**
  * Rule 4: an answer or summary describes code; it may quote a short snippet, never a file. Null when the text is
@@ -133,6 +145,35 @@ export function unshareable(text: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * The longest run of lines `text` copies from `source`, in order, comparing trimmed lines and skipping blank ones:
+ * rule 4's check against the files an answer or summary was worked out from, which catches code quoted without fences.
+ */
+export function copiedLines(text: string, source: string): number {
+  const lines = (value: string) =>
+    value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+  const ours = lines(text);
+  const theirs = lines(source);
+  const at = new Map<string, number[]>();
+  for (const [index, line] of theirs.entries()) {
+    const found = at.get(line);
+    if (found) found.push(index);
+    else at.set(line, [index]);
+  }
+  let longest = 0;
+  for (const [index, line] of ours.entries()) {
+    for (const start of at.get(line) ?? []) {
+      let run = 1;
+      while (index + run < ours.length && ours[index + run] === theirs[start + run]) run++;
+      longest = Math.max(longest, run);
+    }
+  }
+  return longest;
 }
 
 /** ISO 13616: move the first four characters to the end, letters to numbers, and the remainder mod 97 must be 1. */

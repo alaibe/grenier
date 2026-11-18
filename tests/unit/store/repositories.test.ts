@@ -48,6 +48,13 @@ describe("sessions", () => {
   it("is undefined for an unknown id", async () => {
     expect(await store.sessions.get("nope")).toBeUndefined();
   });
+
+  it("lists the paused sessions", async () => {
+    await store.sessions.create(session("s1"));
+    await store.sessions.create(session("s2"));
+    await store.sessions.setPaused("s2", true);
+    expect((await store.sessions.paused()).map((s) => s.id)).toEqual(["s2"]);
+  });
 });
 
 describe("usage", () => {
@@ -76,6 +83,12 @@ describe("usage", () => {
       ["untagged", null],
     ]);
     expect((await store.usage.list({ sessionId: "s2" })).map((row) => row.ts)).toEqual([300]);
+  });
+
+  it("gives what a session's latest request cost", async () => {
+    expect(await store.usage.lastCost("s1")).toBe(2);
+    expect(await store.usage.lastCost("untagged")).toBeNull();
+    expect(await store.usage.lastCost("none")).toBeNull();
   });
 });
 
@@ -121,9 +134,39 @@ describe("steps", () => {
       step("s3", "c1", 1, "old.ts"),
     ]);
     expect(await store.steps.sessions(5)).toEqual([
-      { sessionId: "s2", steps: 1, files: 1, first: 50, last: 50 },
-      { sessionId: "s1", steps: 3, files: 1, first: 10, last: 30 },
+      { sessionId: "s2", steps: 1, files: 1, first: 50, last: 50, asks: 0, hits: 0, readsBeforeAsk: 1 },
+      { sessionId: "s1", steps: 3, files: 1, first: 10, last: 30, asks: 0, hits: 0, readsBeforeAsk: 3 },
     ]);
+  });
+
+  it("counts a session's questions to the cache, its hits, and the reads before its first question", async () => {
+    const ask = (callId: string, ts: number, outcome: string) => ({
+      ...step("s1", callId, ts, null),
+      tool: "mcp__grenier__ask_codebase",
+      kind: "ask" as const,
+      outcome,
+    });
+    await store.steps.add([
+      step("s1", "c1", 10, "a.ts"),
+      step("s1", "c2", 20, "b.ts"),
+      ask("c3", 30, "miss"),
+      step("s1", "c4", 40, "c.ts"),
+      ask("c5", 50, "hit"),
+    ]);
+    expect(await store.steps.sessions(0)).toMatchObject([{ sessionId: "s1", asks: 2, hits: 1, readsBeforeAsk: 2 }]);
+  });
+
+  it("prunes steps, usage and events older than a time", async () => {
+    await store.steps.add([step("s1", "c1", 10, "a.ts"), step("s1", "c2", 30, "b.ts")]);
+    await store.usage.add({ sessionId: "s1", ts: 10, cost: 1 });
+    await store.usage.add({ sessionId: "s1", ts: 30, cost: 2 });
+    await store.events.add({ sessionId: "s1", ts: 10, kind: "loop", detail: null });
+    expect(await store.steps.prune(20)).toBe(1);
+    expect(await store.usage.prune(20)).toBe(1);
+    expect(await store.events.prune(20)).toBe(1);
+    expect((await store.steps.list("s1")).map((row) => row.path)).toEqual(["b.ts"]);
+    expect(await store.usage.spend({})).toBe(2);
+    expect(await store.events.list()).toEqual([]);
   });
 });
 

@@ -16,5 +16,6 @@ export default defineConfig({
   plugins: [filesAsText()],
   test: {
     include: ["tests/unit/**/*.test.ts"],
+    setupFiles: ["tests/support/home.ts"],
   },
 });

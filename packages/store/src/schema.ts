@@ -85,6 +85,8 @@ export const fileSummaries = sqliteTable(
     createdAt: integer("created_at").notNull(),
     /** On the team server already. */
     shared: integer("shared", { mode: "boolean" }).notNull().default(false),
+    /** Why the team server refused it: it stays on this machine and sync passes over it. */
+    shareError: text("share_error"),
   },
   (table) => [primaryKey({ columns: [table.repoId, table.path, table.blobHash] })],
 );
@@ -103,6 +105,8 @@ export const answers = sqliteTable(
     author: text("author").notNull(),
     /** On the team server already: pushed from here, or pulled from it. */
     shared: integer("shared", { mode: "boolean" }).notNull().default(false),
+    /** Why the team server refused it: it stays on this machine and sync passes over it. */
+    shareError: text("share_error"),
   },
   (table) => [index("answers_repo").on(table.repoId)],
 );

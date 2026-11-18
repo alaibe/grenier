@@ -1,4 +1,5 @@
 import { version } from "../package.json";
+import { ask, promptHook } from "./commands/ask.ts";
 import { budget } from "./commands/budget.ts";
 import { cache } from "./commands/cache.ts";
 import { install, serve } from "./commands/mcp.ts";
@@ -30,10 +31,14 @@ Commands:
   budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]
                              Set limits in dollars ("off" removes one)
   resume <session>           Let a session paused by the loop guard continue
-  mcp install <claude-code|cursor|codex|claude-desktop> [--scope <sources or kinds>]
-                             Add Grenier's MCP server to that client's config, with a client token
+  mcp install <claude-code|cursor|codex|claude-desktop> [--scope <sources or kinds>] [--hook]
+                             Add Grenier's MCP server to that client's config, with a client token;
+                             --hook also passes Claude Code a recorded answer close to each prompt
   mcp serve                  The MCP server over stdio (what the clients launch)
+  ask [--repo <path>] [--json] <question>
+                             What the exploration cache holds for a question
   cache stats                Answers and summaries kept, by repository
+  cache forget <id>          Remove one answer, from the team's cache too when it was shared
   cache clear [--repo <name>]
                              Empty the cache, or one repository's part of it
   team deploy [--name grenier-team] [--admin <name>]
@@ -123,6 +128,12 @@ export async function run(argv: string[], io: Io): Promise<number> {
           return 0;
         }
         throw new UsageError("mcp takes: install <client>, or serve");
+      case "ask":
+        io.out(await ask(rest, io));
+        return 0;
+      case "hook":
+        if (rest[0] === "prompt" && rest.length === 1) return await promptHook(io);
+        throw new UsageError("hook takes: prompt (Claude Code's UserPromptSubmit hook)");
       case "cache":
         for (const line of await cache(rest, io)) io.out(line);
         return 0;

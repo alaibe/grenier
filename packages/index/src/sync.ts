@@ -12,6 +12,8 @@ export class TeamError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** The server's own message. */
+    readonly reason = message,
   ) {
     super(message);
   }
@@ -37,7 +39,7 @@ export async function teamApi<T>(
   }
   if (!response.ok) {
     const message = (body as { error?: string } | undefined)?.error ?? `HTTP ${response.status}`;
-    throw new TeamError(`the team server answered: ${message}`, response.status);
+    throw new TeamError(`the team server answered: ${message}`, response.status, message);
   }
   return body as T;
 }
@@ -59,11 +61,65 @@ export interface SyncDeps {
 }
 
 export interface SyncResult {
-  pushed: { answers: number; summaries: number; usageRows: number };
+  pushed: { answers: number; summaries: number; usageRows: number; forgotten: number };
   pulled: { answers: number; removed: number; summaries: number };
+  /** What the team server refused: it stays on this machine, with the reason, and is not sent again. */
+  refused: { answers: number; summaries: number };
 }
 
 const BATCH = 200;
+const FORGOTTEN = "forgotten_answers";
+
+/**
+ * Removes an answer from this machine's cache. One that is on the team server is forgotten there too, at the next
+ * sync: `shared` says so. Null when there is no such answer.
+ */
+export async function forgetAnswer(store: Store, id: string): Promise<{ shared: boolean } | null> {
+  const answer = await store.answers.get(id);
+  if (!answer) return null;
+  await store.answers.remove(id);
+  if (answer.shared) {
+    const pending = JSON.parse((await store.team.get(FORGOTTEN)) ?? "[]") as string[];
+    if (!pending.includes(id)) await store.team.set(FORGOTTEN, JSON.stringify([...pending, id]));
+  }
+  return { shared: answer.shared };
+}
+
+const refusal = (error: unknown) => error instanceof TeamError && error.status === 400;
+
+/**
+ * Sends rows in one call. When the server refuses the call, sends them one at a time and sets aside each one it
+ * refuses, so a single row it will never take does not hold back the others. Returns the rows it took.
+ */
+async function pushRows<T>(
+  team: TeamClient,
+  path: string,
+  rows: readonly T[],
+  body: (rows: readonly T[]) => object,
+  refuse: (row: T, reason: string) => Promise<void>,
+): Promise<{ accepted: T[]; refused: number }> {
+  if (rows.length > 1) {
+    try {
+      await teamApi(team, path, { body: body(rows) });
+      return { accepted: [...rows], refused: 0 };
+    } catch (error) {
+      if (!refusal(error)) throw error;
+    }
+  }
+  const accepted: T[] = [];
+  let refused = 0;
+  for (const row of rows) {
+    try {
+      await teamApi(team, path, { body: body([row]) });
+      accepted.push(row);
+    } catch (error) {
+      if (!refusal(error)) throw error;
+      await refuse(row, (error as TeamError).reason);
+      refused += 1;
+    }
+  }
+  return { accepted, refused };
+}
 
 interface RemoteAnswer {
   seq: number;
@@ -109,17 +165,40 @@ function utcDay(ts: number): string {
 export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const { store, team } = deps;
   const result: SyncResult = {
-    pushed: { answers: 0, summaries: 0, usageRows: 0 },
+    pushed: { answers: 0, summaries: 0, usageRows: 0, forgotten: 0 },
     pulled: { answers: 0, removed: 0, summaries: 0 },
+    refused: { answers: 0, summaries: 0 },
   };
   const repos = await sharedRepos(deps);
+
+  const forgotten = JSON.parse((await store.team.get(FORGOTTEN)) ?? "[]") as string[];
+  const sent: string[] = [];
+  for (let at = 0; at < forgotten.length; at += BATCH) {
+    const ids = forgotten.slice(at, at + BATCH);
+    try {
+      await teamApi(team, "/api/answers/forget", { body: { ids } });
+      sent.push(...ids);
+    } catch (error) {
+      // A team server deployed before forgetting existed: the ids wait for `grenier team deploy`.
+      if (!(error instanceof TeamError && error.status === 404)) throw error;
+      break;
+    }
+  }
+  if (sent.length > 0) {
+    const pending = JSON.parse((await store.team.get(FORGOTTEN)) ?? "[]") as string[];
+    await store.team.set(FORGOTTEN, JSON.stringify(pending.filter((id) => !sent.includes(id))));
+    result.pushed.forgotten = sent.length;
+  }
 
   for (;;) {
     const batch = await store.answers.unshared(repos, BATCH);
     if (batch.length === 0) break;
-    await teamApi(team, "/api/answers", {
-      body: {
-        answers: batch.map((answer) => ({
+    const { accepted, refused } = await pushRows(
+      team,
+      "/api/answers",
+      batch,
+      (rows) => ({
+        answers: rows.map((answer) => ({
           id: answer.id,
           repoId: answer.repoId,
           question: answer.question,
@@ -127,28 +206,35 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
           sources: answer.sources,
           createdAt: answer.createdAt,
         })),
-      },
-    });
-    await store.answers.markShared(batch.map((answer) => answer.id));
-    result.pushed.answers += batch.length;
+      }),
+      (answer, reason) => store.answers.refuse(answer.id, reason),
+    );
+    await store.answers.markShared(accepted.map((answer) => answer.id));
+    result.pushed.answers += accepted.length;
+    result.refused.answers += refused;
   }
 
   for (;;) {
     const batch = await store.summaries.unshared(repos, BATCH);
     if (batch.length === 0) break;
-    await teamApi(team, "/api/summaries", {
-      body: {
-        summaries: batch.map(({ repoId, path, blobHash, summary, createdAt }) => ({
+    const { accepted, refused } = await pushRows(
+      team,
+      "/api/summaries",
+      batch,
+      (rows) => ({
+        summaries: rows.map(({ repoId, path, blobHash, summary, createdAt }) => ({
           repoId,
           path,
           blobHash,
           summary,
           createdAt,
         })),
-      },
-    });
-    await store.summaries.markShared(batch);
-    result.pushed.summaries += batch.length;
+      }),
+      (summary, reason) => store.summaries.refuse(summary, reason),
+    );
+    await store.summaries.markShared(accepted);
+    result.pushed.summaries += accepted.length;
+    result.refused.summaries += refused;
   }
 
   if (repos.length > 0) {
