@@ -4,13 +4,6 @@ import { ApiError } from "./api.ts";
 export const money = (amount: number) => `$${amount.toFixed(2)}`;
 export const count = (value: number) => value.toLocaleString("en");
 
-/** A token count short enough for a table cell: 950, 12.3k, 4.1M. */
-export function compact(value: number): string {
-  if (value < 1_000) return String(value);
-  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}k`;
-  return `${(value / 1_000_000).toFixed(1)}M`;
-}
-
 export function moment(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }

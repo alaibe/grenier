@@ -1,31 +1,28 @@
+import { useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type Overview } from "../api.ts";
-import { compact, count, day, Empty, Loading, money, Notice, Page, useLoad } from "../ui.tsx";
+import { day, Empty, Loading, money, Notice, Page, useLoad } from "../ui.tsx";
 
 const load = () => api<Overview>("/overview");
+const REFRESH_MS = 30_000;
 
 export function Dashboard({ go }: ViewProps) {
-  const { data, error } = useLoad(load);
+  const { data, error, reload } = useLoad(load);
+  useEffect(() => {
+    const timer = window.setInterval(reload, REFRESH_MS);
+    window.addEventListener("focus", reload);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", reload);
+    };
+  }, [reload]);
 
-  const total = (data?.days ?? []).reduce(
-    (sum, row) => ({
-      cost: sum.cost + row.cost,
-      saved: sum.saved + row.saved,
-      input: sum.input + row.inputTokens + row.cacheWriteTokens + row.cacheReadTokens,
-      read: sum.read + row.cacheReadTokens,
-    }),
-    { cost: 0, saved: 0, input: 0, read: 0 },
-  );
-  const reused = (data?.cache ?? []).reduce((sum, repo) => sum + repo.hits, 0);
-  const figures: [string, string][] = [
-    [money(total.cost), "spent"],
-    [money(total.saved), "saved by the prompt cache"],
-    [total.input ? `${Math.round((total.read / total.input) * 100)}%` : "–", "of input read from the cache"],
-    [count(reused), "answers reused"],
-  ];
+  const days = data?.days ?? [];
+  const cost = days.reduce((sum, row) => sum + row.cost, 0);
+  const saved = days.reduce((sum, row) => sum + row.saved, 0);
 
   return (
-    <Page title="Dashboard" intro="What your agents spent through Grenier in the last 7 days.">
+    <Page title="Dashboard" intro="Your agents' requests through Grenier in the last 7 days, priced at API rates.">
       <Notice message={error} />
       {!data && !error && <Loading what="usage" />}
       {data && data.pendingReview > 0 && (
@@ -36,61 +33,48 @@ export function Dashboard({ go }: ViewProps) {
           </button>
         </div>
       )}
-      {data && (data.days.length > 0 || reused > 0) && (
-        <dl className="figures">
-          {figures.map(([value, label]) => (
-            <div key={label}>
-              <dd>{value}</dd>
-              <dt>{label}</dt>
-            </div>
-          ))}
-        </dl>
-      )}
-      {data && data.days.length === 0 && (
+      {data && days.length === 0 && (
         <Empty>
           <p>No requests yet. Run an agent through Grenier and its usage shows here:</p>
           <code>grenier run -- claude</code>
         </Empty>
       )}
-      {data && data.days.length > 0 && (
-        <section>
-          <h2>Per day</h2>
-          <div className="table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Day</th>
-                  <th className="n">Requests</th>
-                  <th className="n">Input</th>
-                  <th className="n">From cache</th>
-                  <th className="n">Output</th>
-                  <th className="n">Cost</th>
-                  <th className="n">Saved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.days.map((row) => (
-                  <tr key={row.key}>
-                    <td>{day(row.key)}</td>
-                    <td className="n">{count(row.requests)}</td>
-                    <td className="n" title={count(row.inputTokens + row.cacheWriteTokens)}>
-                      {compact(row.inputTokens + row.cacheWriteTokens)}
-                    </td>
-                    <td className="n" title={count(row.cacheReadTokens)}>
-                      {compact(row.cacheReadTokens)}
-                    </td>
-                    <td className="n" title={count(row.outputTokens)}>
-                      {compact(row.outputTokens)}
-                    </td>
-                    <td className="n">{money(row.cost)}</td>
-                    <td className="n">{money(row.saved)}</td>
+      {days.length > 0 && (
+        <>
+          <dl className="figures">
+            <div>
+              <dd>{money(cost)}</dd>
+              <dt>API cost</dt>
+            </div>
+            <div>
+              <dd>{money(saved)}</dd>
+              <dt>saved by the prompt cache</dt>
+            </div>
+          </dl>
+          <section>
+            <h2>Per day</h2>
+            <div className="table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Day</th>
+                    <th className="n">API cost</th>
+                    <th className="n">Saved</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="hint">Input, from cache and output are tokens. Hover a number for the exact count.</p>
-        </section>
+                </thead>
+                <tbody>
+                  {days.map((row) => (
+                    <tr key={row.key}>
+                      <td>{day(row.key)}</td>
+                      <td className="n">{money(row.cost)}</td>
+                      <td className="n">{money(row.saved)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
       )}
     </Page>
   );
