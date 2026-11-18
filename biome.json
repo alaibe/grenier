@@ -29,6 +29,11 @@
       "arrowParentheses": "always"
     }
   },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
   "assist": {
     "enabled": true,
     "actions": {
@@ -41,6 +46,15 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
+      "a11y": {
+        "noLabelWithoutControl": {
+          "level": "error",
+          "options": {
+            "inputComponents": ["Input", "Select"],
+            "labelComponents": ["Field"]
+          }
+        }
+      },
       "correctness": {
         "noUndeclaredDependencies": "error"
       },

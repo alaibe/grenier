@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { type AuditEntry, api, type ClientView } from "../api.ts";
-import { Empty, Loading, moment, Notice, Page, useLoad } from "../ui.tsx";
+import { Empty, Loading, moment, Notice, Page, Select, Table, useLoad } from "../ui.tsx";
 
 const loadClients = () => api<{ clients: ClientView[] }>("/clients");
 
@@ -25,16 +25,16 @@ export function Audit(_: ViewProps) {
       title="Audit log"
       intro="Every read of your personal data in the last 30 days, written before the client got an answer."
       action={
-        <label className="filter">
+        <label>
           <span className="sr-only">Client</span>
-          <select value={client} onChange={(event) => setClient(event.target.value)}>
+          <Select className="min-w-40" value={client} onChange={(event) => setClient(event.target.value)}>
             <option value="">All clients</option>
             {(clients.data?.clients ?? []).map((entry) => (
               <option key={entry.name} value={entry.name}>
                 {entry.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       }
     >
@@ -44,34 +44,33 @@ export function Audit(_: ViewProps) {
         <Empty>{client ? `${client} has read no personal data.` : "No client has read personal data."}</Empty>
       )}
       {data && data.entries.length > 0 && (
-        <div className="table">
-          <table>
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Client</th>
-                <th>Tool</th>
-                <th>Asked</th>
-                <th className="n">Items</th>
+        <Table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Client</th>
+              <th>Tool</th>
+              <th>Asked</th>
+              <th className="text-right tabular-nums">Items</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.entries.map((entry) => (
+              <tr key={entry.id}>
+                <td>{moment(entry.ts)}</td>
+                <td>{entry.client}</td>
+                <td>{entry.tool}</td>
+                {/* Takes the width the other columns leave, and cuts its text there. */}
+                <td className="w-full max-w-0 overflow-hidden text-ellipsis" title={asked(entry.args)}>
+                  {asked(entry.args)}
+                </td>
+                <td className="text-right tabular-nums" title={entry.itemIds.join("\n")}>
+                  {entry.itemIds.length}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {data.entries.map((entry) => (
-                <tr key={entry.id}>
-                  <td>{moment(entry.ts)}</td>
-                  <td>{entry.client}</td>
-                  <td>{entry.tool}</td>
-                  <td className="fill" title={asked(entry.args)}>
-                    {asked(entry.args)}
-                  </td>
-                  <td className="n" title={entry.itemIds.join("\n")}>
-                    {entry.itemIds.length}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </Table>
       )}
     </Page>
   );

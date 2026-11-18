@@ -5,6 +5,7 @@ import {
   describeStep,
   rereadsOf,
   type StepKind,
+  type TokenKind,
   type Trace,
   type TraceStep,
   type TraceSummary,
@@ -12,7 +13,20 @@ import {
   tokens,
   treeOf,
 } from "../trace.ts";
-import { count, Empty, Loading, moment, money, Notice, Page, useLoad } from "../ui.tsx";
+import {
+  Button,
+  count,
+  Empty,
+  Figure,
+  Figures,
+  Loading,
+  moment,
+  money,
+  Notice,
+  Page,
+  Select,
+  useLoad,
+} from "../ui.tsx";
 
 const STEP_MS = 1600;
 const SPEEDS = [1, 2, 4, 8];
@@ -37,15 +51,15 @@ export function Traces(_: ViewProps) {
       intro="Where an agent went in your code, one step at a time: what it read, searched and changed, replayed over the files as they are now."
       action={
         traces.length > 0 && (
-          <label className="filter">
+          <label>
             <span className="sr-only">Session</span>
-            <select value={id} onChange={(event) => setChosen(event.target.value)}>
+            <Select className="min-w-40" value={id} onChange={(event) => setChosen(event.target.value)}>
               {traces.map((trace) => (
                 <option key={trace.id} value={trace.id}>
                   {trace.repo} · {trace.client ?? "agent"} · {moment(trace.startedAt)} · {count(trace.steps)} steps
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )
       }
@@ -107,13 +121,28 @@ function useFiles(id: string) {
 }
 
 const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+/** Sets `--kind`, the colour of what the agent did, for the marks inside. */
 const KIND_CLASS: Record<StepKind, string> = {
-  read: "k-read",
-  edit: "k-edit",
-  search: "k-look",
-  list: "k-look",
-  ask: "k-ask",
+  read: "[--kind:var(--color-accent)]",
+  edit: "[--kind:var(--color-edit)]",
+  search: "[--kind:var(--color-look)]",
+  list: "[--kind:var(--color-look)]",
+  ask: "[--kind:var(--color-ask)]",
 };
+const AGAIN_CLASS = "[--kind:var(--color-problem)]";
+const SWATCH = "inline-block size-2.5 flex-none rounded-full bg-(color:--kind)";
+const HINT = "text-sm font-normal text-muted";
+const TOKEN_CLASS: Record<Exclude<TokenKind, "plain">, string> = {
+  keyword: "text-accent",
+  string: "text-tok-string",
+  number: "text-tok-string",
+  comment: "text-muted italic",
+};
+const PANE = "relative flex min-h-0 min-w-0 flex-col";
+/** Each step gets an equal slot, and a bar at most 6px wide in it: thin with few steps, solid with many. */
+const TICK_HEIGHT: Partial<Record<StepKind, string>> = { edit: "h-full", read: "h-[70%]" };
+const AGAIN_DOT =
+  "after:absolute after:-top-1.5 after:left-1/2 after:-ml-0.5 after:size-1 after:rounded-full after:bg-problem";
 
 function Replay({ trace, reload }: { trace: Trace; reload: () => void }) {
   const steps = trace.steps;
@@ -187,30 +216,27 @@ function Replay({ trace, reload }: { trace: Trace; reload: () => void }) {
   const duration = reduced ? 0 : Math.min(STEP_MS / speed, 1100);
 
   return (
-    <div className="trace">
-      <dl className="figures four">
-        <div>
-          <dd>{count(steps.length)}</dd>
-          <dt>steps</dt>
-        </div>
-        <div>
-          <dd>{count(opened)}</dd>
-          <dt>files read or changed</dt>
-        </div>
-        <div title="Lines the agent read again although nothing it changed touched them in between: exploration Grenier's cache is there to spare.">
-          <dd>{count(again.size)}</dd>
-          <dt>reads of lines already read</dt>
-        </div>
-        <div>
-          <dd>
-            {money(spent.sofar)}
-            <span className="of"> of {money(spent.total)}</span>
-          </dd>
-          <dt>spent up to this step</dt>
-        </div>
-      </dl>
+    <div>
+      <Figures className="mb-4 grid-cols-4 max-lg:grid-cols-2">
+        <Figure value={count(steps.length)} label="steps" />
+        <Figure value={count(opened)} label="files read or changed" />
+        <Figure
+          title="Lines the agent read again although nothing it changed touched them in between: exploration Grenier's cache is there to spare."
+          value={count(again.size)}
+          label="reads of lines already read"
+        />
+        <Figure
+          value={
+            <>
+              {money(spent.sofar)}
+              <span className="text-md font-normal text-muted"> of {money(spent.total)}</span>
+            </>
+          }
+          label="spent up to this step"
+        />
+      </Figures>
 
-      <div className="trace-stage">
+      <div className="grid h-[clamp(360px,calc(100vh_-_400px),820px)] grid-cols-[minmax(220px,300px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-line bg-panel max-lg:h-[clamp(520px,calc(100vh_-_340px),900px)] max-lg:grid-cols-[minmax(0,1fr)] max-lg:grid-rows-[200px_minmax(0,1fr)]">
         <FileTree tree={tree} steps={steps} at={index} go={go} duration={duration} again={again} />
         <CodePane
           path={shownPath}
@@ -223,81 +249,71 @@ function Replay({ trace, reload }: { trace: Trace; reload: () => void }) {
         />
       </div>
 
-      <div className="trace-caption" aria-live="polite">
-        <span className={`swatch ${KIND_CLASS[step.kind]}`} aria-hidden="true" />
-        <p>
+      <div className="mt-3.5 mb-2 flex min-h-6 items-center gap-2.5" aria-live="polite">
+        <span className={`${SWATCH} ${KIND_CLASS[step.kind]}`} aria-hidden="true" />
+        <p className="min-w-0 truncate text-lg">
           {describeStep(step)}
-          {again.has(index) && <span className="again"> · read before, unchanged since</span>}
+          {again.has(index) && <span className="text-problem"> · read before, unchanged since</span>}
         </p>
-        <span className="hint">{new Date(step.ts).toLocaleTimeString()}</span>
+        <span className={`ml-auto tabular-nums ${HINT}`}>{new Date(step.ts).toLocaleTimeString()}</span>
       </div>
 
       <Timeline steps={steps} at={index} again={again} go={go} />
 
-      <div className="trace-controls">
-        <button
-          type="button"
-          className="quiet step"
-          onClick={() => go(index - 1)}
-          disabled={index === 0}
-          aria-label="Previous step"
-        >
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button quiet square onClick={() => go(index - 1)} disabled={index === 0} aria-label="Previous step">
           ‹
-        </button>
-        <button
-          type="button"
-          className="play"
+        </Button>
+        <Button
+          className="min-w-19"
           onClick={() => {
             if (!playing && index >= last) setAt(0);
             setPlaying(!playing);
           }}
         >
           {playing ? "Pause" : index >= last ? "Replay" : "Play"}
-        </button>
-        <button
-          type="button"
-          className="quiet step"
-          onClick={() => go(index + 1)}
-          disabled={index >= last}
-          aria-label="Next step"
-        >
+        </Button>
+        <Button quiet square onClick={() => go(index + 1)} disabled={index >= last} aria-label="Next step">
           ›
-        </button>
-        <label className="speed">
+        </Button>
+        <label>
           <span className="sr-only">Speed</span>
-          <select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}>
+          <Select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}>
             {SPEEDS.map((value) => (
               <option key={value} value={value}>
                 {value}× speed
               </option>
             ))}
-          </select>
+          </Select>
         </label>
-        <span className="hint position">
+        <span className={`mr-auto tabular-nums ${HINT}`}>
           Step {count(index + 1)} of {count(steps.length)}
         </span>
-        <button type="button" className="quiet" onClick={reload}>
+        <Button quiet onClick={reload}>
           Load new steps
-        </button>
+        </Button>
       </div>
 
-      <ul className="legend" aria-label="Legend">
+      <ul
+        className="mt-3.5 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-muted *:inline-flex *:items-center *:gap-1.5"
+        aria-label="Legend"
+      >
         <li>
-          <span className="swatch k-read" /> read
+          <span className={`${SWATCH} ${KIND_CLASS.read}`} /> read
         </li>
         <li>
-          <span className="swatch k-edit" /> changed
+          <span className={`${SWATCH} ${KIND_CLASS.edit}`} /> changed
         </li>
         <li>
-          <span className="swatch k-look" /> searched or listed
+          <span className={`${SWATCH} ${KIND_CLASS.search}`} /> searched or listed
         </li>
         <li>
-          <span className="swatch k-ask" /> asked Grenier's cache
+          <span className={`${SWATCH} ${KIND_CLASS.ask}`} /> asked Grenier's cache
         </li>
         <li>
-          <span className="swatch k-again" /> read again, unchanged
+          <span className={`${SWATCH} ${AGAIN_CLASS}`} /> read again, unchanged
         </li>
-        <li className="hint">Space plays and pauses; the arrow keys step.</li>
+        <li className={`ml-auto ${HINT}`}>Space plays and pauses; the arrow keys step.</li>
       </ul>
     </div>
   );
@@ -342,7 +358,7 @@ function FileTree({
     arcs.push(
       <path
         key={`${i}-${at === i}`}
-        className={`arc ${KIND_CLASS[steps[i]?.kind ?? "read"]}${age === 0 && duration > 0 ? " drawing" : ""}`}
+        className={`fill-none stroke-(color:--kind) stroke-[1.5] [stroke-linecap:round] ${KIND_CLASS[steps[i]?.kind ?? "read"]}${age === 0 && duration > 0 ? " animate-draw-arc [stroke-dasharray:1]" : ""}`}
         d={`M ${x} ${y(r1)} Q ${x - bend(r1, r2)} ${(y(r1) + y(r2)) / 2} ${x} ${y(r2)}`}
         pathLength={1}
         style={{ opacity: 1 - age / TRAIL, animationDuration: `${duration * 0.4}ms` }}
@@ -385,23 +401,41 @@ function FileTree({
   };
 
   return (
-    <div className="trace-tree" ref={scroller}>
-      <div className="tree-body" style={{ height: tree.rows.length * ROW_H }}>
-        <svg className="tree-arcs" width={GUTTER} height={tree.rows.length * ROW_H} aria-hidden="true">
+    <div className="overflow-auto border-r border-line bg-side max-lg:border-r-0 max-lg:border-b" ref={scroller}>
+      <div className="relative min-w-full" style={{ height: tree.rows.length * ROW_H }}>
+        <svg
+          className="pointer-events-none absolute top-0 left-0 z-1 overflow-visible"
+          width={GUTTER}
+          height={tree.rows.length * ROW_H}
+          aria-hidden="true"
+        >
           {arcs}
           <g ref={dot} className={KIND_CLASS[kind]}>
-            <circle className="halo" r={9} />
-            <circle className="head" r={4.5} />
-            {duration > 0 && from === row && at > 0 && <circle key={at} className="ping" r={5} />}
+            <circle className="fill-(color:--kind) opacity-20" r={9} />
+            <circle className="fill-(color:--kind)" r={4.5} />
+            {duration > 0 && from === row && at > 0 && (
+              <circle
+                key={at}
+                className="origin-center animate-ping fill-none stroke-(color:--kind) stroke-[1.5] [transform-box:fill-box]"
+                r={5}
+              />
+            )}
           </g>
         </svg>
         {tree.rows.map((entry, r) => {
           const visited = visits[r] ?? 0;
           const firstStep = tree.rowOfStep.indexOf(r);
           const rereads = [...again].filter((i) => i <= at && tree.rowOfStep[i] === r).length;
-          const className = `tree-row${r === row ? " current" : ""}${visited === 0 && firstStep !== -1 ? " ahead" : ""}${entry.file ? "" : " dir"}`;
+          const current = r === row;
+          const ahead = visited === 0 && firstStep !== -1;
+          const className = `absolute inset-x-0 flex h-6.5 items-center gap-2 pr-2.5 text-left font-mono text-sm whitespace-nowrap ${current ? "bg-panel inset-ring inset-ring-line-strong" : ""} ${ahead ? "text-muted opacity-60" : "text-fg"}`;
           const style = { top: r * ROW_H, paddingLeft: GUTTER + entry.depth * 12 };
-          const name = <span className="name">{entry.label}</span>;
+          const nameColor = current ? "font-semibold text-fg" : ahead || !entry.file ? "text-muted" : "";
+          const name = (
+            <span className={`relative overflow-hidden text-ellipsis ${nameColor} ${ahead ? "opacity-60" : ""}`}>
+              {entry.label}
+            </span>
+          );
           // A directory only on the way to others: nothing happened there, so nothing to jump to.
           if (firstStep === -1) {
             return (
@@ -415,7 +449,7 @@ function FileTree({
               type="button"
               key={entry.key || "."}
               data-row={r}
-              className={className}
+              className={`${className} cursor-pointer hover:bg-hover focus-visible:-outline-offset-2`}
               style={style}
               onClick={() => go(nextVisit(r))}
               title={
@@ -424,11 +458,17 @@ function FileTree({
                   : `${entry.key || entry.label}: not reached yet. Click to jump there.`
               }
             >
-              <span className="heat" style={{ width: `${(visited / most) * 100}%` }} aria-hidden="true" />
+              <span
+                className="absolute inset-y-0.75 left-11.5 max-w-[calc(100%_-_52px)] rounded-sm bg-accent-soft transition-[width] duration-300 ease-[ease] motion-reduce:transition-none"
+                style={{ width: `${(visited / most) * 100}%` }}
+                aria-hidden="true"
+              />
               {name}
               {visited > 0 && (
-                <span className="visits">
-                  {rereads > 0 && <span className="again-dot" role="img" aria-label="read again" />}
+                <span className="relative ml-auto inline-flex items-center gap-1.25 text-2xs text-muted tabular-nums">
+                  {rereads > 0 && (
+                    <span className="size-1.5 rounded-full bg-problem" role="img" aria-label="read again" />
+                  )}
                   {visited}
                 </span>
               )}
@@ -527,8 +567,8 @@ function CodePane({
 
   if (!path) {
     return (
-      <div className="trace-code">
-        <p className="code-note">The agent has not opened a file yet.</p>
+      <div className={PANE}>
+        <p className="p-4.5 text-muted">The agent has not opened a file yet.</p>
       </div>
     );
   }
@@ -536,34 +576,37 @@ function CodePane({
   const first = Math.max(0, Math.floor(view.top / LINE_H) - 30);
   const shown = lines.slice(first, first + Math.ceil(view.height / LINE_H) + 60);
   const digits = String(Math.max(lines.length, 1)).length;
-  const kind = step?.kind === "edit" ? "k-edit" : "k-read";
+  const kind = KIND_CLASS[step?.kind === "edit" ? "edit" : "read"];
 
   return (
-    <div className={`trace-code${active ? "" : " elsewhere"}`}>
-      <header className="code-head">
-        <span className="code-path" title={path}>
+    <div className={PANE}>
+      <header className="flex items-baseline gap-3 border-b border-line px-3.5 py-2">
+        <span className="min-w-0 truncate font-mono text-sm font-semibold" title={path}>
           {path}
         </span>
         {band && step?.startLine !== null && (
-          <span className="hint">
+          <span className={HINT}>
             {band.start === band.end ? `line ${band.start}` : `lines ${band.start}–${band.end}`}
           </span>
         )}
-        <span className="hint">as it is now</span>
+        <span className={`ml-auto ${HINT}`}>as it is now</span>
       </header>
       <div
-        className="code-scroll"
+        className="relative flex-1 overflow-auto pr-3.5"
         ref={scroller}
         onScroll={(event) => setView({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}
       >
         {file?.status === "missing" && (
-          <p className="code-note">This file cannot be shown: it is gone, binary or too large.</p>
+          <p className="absolute p-4.5 text-muted">This file cannot be shown: it is gone, binary or too large.</p>
         )}
-        {file?.status === "loading" && <p className="code-note">Opening {path}…</p>}
-        <div className="code-body" style={{ height: lines.length * LINE_H, ["--gutter" as string]: `${digits + 4}ch` }}>
+        {file?.status === "loading" && <p className="absolute p-4.5 text-muted">Opening {path}…</p>}
+        <div
+          className="relative min-w-max font-mono text-sm leading-5"
+          style={{ height: lines.length * LINE_H, ["--gutter" as string]: `${digits + 4}ch` }}
+        >
           {ready && band && (
             <div
-              className={`band ${kind}${active ? "" : " faded"}`}
+              className={`absolute left-0 -right-3.5 border-l-3 border-(color:--kind) bg-(color:--kind)/13 ${kind}${active ? "" : " opacity-45"}`}
               style={{
                 top: (band.start - 1) * LINE_H,
                 height: (Math.min(band.end, lines.length) - band.start + 1) * LINE_H,
@@ -573,22 +616,29 @@ function CodePane({
           )}
           <div
             ref={head}
-            className={`reading-head ${kind}${active && band && ready ? "" : " hidden"}`}
+            className={`absolute top-1.25 left-1 z-1 size-2.5 rounded-full bg-(color:--kind) ring-3 ring-(color:--kind)/25 ${kind}${active && band && ready ? "" : " hidden"}`}
             aria-hidden="true"
           />
-          <div className="code-lines" style={{ transform: `translateY(${first * LINE_H}px)` }}>
+          <div
+            className={
+              active
+                ? undefined
+                : "opacity-55 transition-opacity duration-300 ease-[ease] motion-reduce:transition-none"
+            }
+            style={{ transform: `translateY(${first * LINE_H}px)` }}
+          >
             {shown.map((line, offset) => {
               const number = first + offset + 1;
               return (
-                <div className="code-line" key={number}>
-                  <span className="ln">{number}</span>
-                  <span className="src">
+                <div className="flex h-5 whitespace-pre" key={number}>
+                  <span className="w-(--gutter) flex-none pr-3 text-right text-muted select-none">{number}</span>
+                  <span>
                     {tokens(line).map((token, i) =>
                       token.kind === "plain" ? (
                         token.text
                       ) : (
                         // biome-ignore lint/suspicious/noArrayIndexKey: tokens of one line never move
-                        <span key={i} className={`t-${token.kind}`}>
+                        <span key={i} className={TOKEN_CLASS[token.kind]}>
                           {token.text}
                         </span>
                       ),
@@ -601,7 +651,11 @@ function CodePane({
         </div>
       </div>
       {ready && lines.length > 0 && (
-        <div className="code-map" aria-hidden="true" title="Where in this file the agent has been">
+        <div
+          className="absolute top-9.25 right-0.75 bottom-1.5 w-1.5 rounded-[3px] bg-hover"
+          aria-hidden="true"
+          title="Where in this file the agent has been"
+        >
           {seen.map((range, i) => {
             const top = ((range.start - 1) / lines.length) * 100;
             const height = ((Math.min(range.end, lines.length) - range.start + 1) / lines.length) * 100;
@@ -609,7 +663,7 @@ function CodePane({
               <span
                 // biome-ignore lint/suspicious/noArrayIndexKey: the ranges only ever grow at the end
                 key={i}
-                className={`${KIND_CLASS[range.kind]}${i === seen.length - 1 && active ? " now" : ""}`}
+                className={`absolute inset-x-0 rounded-xs bg-(color:--kind) ${KIND_CLASS[range.kind]}${i === seen.length - 1 && active ? "" : " opacity-45"}`}
                 style={{ top: `${top}%`, height: `max(2px, ${height}%)` }}
               />
             );
@@ -632,17 +686,21 @@ function Timeline({
   go: (to: number) => void;
 }) {
   return (
-    <div className="timeline" style={{ ["--n" as string]: Math.max(1, steps.length) }}>
-      <div className="ticks" aria-hidden="true">
+    <div
+      className="relative h-10 rounded-lg border border-line bg-panel"
+      style={{ ["--n" as string]: Math.max(1, steps.length) }}
+    >
+      <div className="absolute inset-x-0 inset-y-1.5 flex items-end" aria-hidden="true">
         {steps.map((step, i) => (
           <span
             key={step.id}
-            className={`tick ${KIND_CLASS[step.kind]}${i <= at ? " past" : ""}${again.has(i) ? " again" : ""}${step.outcome === "error" ? " failed" : ""}`}
+            className={`relative min-w-0 flex-1 before:absolute before:inset-y-0 before:left-1/2 before:w-[min(6px,calc(100%_-_1px))] before:-translate-x-1/2 before:rounded-[1px] ${TICK_HEIGHT[step.kind] ?? "h-[45%]"} ${KIND_CLASS[step.kind]}${i <= at ? "" : " opacity-30"}${again.has(i) ? ` ${AGAIN_DOT}` : ""} ${step.outcome === "error" ? "before:bg-[repeating-linear-gradient(0deg,var(--kind)_0_2px,transparent_2px_4px)]" : "before:bg-(color:--kind)"}`}
           />
         ))}
       </div>
+      {/* The slider sits on the ticks, its thumb on the current one: a click or the arrow keys move the agent. */}
       <input
-        className="scrub"
+        className="absolute inset-y-0 right-[calc(50%/var(--n)_-_1.5px)] left-[calc(50%/var(--n)_-_1.5px)] h-full w-auto cursor-pointer appearance-none bg-transparent focus-visible:outline-offset-3 [&::-moz-range-thumb]:h-9.5 [&::-moz-range-thumb]:w-0.75 [&::-moz-range-thumb]:rounded-xs [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-fg [&::-webkit-slider-runnable-track]:h-full [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:h-9.5 [&::-webkit-slider-thumb]:w-0.75 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-xs [&::-webkit-slider-thumb]:bg-fg"
         type="range"
         min={0}
         max={steps.length - 1}

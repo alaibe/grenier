@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ComponentProps, type ReactNode, useCallback, useEffect, useState } from "react";
 import { ApiError } from "./api.ts";
 
 export const money = (amount: number) => `$${amount.toFixed(2)}`;
@@ -106,10 +106,10 @@ export function Page({
 }) {
   return (
     <>
-      <header className="page-head">
+      <header className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1>{title}</h1>
-          <p className="intro">{intro}</p>
+          <h1 className="font-serif text-4xl leading-[1.2] font-semibold">{title}</h1>
+          <p className="mt-1.5 max-w-[60ch] text-muted">{intro}</p>
         </div>
         {action}
       </header>
@@ -122,11 +122,11 @@ export function Notice({ message }: { message: Message | string | null }) {
   if (!message) return null;
   const { text, problem } = typeof message === "string" ? { text: message, problem: true } : message;
   return problem ? (
-    <p className="message problem" role="alert">
+    <p className="mb-4 rounded-lg border border-problem bg-problem-soft px-3.5 py-2.5 text-problem" role="alert">
       {text}
     </p>
   ) : (
-    <p className="message" role="status">
+    <p className="mb-4 rounded-lg border border-line bg-panel px-3.5 py-2.5" role="status">
       {text}
     </p>
   );
@@ -134,9 +134,78 @@ export function Notice({ message }: { message: Message | string | null }) {
 
 /** Shown only when loading takes long enough to notice. */
 export function Loading({ what }: { what: string }) {
-  return <p className="loading">Loading {what}…</p>;
+  return <p className="animate-appear text-muted">Loading {what}…</p>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <div className="empty">{children}</div>;
+  return (
+    <div className="rounded-xl border border-dashed border-line-strong px-5 py-7 text-center text-muted [&_code]:mt-2.5 [&_code]:inline-block [&_code]:px-2.5 [&_code]:py-1 [&_code]:text-fg">
+      {children}
+    </div>
+  );
+}
+
+/** Filled with the accent, or quiet; a square one holds a single glyph. */
+export function Button({
+  quiet = false,
+  square = false,
+  type = "button",
+  className = "",
+  ...props
+}: ComponentProps<"button"> & { quiet?: boolean; square?: boolean }) {
+  const look = quiet
+    ? "border-line-strong bg-panel text-fg enabled:hover:bg-hover"
+    : "border-accent bg-accent text-accent-fg";
+  return (
+    <button
+      type={type}
+      className={`h-8 cursor-pointer rounded-md border font-medium whitespace-nowrap disabled:cursor-default disabled:opacity-55 ${look} ${square ? "w-9 text-xl leading-none" : "px-3.5"} ${className}`}
+      {...props}
+    />
+  );
+}
+
+const control = "h-8.5 rounded-md border border-line-strong bg-panel font-normal";
+
+export function Input(props: ComponentProps<"input">) {
+  return <input className={`${control} w-full px-2.5 placeholder:text-muted placeholder:opacity-80`} {...props} />;
+}
+
+export function Select({ className = "", ...props }: ComponentProps<"select">) {
+  return (
+    <select
+      className={`${control} cursor-pointer appearance-none bg-(image:--chevron) bg-position-[right_11px_center] bg-no-repeat pr-7.5 pl-2.5 ${className}`}
+      {...props}
+    />
+  );
+}
+
+export function Field({ children }: { children: ReactNode }) {
+  // biome-ignore lint/a11y/noLabelWithoutControl: the children hold the field's name and its control
+  return <label className="flex flex-col gap-1.5 text-md font-medium">{children}</label>;
+}
+
+export function Table({ children }: { children: ReactNode }) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-line bg-panel">
+      <table className="w-full">{children}</table>
+    </div>
+  );
+}
+
+/** A row of figures; `className` gives its columns and the space below it. */
+export function Figures({ className, children }: { className: string; children: ReactNode }) {
+  return <dl className={`grid rounded-xl border border-line bg-panel ${className}`}>{children}</dl>;
+}
+
+export function Figure({ value, label, title }: { value: ReactNode; label: string; title?: string }) {
+  return (
+    <div
+      title={title}
+      className="border-l border-line px-4 py-3.5 first:border-l-0 max-lg:nth-3:border-l-0 max-lg:nth-[n+3]:border-t"
+    >
+      <dd className="text-3xl font-semibold tabular-nums">{value}</dd>
+      <dt className="text-sm leading-[1.35] text-muted">{label}</dt>
+    </div>
+  );
 }

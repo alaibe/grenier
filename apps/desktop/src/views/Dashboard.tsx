@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type Overview } from "../api.ts";
-import { day, Empty, Loading, money, Notice, Page, useLoad } from "../ui.tsx";
+import { Button, day, Empty, Figure, Figures, Loading, money, Notice, Page, Table, useLoad } from "../ui.tsx";
 
 const load = () => api<Overview>("/overview");
 const REFRESH_MS = 30_000;
@@ -26,11 +26,9 @@ export function Dashboard({ go }: ViewProps) {
       <Notice message={error} />
       {!data && !error && <Loading what="usage" />}
       {data && data.pendingReview > 0 && (
-        <div className="callout">
+        <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-accent bg-accent-soft py-2.5 pr-2.5 pl-4">
           <p>{data.pendingReview === 1 ? "1 memory waits" : `${data.pendingReview} memories wait`} for your review.</p>
-          <button type="button" onClick={() => go("review")}>
-            Review
-          </button>
+          <Button onClick={() => go("review")}>Review</Button>
         </div>
       )}
       {data && days.length === 0 && (
@@ -41,38 +39,30 @@ export function Dashboard({ go }: ViewProps) {
       )}
       {days.length > 0 && (
         <>
-          <dl className="figures">
-            <div>
-              <dd>{money(cost)}</dd>
-              <dt>API cost</dt>
-            </div>
-            <div>
-              <dd>{money(saved)}</dd>
-              <dt>saved by the prompt cache</dt>
-            </div>
-          </dl>
+          <Figures className="mb-7 grid-cols-2">
+            <Figure value={money(cost)} label="API cost" />
+            <Figure value={money(saved)} label="saved by the prompt cache" />
+          </Figures>
           <section>
-            <h2>Per day</h2>
-            <div className="table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Day</th>
-                    <th className="n">API cost</th>
-                    <th className="n">Saved</th>
+            <h2 className="mb-2.5 font-semibold">Per day</h2>
+            <Table>
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th className="text-right tabular-nums">API cost</th>
+                  <th className="text-right tabular-nums">Saved</th>
+                </tr>
+              </thead>
+              <tbody>
+                {days.map((row) => (
+                  <tr key={row.key}>
+                    <td>{day(row.key)}</td>
+                    <td className="text-right tabular-nums">{money(row.cost)}</td>
+                    <td className="text-right tabular-nums">{money(row.saved)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {days.map((row) => (
-                    <tr key={row.key}>
-                      <td>{day(row.key)}</td>
-                      <td className="n">{money(row.cost)}</td>
-                      <td className="n">{money(row.saved)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </Table>
           </section>
         </>
       )}

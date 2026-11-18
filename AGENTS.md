@@ -45,7 +45,9 @@ code.
   the team server, a Cloudflare Worker (D1, a Durable Object per team), typechecked on its own
   (`apps/server/tsconfig.json`) and bundled into the CLI's
   `dist/server` for `grenier team deploy`. `apps/desktop` is the Tauri app (React UI in `src`, Rust shell in
-  `src-tauri`), talking to the daemon's admin API (`packages/gateway/src/admin.ts`).
+  `src-tauri`), talking to the daemon's admin API (`packages/gateway/src/admin.ts`). The UI is styled with Tailwind
+  utilities; its theme (colours, light and dark, type scale, breakpoints) and the few element defaults are
+  `src/styles.css`, and the shared pieces (`Button`, `Field`, `Table`…) are in `src/ui.tsx`.
 - The desktop app bundle: `pnpm build`, `pnpm --filter @grenier/desktop sidecar [--target <triple>]` (downloads Node's
   official build, checked against the SHA-256 pinned in `scripts/prepare-sidecar.mjs`), then
   `pnpm --filter @grenier/desktop tauri build`. CI builds only its web UI; releases build it for macOS, Linux and

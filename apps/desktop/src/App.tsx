@@ -38,29 +38,35 @@ export function App() {
   const pending = overview.error ? 0 : (overview.data?.pendingReview ?? 0);
 
   return (
-    <div className="app">
-      <nav className="nav" aria-label="Sections">
-        <p className="brand">Grenier</p>
+    <div className="grid min-h-screen grid-cols-[176px_minmax(0,1fr)]">
+      <nav
+        className="sticky top-0 flex h-screen flex-col gap-0.5 border-r border-line bg-side px-2.5 py-4.5"
+        aria-label="Sections"
+      >
+        <p className="mx-2.5 mb-4.5 font-serif text-2xl font-semibold">Grenier</p>
         {(Object.keys(VIEWS) as ViewName[]).map((name) => (
           <button
             type="button"
             key={name}
-            className="nav-item"
+            className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1.75 text-left whitespace-nowrap ${current === name ? "bg-panel font-semibold inset-ring inset-ring-line" : "hover:bg-hover"}`}
             aria-current={current === name ? "page" : undefined}
             onClick={() => go(name)}
           >
             {VIEWS[name].label}
             {name === "review" && pending > 0 && (
-              <span className="count" title={`${pending} to review`}>
+              <span
+                className="min-w-5 rounded-xl bg-accent px-1.5 text-center text-2xs leading-5 font-semibold text-accent-fg"
+                title={`${pending} to review`}
+              >
                 {pending}
               </span>
             )}
           </button>
         ))}
-        {overview.data && <p className="version">Version {overview.data.version}</p>}
+        {overview.data && <p className="mx-2.5 mt-auto text-xs text-muted">Version {overview.data.version}</p>}
       </nav>
-      <main className="main">
-        <div className={current === "traces" ? "page wide" : "page"}>
+      <main className="px-8 pt-7 pb-12 max-md:px-5 max-md:pt-5.5 max-md:pb-10">
+        <div className={current === "traces" ? "max-w-320" : "max-w-220"}>
           <View key={current} go={go} changed={overview.reload} />
         </div>
       </main>

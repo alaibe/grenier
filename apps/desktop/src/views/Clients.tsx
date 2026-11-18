@@ -1,7 +1,7 @@
 import { type FormEvent, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type ClientView } from "../api.ts";
-import { Empty, Loading, Notice, Page, useAction, useLoad } from "../ui.tsx";
+import { Button, Empty, Field, Input, Loading, Notice, Page, Table, useAction, useLoad } from "../ui.tsx";
 
 const load = () => api<{ clients: ClientView[]; scopes: string[] }>("/clients");
 
@@ -54,63 +54,78 @@ export function Clients(_: ViewProps) {
       }
       action={
         !adding && (
-          <button type="button" className="quiet" onClick={() => setAdding(true)}>
+          <Button quiet onClick={() => setAdding(true)}>
             New client
-          </button>
+          </Button>
         )
       }
     >
       <Notice message={error ?? action.message} />
 
       {created && (
-        <div className="panel token-panel" role="status">
-          <h2>Token for {created.name}</h2>
-          <p>
+        <div className="mb-6 rounded-xl border border-accent bg-panel px-5 py-4.5" role="status">
+          <h2 className="font-semibold">Token for {created.name}</h2>
+          <p className="mt-1.5">
             Copy it now: it is shown only once. Give it to the app as <code>GRENIER_CLIENT_TOKEN</code> (stdio) or as{" "}
             <code>Authorization: Bearer</code> (HTTP).
           </p>
-          <code className="token" ref={tokenText}>
+          <code
+            className="mt-3 mb-3.5 block border border-line bg-bg px-3 py-2.5 text-md whitespace-normal break-all select-all"
+            ref={tokenText}
+          >
             {created.token}
           </code>
-          <div className="buttons">
-            <button type="button" onClick={() => void copy(created.token)}>
-              {copied ? "Copied" : "Copy token"}
-            </button>
-            <button type="button" className="quiet" onClick={() => setCreated(null)}>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => void copy(created.token)}>{copied ? "Copied" : "Copy token"}</Button>
+            <Button quiet onClick={() => setCreated(null)}>
               Done
-            </button>
-            {copied === false && <span className="hint">The token is selected: press ⌘C or Ctrl+C to copy it.</span>}
+            </Button>
+            {copied === false && (
+              <span className="text-sm font-normal text-muted">
+                The token is selected: press ⌘C or Ctrl+C to copy it.
+              </span>
+            )}
           </div>
         </div>
       )}
 
       {adding && (
-        <form className="panel form" onSubmit={add}>
-          <h2>New client</h2>
-          <p className="hint">You get a token to give the app yourself. It is not installed anywhere.</p>
-          <label>
+        <form
+          className="mb-6 flex max-w-150 flex-col gap-3.5 rounded-xl border border-line bg-panel px-5 py-4.5"
+          onSubmit={add}
+        >
+          <h2 className="font-semibold">New client</h2>
+          <p className="text-sm font-normal text-muted">
+            You get a token to give the app yourself. It is not installed anywhere.
+          </p>
+          <Field>
             Name
-            <input name="name" required pattern="[\w.@\-]+" placeholder="claude-desktop" autoComplete="off" />
-          </label>
-          <fieldset>
-            <legend>May read</legend>
-            <div className="choices">
+            <Input name="name" required pattern="[\w.@\-]+" placeholder="claude-desktop" autoComplete="off" />
+          </Field>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-2 text-md font-medium">May read</legend>
+            <div className="flex flex-wrap gap-1.5">
               {(data?.scopes ?? []).map((scope) => (
-                <label key={scope} className="choice">
-                  <input type="checkbox" name="scope" value={scope} />
+                <label
+                  key={scope}
+                  className="flex cursor-pointer items-center gap-1.75 rounded-md border border-line-strong px-2.5 py-1.5"
+                >
+                  <input type="checkbox" className="accent-accent" name="scope" value={scope} />
                   {scope}
                 </label>
               ))}
             </div>
-            <span className="hint">With nothing ticked, the client reads no personal data.</span>
+            <span className="text-sm font-normal text-muted">
+              With nothing ticked, the client reads no personal data.
+            </span>
           </fieldset>
-          <div className="buttons">
-            <button type="submit" disabled={action.busy !== null}>
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={action.busy !== null}>
               Create client
-            </button>
-            <button type="button" className="quiet" onClick={() => setAdding(false)}>
+            </Button>
+            <Button quiet onClick={() => setAdding(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -123,71 +138,68 @@ export function Clients(_: ViewProps) {
         </Empty>
       )}
       {data && data.clients.length > 0 && (
-        <div className="table">
-          <table>
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>May read</th>
-                <th>Created</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
+        <Table>
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>May read</th>
+              <th>Created</th>
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.clients.map((client) => (
+              <tr key={client.name}>
+                <td>
+                  <b className="font-semibold">{client.name}</b>
+                </td>
+                <td className="whitespace-normal">
+                  {client.scopes.length > 0 ? (
+                    <span className="inline-flex flex-wrap gap-1">
+                      {client.scopes.map((scope) => (
+                        <span className="rounded-[5px] border border-line-strong px-1.75 text-xs leading-5" key={scope}>
+                          {scope}
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="block text-sm break-all text-muted">no personal data</span>
+                  )}
+                </td>
+                <td>
+                  {new Date(client.createdAt).toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </td>
+                <td>
+                  <div className="flex justify-end gap-1.5">
+                    <Button
+                      quiet
+                      disabled={action.busy !== null}
+                      onClick={() => {
+                        if (confirm(`Revoke ${client.name}? Its next call fails.`)) {
+                          void action.run(`revoke:${client.name}`, async () => {
+                            await api(`/clients/${encodeURIComponent(client.name)}/revoke`, { method: "POST" });
+                            return { text: `Revoked ${client.name}.` };
+                          });
+                        }
+                      }}
+                    >
+                      Revoke
+                    </Button>
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {data.clients.map((client) => (
-                <tr key={client.name}>
-                  <td>
-                    <b>{client.name}</b>
-                  </td>
-                  <td className="wrap">
-                    {client.scopes.length > 0 ? (
-                      <span className="tags">
-                        {client.scopes.map((scope) => (
-                          <span className="tag" key={scope}>
-                            {scope}
-                          </span>
-                        ))}
-                      </span>
-                    ) : (
-                      <span className="sub">no personal data</span>
-                    )}
-                  </td>
-                  <td>
-                    {new Date(client.createdAt).toLocaleDateString(undefined, {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </td>
-                  <td>
-                    <div className="actions">
-                      <button
-                        type="button"
-                        className="quiet"
-                        disabled={action.busy !== null}
-                        onClick={() => {
-                          if (confirm(`Revoke ${client.name}? Its next call fails.`)) {
-                            void action.run(`revoke:${client.name}`, async () => {
-                              await api(`/clients/${encodeURIComponent(client.name)}/revoke`, { method: "POST" });
-                              return { text: `Revoked ${client.name}.` };
-                            });
-                          }
-                        }}
-                      >
-                        Revoke
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </Table>
       )}
       {data && data.clients.length > 0 && (
-        <p className="hint">
+        <p className="mt-2 text-sm font-normal text-muted">
           To change what an app may read, run <code>grenier mcp install</code> for it again with the new{" "}
           <code>--scope</code>: its old token is revoked.
         </p>

@@ -1,7 +1,21 @@
 import { type FormEvent, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type SourceSync, type SourceView } from "../api.ts";
-import { ago, count, Loading, type Message, Notice, Page, useAction, useLoad } from "../ui.tsx";
+import {
+  ago,
+  Button,
+  count,
+  Field,
+  Input,
+  Loading,
+  type Message,
+  Notice,
+  Page,
+  Select,
+  Table,
+  useAction,
+  useLoad,
+} from "../ui.tsx";
 
 const load = () => api<{ sources: SourceView[] }>("/sources");
 
@@ -92,58 +106,63 @@ export function Sources(_: ViewProps) {
       intro="The notes, calendars and mail Grenier indexes on this machine. A client reads one only with its scope."
       action={
         !formOpen && (
-          <button type="button" className="quiet" onClick={() => setAdding(true)}>
+          <Button quiet onClick={() => setAdding(true)}>
             Add a source
-          </button>
+          </Button>
         )
       }
     >
       <Notice message={error ?? action.message} />
 
       {formOpen && (
-        <form className="panel form" onSubmit={add}>
-          <h2>Add a source</h2>
-          <div className="row">
-            <label>
+        <form
+          className="mb-6 flex max-w-150 flex-col gap-3.5 rounded-xl border border-line bg-panel px-5 py-4.5"
+          onSubmit={add}
+        >
+          <h2 className="font-semibold">Add a source</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <Field>
               Kind
-              <select value={kind} onChange={(event) => setKind(event.target.value as Kind)}>
+              <Select className="w-full" value={kind} onChange={(event) => setKind(event.target.value as Kind)}>
                 {(Object.keys(KINDS) as Kind[]).map((value) => (
                   <option key={value} value={value}>
                     {KINDS[value].label}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label>
+              </Select>
+            </Field>
+            <Field>
               Name
-              <input name="name" required pattern="[\w.@\-]+" placeholder="journal" autoComplete="off" />
-            </label>
+              <Input name="name" required pattern="[\w.@\-]+" placeholder="journal" autoComplete="off" />
+            </Field>
           </div>
-          <label>
+          <Field>
             {KINDS[kind].where}
-            <input name="where" required placeholder={KINDS[kind].placeholder} autoComplete="off" />
-          </label>
+            <Input name="where" required placeholder={KINDS[kind].placeholder} autoComplete="off" />
+          </Field>
           {KINDS[kind].secret && (
             <>
-              <label>
+              <Field>
                 User
-                <input name="user" required autoComplete="off" />
-              </label>
-              <label>
+                <Input name="user" required autoComplete="off" />
+              </Field>
+              <Field>
                 Command that prints the password
-                <input name="password" required placeholder="security find-generic-password -s grenier-mail -w" />
-                <span className="hint">Grenier never stores the password: it runs this command at each sync.</span>
-              </label>
+                <Input name="password" required placeholder="security find-generic-password -s grenier-mail -w" />
+                <span className="text-sm font-normal text-muted">
+                  Grenier never stores the password: it runs this command at each sync.
+                </span>
+              </Field>
             </>
           )}
-          <div className="buttons">
-            <button type="submit" disabled={action.busy !== null}>
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={action.busy !== null}>
               {action.busy === "add" ? "Adding and syncing…" : "Add source"}
-            </button>
+            </Button>
             {own.length > 0 && (
-              <button type="button" className="quiet" onClick={() => setAdding(false)}>
+              <Button quiet onClick={() => setAdding(false)}>
                 Cancel
-              </button>
+              </Button>
             )}
           </div>
         </form>
@@ -151,73 +170,69 @@ export function Sources(_: ViewProps) {
 
       {!data && !error && <Loading what="sources" />}
       {data && data.sources.length > 0 && (
-        <div className="table">
-          <table>
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th className="n">Items</th>
-                <th>Synced</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.sources.map((source) => (
-                <tr key={source.name}>
-                  <td className="wrap">
-                    <b>{source.name}</b>
-                    <span className="sub">
-                      {[KIND_NAMES[source.kind] ?? source.kind, where(source)].filter(Boolean).join(" · ")}
-                    </span>
-                  </td>
-                  <td className="n">{count(source.items)}</td>
-                  <td title={source.lastSync ? new Date(source.lastSync).toLocaleString() : undefined}>
-                    {source.kind === "memory" ? "–" : ago(source.lastSync)}
-                  </td>
-                  <td>
-                    {source.kind !== "memory" && (
-                      <div className="actions">
-                        <button
-                          type="button"
-                          className="quiet"
-                          disabled={action.busy !== null}
-                          onClick={() =>
-                            void action.run(`sync:${source.name}`, async () => {
-                              const result = await api<{ sync: SourceSync }>(
-                                `/sources/${encodeURIComponent(source.name)}/sync`,
-                                { method: "POST" },
-                              );
-                              return synced(result.sync, `Synced ${source.name}`, `Could not sync ${source.name}`);
-                            })
+        <Table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th className="text-right tabular-nums">Items</th>
+              <th>Synced</th>
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.sources.map((source) => (
+              <tr key={source.name}>
+                <td className="whitespace-normal">
+                  <b className="font-semibold">{source.name}</b>
+                  <span className="block text-sm break-all text-muted">
+                    {[KIND_NAMES[source.kind] ?? source.kind, where(source)].filter(Boolean).join(" · ")}
+                  </span>
+                </td>
+                <td className="text-right tabular-nums">{count(source.items)}</td>
+                <td title={source.lastSync ? new Date(source.lastSync).toLocaleString() : undefined}>
+                  {source.kind === "memory" ? "–" : ago(source.lastSync)}
+                </td>
+                <td>
+                  {source.kind !== "memory" && (
+                    <div className="flex justify-end gap-1.5">
+                      <Button
+                        quiet
+                        disabled={action.busy !== null}
+                        onClick={() =>
+                          void action.run(`sync:${source.name}`, async () => {
+                            const result = await api<{ sync: SourceSync }>(
+                              `/sources/${encodeURIComponent(source.name)}/sync`,
+                              { method: "POST" },
+                            );
+                            return synced(result.sync, `Synced ${source.name}`, `Could not sync ${source.name}`);
+                          })
+                        }
+                      >
+                        {action.busy === `sync:${source.name}` ? "Syncing…" : "Sync"}
+                      </Button>
+                      <Button
+                        quiet
+                        disabled={action.busy !== null}
+                        onClick={() => {
+                          if (confirm(`Remove ${source.name} and every item it brought?`)) {
+                            void action.run(`remove:${source.name}`, async () => {
+                              await api(`/sources/${encodeURIComponent(source.name)}`, { method: "DELETE" });
+                              return { text: `Removed ${source.name}.` };
+                            });
                           }
-                        >
-                          {action.busy === `sync:${source.name}` ? "Syncing…" : "Sync"}
-                        </button>
-                        <button
-                          type="button"
-                          className="quiet"
-                          disabled={action.busy !== null}
-                          onClick={() => {
-                            if (confirm(`Remove ${source.name} and every item it brought?`)) {
-                              void action.run(`remove:${source.name}`, async () => {
-                                await api(`/sources/${encodeURIComponent(source.name)}`, { method: "DELETE" });
-                                return { text: `Removed ${source.name}.` };
-                              });
-                            }
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
     </Page>
   );
