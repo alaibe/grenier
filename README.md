@@ -38,8 +38,9 @@ grenier budget set --daily 10            # a limit
 grenier mcp install claude-code          # the exploration cache, over MCP
 ```
 
-On Linux and Windows, the app is on the [download page](https://grenier.laibe.cc/download), and the command is built
-from source, with Node 22 or later and pnpm, in any shell:
+On Linux, the `.deb` and the `.rpm` on the [download page](https://grenier.laibe.cc/download) install the app and the
+command, as `/usr/bin/grenier`. On Windows, or with the AppImage, the command is built from source, with Node 22 or
+later and pnpm, in any shell:
 
 ```bash
 git clone https://github.com/alaibe/grenier.git
