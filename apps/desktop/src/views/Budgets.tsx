@@ -1,7 +1,7 @@
-import { type FormEvent, useState } from "react";
+import type { FormEvent } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type BudgetsView } from "../api.ts";
-import { Button, Field, Input, Loading, money, Notice, Page, Select, useAction, useLoad } from "../ui.tsx";
+import { Button, Field, Input, Loading, money, Notice, Page, useAction, useLoad } from "../ui.tsx";
 
 const load = () => api<BudgetsView>("/budgets");
 
@@ -10,7 +10,6 @@ type Scope = "daily" | "session" | "repo";
 export function Budgets(_: ViewProps) {
   const { data, error, reload } = useLoad(load);
   const action = useAction(reload);
-  const [repo, setRepo] = useState("");
 
   const change = (scope: Scope, key: string, limit: number | null, label: string) =>
     action.run(`${scope}:${key}`, async () => {
@@ -69,33 +68,45 @@ export function Budgets(_: ViewProps) {
               />
             ))}
           </section>
-          {choices.length > 0 && (
-            <form
-              className="flex max-w-150 items-end gap-3 rounded-xl border border-line bg-panel px-5 py-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const name = repo || choices[0] || "";
-                const value = Number(new FormData(event.currentTarget).get("limit"));
-                void change("repo", name, value, `for ${name}`);
-              }}
-            >
-              <Field>
-                A limit for a repository
-                <Select className="w-full" value={repo || choices[0]} onChange={(event) => setRepo(event.target.value)}>
-                  {choices.map((name) => (
-                    <option key={name}>{name}</option>
-                  ))}
-                </Select>
-              </Field>
-              <Field>
-                Dollars a day
-                <Input name="limit" type="number" min="0" step="0.01" required />
-              </Field>
-              <Button type="submit" disabled={action.busy !== null}>
-                Add
-              </Button>
-            </form>
-          )}
+          <form
+            className="flex max-w-150 items-end gap-3 rounded-xl border border-line bg-panel px-5 py-4 max-md:flex-wrap"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              const name = String(form.get("repo") ?? "").trim();
+              const target = event.currentTarget;
+              void change("repo", name, Number(form.get("limit")), `for ${name}`).then((done) => {
+                if (done) target.reset();
+              });
+            }}
+          >
+            <Field>
+              A limit for a repository
+              <Input
+                name="repo"
+                list="known-repos"
+                required
+                maxLength={128}
+                pattern="[^\s=]+"
+                title="The repository's folder name, without spaces"
+                placeholder={choices[0] ?? "its folder name"}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <datalist id="known-repos">
+                {choices.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+            </Field>
+            <Field>
+              Dollars a day
+              <Input name="limit" type="number" min="0" step="0.01" required />
+            </Field>
+            <Button type="submit" disabled={action.busy !== null}>
+              Add
+            </Button>
+          </form>
         </>
       )}
     </Page>
