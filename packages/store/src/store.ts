@@ -57,19 +57,23 @@ export interface SessionStore {
 export interface UsageWithSession extends Usage {
   repoRoot: string | null;
   repoId: string | null;
+  cwd: string | null;
+  client: string | null;
+  startedAt: number | null;
 }
 
 export interface SpendFilter {
   /** Unix milliseconds, inclusive. */
   since?: number;
   sessionId?: string;
-  repoId?: string;
 }
 
 export interface UsageStore {
   add(row: NewUsage): Promise<void>;
   /** The sum of `cost` over the matching rows. */
   spend(filter: SpendFilter): Promise<number>;
+  /** The sum of `cost` since `since`, per session folder, so a project's spending is a sum of a few rows. */
+  spendByFolder(since: number): Promise<{ repoRoot: string | null; cwd: string | null; spent: number }[]>;
   /** Rows with their session's repository, oldest first. */
   list(filter?: { since?: number; sessionId?: string }): Promise<UsageWithSession[]>;
   /** Rows with an id above `id`, in order, at most `limit`. */

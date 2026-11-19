@@ -67,20 +67,30 @@ describe("usage", () => {
     await store.usage.add({ sessionId: "untagged", ts: 400, model: "m", cost: null });
   });
 
-  it("sums spend by time, session and repository", async () => {
+  it("sums spend by time and session", async () => {
     expect(await store.usage.spend({})).toBe(7.5);
     expect(await store.usage.spend({ since: 200 })).toBe(6);
     expect(await store.usage.spend({ sessionId: "s1" })).toBe(3.5);
-    expect(await store.usage.spend({ repoId: "r2" })).toBe(4);
     expect(await store.usage.spend({ sessionId: "none" })).toBe(0);
+  });
+
+  it("sums spend per session folder", async () => {
+    await store.sessions.create({ id: "s3", startedAt: 1_000, cwd: "/home/notes", repoRoot: null, repoId: null });
+    await store.usage.add({ sessionId: "s3", ts: 500, model: "m", cost: 0.5 });
+    const folders = await store.usage.spendByFolder(200);
+    expect(folders.sort((a, b) => b.spent - a.spent)).toEqual([
+      { repoRoot: "/work/app", cwd: "/work/app", spent: 6 },
+      { repoRoot: null, cwd: "/home/notes", spent: 0.5 },
+      { repoRoot: null, cwd: null, spent: 0 },
+    ]);
   });
 
   it("lists rows with their session's repository, oldest first", async () => {
     const rows = await store.usage.list({ since: 200 });
-    expect(rows.map((row) => [row.sessionId, row.repoId])).toEqual([
-      ["s1", "r1"],
-      ["s2", "r2"],
-      ["untagged", null],
+    expect(rows.map((row) => [row.sessionId, row.repoId, row.cwd])).toEqual([
+      ["s1", "r1", "/work/app"],
+      ["s2", "r2", "/work/app"],
+      ["untagged", null, null],
     ]);
     expect((await store.usage.list({ sessionId: "s2" })).map((row) => row.ts)).toEqual([300]);
   });

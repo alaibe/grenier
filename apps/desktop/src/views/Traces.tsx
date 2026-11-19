@@ -25,6 +25,7 @@ import {
   Notice,
   Page,
   Select,
+  times,
   useLoad,
 } from "../ui.tsx";
 
@@ -77,8 +78,6 @@ export function Traces(_: ViewProps) {
     </Page>
   );
 }
-
-const times = (n: number, one: string, many = `${one}s`) => `${count(n)} ${n === 1 ? one : many}`;
 
 /** Whether agents ask the exploration cache before they explore: this session, and every session listed. */
 function CacheUse({ traces, current }: { traces: TraceSummary[]; current: TraceSummary | undefined }) {

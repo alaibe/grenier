@@ -73,7 +73,7 @@ describe("budgets", () => {
     expect((await send("/s/s2/v1/messages")).status).toBe(200);
   });
 
-  it("applies a repository's budget to its sessions only", async () => {
+  it("applies a project's budget to its sessions only", async () => {
     gateway = testGateway(fakeUpstream(() => sse(STREAM)));
     await gateway.store.budgets.set("repo", "app", 2);
     await spend("s1", 2, "app");
@@ -82,6 +82,23 @@ describe("budgets", () => {
 
     expect((await send("/s/s2/v1/messages")).text).toContain("grenier budget set --repo app=<amount>");
     expect((await send("/s/s3/v1/messages")).status).toBe(200);
+  });
+
+  it("counts a project by its folder name, in a repository or not", async () => {
+    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
+    await gateway.store.budgets.set("repo", "app", 2);
+    await gateway.store.budgets.set("repo", "notes", 1);
+    await spend("s1", 1, "app");
+    await gateway.store.sessions.create({ id: "elsewhere", startedAt: 0, repoId: "other", repoRoot: "/home/old/app" });
+    await gateway.store.usage.add({ sessionId: "elsewhere", ts: gateway.clock.now, model: "claude-opus-5-5", cost: 1 });
+    await gateway.store.sessions.create({ id: "worktree", startedAt: 0, repoId: "app", repoRoot: "/work/app-fix" });
+    await gateway.store.sessions.create({ id: "s1-too", startedAt: 0, repoId: "app", repoRoot: "/work/app" });
+    await gateway.store.sessions.create({ id: "folder", startedAt: 0, cwd: "/home/notes" });
+    await gateway.store.usage.add({ sessionId: "folder", ts: gateway.clock.now, model: "claude-opus-5-5", cost: 1 });
+
+    expect((await send("/s/s1-too/v1/messages")).text).toContain("grenier budget set --repo app=<amount>");
+    expect((await send("/s/worktree/v1/messages")).status).toBe(200);
+    expect((await send("/s/folder/v1/messages")).text).toContain("grenier budget set --repo notes=<amount>");
   });
 
   it("takes a limit set while running into account at the next request, without a restart", async () => {

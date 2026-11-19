@@ -141,11 +141,22 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
         const row = db
           .select({ total: sql<number | null>`sum(${usage.cost})` })
           .from(usage)
-          .leftJoin(sessions, eq(sessions.id, usage.sessionId))
           .where(spendConditions(filter))
           .get();
         return row?.total ?? 0;
       },
+      spendByFolder: async (since) =>
+        db
+          .select({
+            repoRoot: sessions.repoRoot,
+            cwd: sessions.cwd,
+            spent: sql<number>`coalesce(sum(${usage.cost}), 0)`,
+          })
+          .from(usage)
+          .leftJoin(sessions, eq(sessions.id, usage.sessionId))
+          .where(gte(usage.ts, since))
+          .groupBy(sessions.repoRoot, sessions.cwd)
+          .all(),
       list: async (filter = {}) =>
         db
           .select({
@@ -161,6 +172,9 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
             status: usage.status,
             repoRoot: sessions.repoRoot,
             repoId: sessions.repoId,
+            cwd: sessions.cwd,
+            client: sessions.client,
+            startedAt: sessions.startedAt,
           })
           .from(usage)
           .leftJoin(sessions, eq(sessions.id, usage.sessionId))
@@ -642,11 +656,10 @@ function periodOf(scope: BudgetScope): string {
 }
 
 function spendConditions(filter: SpendFilter): SQL | undefined {
-  const { usage, sessions } = schema;
+  const { usage } = schema;
   return and(
     filter.since === undefined ? undefined : gte(usage.ts, filter.since),
     filter.sessionId === undefined ? undefined : eq(usage.sessionId, filter.sessionId),
-    filter.repoId === undefined ? undefined : eq(sessions.repoId, filter.repoId),
   );
 }
 

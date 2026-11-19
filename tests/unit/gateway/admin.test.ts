@@ -174,7 +174,7 @@ describe("the admin API", () => {
       repoId: "r1",
     });
     await store.sessions.create({ id: "s2", client: "codex", startedAt: now });
-    await store.sessions.create({ id: "untagged", startedAt: now });
+    await store.sessions.create({ id: "untagged", startedAt: now - 5000 });
     const ask = { tool: "mcp__grenier__ask_codebase", kind: "ask" as const, ts: now, sessionId: "s1" };
     await store.steps.add([
       { ...ask, callId: "c1", outcome: "hit" },
@@ -191,11 +191,11 @@ describe("the admin API", () => {
     const overview = (await (await call("/overview")).json()) as {
       version: string;
       days: { requests: number }[];
-      repos: { key: string; cost: number }[];
+      projects: { key: string; cost: number }[];
       sessions: {
         key: string;
         client: string | null;
-        repo: string | null;
+        project: string | null;
         startedAt: number | null;
         asks: number | null;
         hits: number | null;
@@ -203,23 +203,23 @@ describe("the admin API", () => {
     };
     expect(overview.version).toBe("test");
     expect(overview.days[0]?.requests).toBe(3);
-    expect(overview.repos.map((row) => [row.key, row.cost])).toEqual([
-      ["(no repository)", 0.75],
+    expect(overview.projects.map((row) => [row.key, row.cost])).toEqual([
+      ["(not started with grenier run)", 0.75],
       ["app", 0.125],
     ]);
     expect(
-      overview.sessions.map(({ key, client, repo, startedAt, asks, hits }) => ({
+      overview.sessions.map(({ key, client, project, startedAt, asks, hits }) => ({
         key,
         client,
-        repo,
+        project,
         startedAt,
         asks,
         hits,
       })),
     ).toEqual([
-      { key: "s2", client: "codex", repo: null, startedAt: now, asks: null, hits: null },
-      { key: "s1", client: "claude", repo: "app", startedAt: now - 1000, asks: 2, hits: 1 },
-      { key: "untagged", client: null, repo: null, startedAt: null, asks: null, hits: null },
+      { key: "s2", client: "codex", project: null, startedAt: now, asks: null, hits: null },
+      { key: "s1", client: "claude", project: "app", startedAt: now - 1000, asks: 2, hits: 1 },
+      { key: "untagged", client: null, project: null, startedAt: now - 5000, asks: null, hits: null },
     ]);
     expect((await call("/report?by=week")).status).toBe(400);
     expect((await call("/report?since=forever")).status).toBe(400);
@@ -311,6 +311,7 @@ describe("the admin API", () => {
 
   it("shows the limits, from the config until one is set, and sets and removes them", async () => {
     await store.sessions.create({ id: "s1", repoRoot: "/work/app", repoId: "r1", startedAt: 1 });
+    await store.sessions.create({ id: "s2", cwd: "/home/notes", startedAt: 2 });
     await store.usage.add({ sessionId: "s1", ts: Date.now(), cost: 1.5 });
     const budgets = async () => (await (await call("/budgets")).json()) as Record<string, unknown>;
     expect(await budgets()).toEqual({
@@ -318,7 +319,7 @@ describe("the admin API", () => {
       session: 4,
       fromConfig: { daily: false, session: true },
       repos: [],
-      known: ["app"],
+      known: ["app", "notes"],
       spentToday: 1.5,
     });
 

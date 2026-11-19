@@ -1,10 +1,19 @@
 import { syncSources } from "@grenier/connectors";
 import type { Config } from "@grenier/core";
 import { addClient, approveMemory, CacheError, forgetAnswer, type RepoFiles, SCOPE_KINDS } from "@grenier/index";
-import { buildReport, cacheReport, type GroupBy, type Prices, parseSince, repoName, startOfToday } from "@grenier/log";
+import {
+  buildReport,
+  cacheReport,
+  folderName,
+  type GroupBy,
+  mostSpentFirst,
+  type Prices,
+  parseSince,
+  projectOf,
+  startOfToday,
+} from "@grenier/log";
 import type { BudgetScope, Source, Store, UsageWithSession } from "@grenier/store";
 import { Hono } from "hono";
-import { UNTAGGED } from "./proxy.ts";
 
 export interface AdminOptions {
   store: Store;
@@ -37,21 +46,21 @@ async function repoRoots(store: Store): Promise<Map<string, string>> {
  */
 async function sessionReport(store: Store, rows: readonly UsageWithSession[], prices: Prices, since: number) {
   const traced = new Map((await store.steps.sessions(since)).map((summary) => [summary.sessionId, summary]));
-  const sessions = await Promise.all(
-    buildReport(rows, "session", prices).map(async (row) => {
-      const session = row.key === UNTAGGED ? null : await store.sessions.get(row.key);
-      const steps = traced.get(row.key);
+  const sessions = new Map(rows.map((row) => [row.sessionId, row]));
+  return buildReport(rows, "session", prices)
+    .map((report) => {
+      const session = sessions.get(report.key);
+      const steps = session?.repoRoot ? (traced.get(report.key) ?? { asks: 0, hits: 0 }) : null;
       return {
-        ...row,
+        ...report,
         client: session?.client ?? null,
-        repo: session?.repoRoot ? repoName(session.repoRoot) : null,
+        project: session ? projectOf(session) : null,
         startedAt: session?.startedAt ?? null,
-        asks: session?.repoRoot ? (steps?.asks ?? 0) : null,
-        hits: session?.repoRoot ? (steps?.hits ?? 0) : null,
+        asks: steps?.asks ?? null,
+        hits: steps?.hits ?? null,
       };
-    }),
-  );
-  return sessions.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+    })
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }
 
 const BUDGET_SCOPES: readonly BudgetScope[] = ["daily", "session", "repo"];
@@ -161,7 +170,7 @@ export function createAdmin(options: AdminOptions): Hono {
     return c.json({
       version: options.version,
       days: buildReport(rows, "day", prices),
-      repos: buildReport(rows, "repo", prices).sort((a, b) => b.cost - a.cost),
+      projects: mostSpentFirst(buildReport(rows, "repo", prices)),
       sessions: await sessionReport(store, rows, prices, since),
       cache: await store.answers.stats(),
       sources: (await store.sources.list()).length,
@@ -187,7 +196,7 @@ export function createAdmin(options: AdminOptions): Hono {
       if (!session?.repoRoot) continue;
       const { steps, files, last, asks, hits, readsBeforeAsk } = summary;
       const { id, client, startedAt, endedAt } = session;
-      const repo = repoName(session.repoRoot);
+      const repo = projectOf(session);
       traces.push({ id, client, repo, startedAt, endedAt, steps, files, last, asks, hits, readsBeforeAsk });
     }
     return c.json({ traces });
@@ -200,7 +209,7 @@ export function createAdmin(options: AdminOptions): Hono {
     return c.json({
       id: session.id,
       client: session.client,
-      repo: repoName(session.repoRoot),
+      repo: projectOf(session),
       startedAt: session.startedAt,
       endedAt: session.endedAt,
       steps: (await store.steps.list(session.id)).map(({ sessionId: _session, ...step }) => step),
@@ -229,7 +238,7 @@ export function createAdmin(options: AdminOptions): Hono {
     const ids = [...new Set([...answers.keys(), ...summaries.keys()])];
     const name = (id: string) => {
       const root = roots.get(id);
-      return root ? repoName(root) : id.slice(0, 12);
+      return root ? folderName(root) : id.slice(0, 12);
     };
     return c.json({
       repos: ids
@@ -281,7 +290,7 @@ export function createAdmin(options: AdminOptions): Hono {
     const stored = await store.budgets.list();
     const find = (scope: BudgetScope, key = "") =>
       stored.find((budget) => budget.scope === scope && budget.key === key)?.limitAmount ?? null;
-    const roots = await repoRoots(store);
+    const projects = (await store.sessions.list()).map(projectOf).filter((project) => project !== null);
     return c.json({
       daily: find("daily") ?? options.budgets?.daily ?? null,
       session: find("session") ?? options.budgets?.session ?? null,
@@ -292,7 +301,7 @@ export function createAdmin(options: AdminOptions): Hono {
       repos: stored
         .filter((budget) => budget.scope === "repo")
         .map((budget) => ({ name: budget.key, limit: budget.limitAmount })),
-      known: [...new Set([...roots.values()].map(repoName))].sort(),
+      known: [...new Set(projects)].sort(),
       spentToday: await store.usage.spend({ since: startOfToday(Date.now()) }),
     });
   });
@@ -305,7 +314,7 @@ export function createAdmin(options: AdminOptions): Hono {
     if (!BUDGET_SCOPES.includes(scope)) return problem(400, `scope takes ${BUDGET_SCOPES.join(", ")}`);
     const key = scope === "repo" ? body.key : "";
     if (typeof key !== "string" || (scope === "repo" && !/^[^\s=]{1,128}$/.test(key))) {
-      return problem(400, "a repo limit needs the repository's name as key");
+      return problem(400, "a repo limit needs the project's folder name as key");
     }
     if (body.limit === null) {
       await store.budgets.remove(scope, key);
@@ -324,7 +333,7 @@ export function createAdmin(options: AdminOptions): Hono {
       sessions: (await store.sessions.paused()).map((session) => ({
         id: session.id,
         client: session.client,
-        repo: session.repoRoot ? repoName(session.repoRoot) : null,
+        repo: projectOf(session),
         pausedAt: loops.filter((event) => event.sessionId === session.id).at(-1)?.ts ?? null,
       })),
     });

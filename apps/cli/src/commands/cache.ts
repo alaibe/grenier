@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { repoId, repoRoot } from "@grenier/connectors/git";
 import { forgetAnswer } from "@grenier/index";
-import { repoName } from "@grenier/log";
+import { folderName } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
 
@@ -11,7 +11,7 @@ import { CommandError, environment, type Io, UsageError, withStore } from "../io
 async function namesById(store: Store): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   for (const session of await store.sessions.list()) {
-    if (session.repoId && session.repoRoot) names.set(session.repoId, repoName(session.repoRoot));
+    if (session.repoId && session.repoRoot) names.set(session.repoId, folderName(session.repoRoot));
   }
   return names;
 }

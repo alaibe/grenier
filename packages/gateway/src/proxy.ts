@@ -1,5 +1,5 @@
 import { type BudgetLimit, budgetMessage, type Config, effectiveLimits, firstBreach } from "@grenier/core";
-import { costOf, type Prices, repoName, startOfToday } from "@grenier/log";
+import { costOf, type Prices, projectOf, startOfToday } from "@grenier/log";
 import type { Session, Store } from "@grenier/store";
 import { LoopWatch, type ToolCall, type ToolUse } from "./loops.ts";
 import { OpenAIUsageReader } from "./openai.ts";
@@ -148,8 +148,8 @@ export function createProxy(options: ProxyOptions) {
   /** The first limit reached, or that the next request would pass if it cost what the session's last one did. */
   async function budgetBreach(session: Session) {
     const stored = await store.budgets.list();
-    const name = session.repoRoot ? repoName(session.repoRoot) : null;
-    const limits = effectiveLimits(config.budgets, stored, name);
+    const project = projectOf(session);
+    const limits = effectiveLimits(config.budgets, stored, project);
     const next = (await store.usage.lastCost(session.id)) ?? 0;
     if (limits.length === 0) return teamBreach(next);
     const today = startOfToday(now());
@@ -157,8 +157,12 @@ export function createProxy(options: ProxyOptions) {
     for (const limit of limits) {
       if (limit.scope === "daily") spent.set("daily", await store.usage.spend({ since: today }));
       if (limit.scope === "session") spent.set("session", await store.usage.spend({ sessionId: session.id }));
-      if (limit.scope === "repo" && session.repoId) {
-        spent.set("repo", await store.usage.spend({ since: today, repoId: session.repoId }));
+      if (limit.scope === "repo") {
+        const folders = (await store.usage.spendByFolder(today)).filter((folder) => projectOf(folder) === project);
+        spent.set(
+          "repo",
+          folders.reduce((sum, folder) => sum + folder.spent, 0),
+        );
       }
     }
     return firstBreach(limits, (limit) => spent.get(limit.scope) ?? 0, next) ?? teamBreach(next);

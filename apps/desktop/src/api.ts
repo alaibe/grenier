@@ -57,8 +57,8 @@ export interface ReportRow {
 
 export interface SessionRow extends ReportRow {
   client: string | null;
-  repo: string | null;
-  /** Null for requests no `grenier run` session tagged. */
+  /** Null for requests of an agent not started with `grenier run`. */
+  project: string | null;
   startedAt: number | null;
   /** Questions to the exploration cache and its hits; null outside a repository, where no step is traced. */
   asks: number | null;
@@ -69,7 +69,7 @@ export interface Overview {
   version: string;
   days: ReportRow[];
   /** The most spent first. */
-  repos: ReportRow[];
+  projects: ReportRow[];
   /** The newest first. */
   sessions: SessionRow[];
   cache: { repoId: string; answers: number; hits: number }[];
@@ -111,7 +111,7 @@ export interface BudgetsView {
   /** Whether the limit shown comes from config.toml, as no limit was set here or with the command. */
   fromConfig: { daily: boolean; session: boolean };
   repos: { name: string; limit: number }[];
-  /** Repositories Grenier has seen a session in, for a new repository limit. */
+  /** The projects Grenier has seen a session in, for a new project limit. */
   known: string[];
   spentToday: number;
 }

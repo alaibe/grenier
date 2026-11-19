@@ -4,6 +4,9 @@ import { ApiError } from "./api.ts";
 export const money = (amount: number) => `$${amount.toFixed(2)}`;
 export const count = (value: number) => value.toLocaleString("en");
 
+/** A count with its noun, as in "1 hit" or "3 hits". */
+export const times = (n: number, one: string, many = `${one}s`) => `${count(n)} ${n === 1 ? one : many}`;
+
 export function moment(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }

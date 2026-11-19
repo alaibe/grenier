@@ -23,6 +23,9 @@ function request(
     status: 200,
     repoRoot: null,
     repoId: null,
+    cwd: null,
+    client: null,
+    startedAt: null,
   };
 }
 

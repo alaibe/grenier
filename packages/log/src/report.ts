@@ -62,18 +62,29 @@ function keyOf(row: UsageWithSession, by: GroupBy): string {
     case "session":
       return row.sessionId;
     case "repo":
-      return row.repoRoot ? repoName(row.repoRoot) : "(no repository)";
+      return projectOf(row) ?? NO_PROJECT;
   }
 }
 
-/** The last path segment of a repository root, which `grenier budget set --repo` also uses. */
-export function repoName(repoRoot: string): string {
+const NO_PROJECT = "(not started with grenier run)";
+
+/** The last segment of a path, or the path itself for a root such as `/`. */
+export function folderName(path: string): string {
   return (
-    repoRoot
+    path
       .replace(/[\\/]+$/, "")
       .split(/[\\/]/)
-      .at(-1) ?? repoRoot
+      .at(-1) || path
   );
+}
+
+/**
+ * The project a session's spending is grouped under, everywhere (reports, the dashboard, the menu bar, repo budgets):
+ * the folder name of its repository, else of the folder it started in; null for neither.
+ */
+export function projectOf(session: { repoRoot: string | null; cwd: string | null }): string | null {
+  const folder = session.repoRoot ?? session.cwd;
+  return folder ? folderName(folder) : null;
 }
 
 function localDate(ts: number): string {
@@ -180,11 +191,15 @@ export function formatStatusLine(today: ReportRow, session: ReportRow | null): s
   return `grenier · ${first} · today ${spentAndCached(today)}`;
 }
 
+/** Report rows ordered by cost, the most spent first, then by key. */
+export function mostSpentFirst(rows: readonly ReportRow[]): ReportRow[] {
+  return [...rows].sort((a, b) => b.cost - a.cost || a.key.localeCompare(b.key));
+}
+
 /** Today per project, the most spent first, one line each, for the desktop app's menu bar. */
 export function formatToday(repos: readonly ReportRow[]): string {
   if (repos.length === 0) return "Nothing spent yet";
-  return [...repos]
-    .sort((a, b) => b.cost - a.cost || a.key.localeCompare(b.key))
+  return mostSpentFirst(repos)
     .map((row) => `${row.key}: ${spentAndCached(row)}`)
     .join("\n");
 }

@@ -59,7 +59,7 @@ export function Budgets(_: ViewProps) {
               <Limit
                 key={entry.name}
                 title={entry.name}
-                hint="A day, in this repository"
+                hint="A day, in this project"
                 value={entry.limit}
                 removable
                 busy={action.busy !== null}
@@ -81,14 +81,14 @@ export function Budgets(_: ViewProps) {
             }}
           >
             <Field>
-              A limit for a repository
+              A limit for a project
               <Input
                 name="repo"
                 list="known-repos"
                 required
                 maxLength={128}
                 pattern="[^\s=]+"
-                title="The repository's folder name, without spaces"
+                title="The project's folder name, without spaces: its repository's, or the one an agent started in"
                 placeholder={choices[0] ?? "its folder name"}
                 autoComplete="off"
                 spellCheck={false}

@@ -3,13 +3,15 @@ export { cacheSavingsOf, costOf, loadPrices, type Prices, priceOf, type TokenCou
 export {
   buildReport,
   cacheHitRate,
+  folderName,
   formatReport,
   formatStatusLine,
   formatToday,
   type GroupBy,
+  mostSpentFirst,
   parseSince,
+  projectOf,
   type ReportRow,
-  repoName,
   startOfToday,
   totalOf,
 } from "./report.ts";

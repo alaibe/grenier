@@ -56,7 +56,7 @@ export class LoopDetector {
 export interface BudgetLimit {
   /** daily, session and repo limits are this machine's; team and member limits are the team server's, per UTC day. */
   scope: "daily" | "session" | "repo" | "team" | "member";
-  /** The repository's name for a repo limit, "" otherwise. */
+  /** The project's folder name for a repo limit, "" otherwise. */
   key: string;
   limit: number;
 }
@@ -65,7 +65,7 @@ export interface BudgetLimit {
 export function effectiveLimits(
   configured: Config["budgets"],
   stored: readonly { scope: string; key: string; limitAmount: number }[],
-  repoName: string | null,
+  project: string | null,
 ): BudgetLimit[] {
   const find = (scope: string, key: string) =>
     stored.find((budget) => budget.scope === scope && budget.key === key)?.limitAmount;
@@ -75,8 +75,8 @@ export function effectiveLimits(
   if (daily !== undefined) limits.push({ scope: "daily", key: "", limit: daily });
   const session = find("session", "") ?? configured.session;
   if (session !== undefined) limits.push({ scope: "session", key: "", limit: session });
-  const repo = repoName === null ? undefined : find("repo", repoName);
-  if (repo !== undefined && repoName !== null) limits.push({ scope: "repo", key: repoName, limit: repo });
+  const repo = project === null ? undefined : find("repo", project);
+  if (repo !== undefined && project !== null) limits.push({ scope: "repo", key: project, limit: repo });
   return limits;
 }
 

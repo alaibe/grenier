@@ -1,10 +1,9 @@
 import { useCallback, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type CachedAnswer, type CacheRepo } from "../api.ts";
-import { Button, count, Empty, Loading, moment, Notice, Page, Select, useAction, useLoad } from "../ui.tsx";
+import { Button, count, Empty, Loading, moment, Notice, Page, Select, times, useAction, useLoad } from "../ui.tsx";
 
 const loadRepos = () => api<{ repos: CacheRepo[] }>("/cache");
-const times = (n: number) => `${count(n)} ${n === 1 ? "time" : "times"}`;
 const BADGE = "shrink-0 rounded-[5px] border px-1.75 text-xs leading-5";
 
 export function Cache(_: ViewProps) {
@@ -66,7 +65,7 @@ function Answers({ repo, changed }: { repo: CacheRepo; changed: () => void }) {
     <>
       <Notice message={error ?? action.message} />
       <p className="mb-4 text-muted">
-        {count(repo.answers)} {repo.answers === 1 ? "answer" : "answers"}, reused {times(repo.hits)}, and{" "}
+        {count(repo.answers)} {repo.answers === 1 ? "answer" : "answers"}, reused {times(repo.hits, "time")}, and{" "}
         {count(repo.summaries)} file summaries; {repo.shared ? "shared with your team" : "kept on this machine"}.
       </p>
       {!data && !error && <Loading what="answers" />}
@@ -79,7 +78,7 @@ function Answers({ repo, changed }: { repo: CacheRepo; changed: () => void }) {
           </header>
           <p className="mt-1 text-md text-muted">
             {answer.author === "local" ? "Recorded here" : `From ${answer.author}`}, {moment(answer.createdAt)} · reused{" "}
-            {times(answer.hits)}
+            {times(answer.hits, "time")}
           </p>
           <details className="mt-2">
             <summary className="cursor-pointer text-md text-muted">Answer and files</summary>

@@ -12,11 +12,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ASK_FIRST } from "@grenier/gateway";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
 import { run } from "../../../apps/cli/src/cli.ts";
-import { agentArgs, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
+import { ASKED_FIRST, agentArgs, asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
 import { daemonPid, pidFile } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
@@ -248,7 +249,7 @@ describe("grenier statusline", () => {
 
   it("shows today per project with --today, whatever the session", async () => {
     expect((await statusline({ GRENIER_SESSION: "s1" }, "--today")).out).toBe(
-      "(no repository): $0.50 spent, $0.00 cached\napp: $0.25 spent, $0.00 cached",
+      "(not started with grenier run): $0.50 spent, $0.00 cached\napp: $0.25 spent, $0.00 cached",
     );
   });
 });
@@ -303,8 +304,42 @@ describe("grenier run", () => {
       "hello",
       "",
     ]);
-    expect(agentArgs("/usr/bin/codex", ["-c", 'openai_base_url="x"'], "y")).toEqual(["-c", 'openai_base_url="x"']);
-    expect(agentArgs("claude", ["-p", "hi"], "y")).toEqual(["-p", "hi"]);
+    expect(agentArgs("/usr/bin/codex", ["-c", 'openai_base_url="x"'], "y", false)).toEqual([
+      "-c",
+      'openai_base_url="x"',
+    ]);
+  });
+
+  it("says so on stderr when it adds the instruction to Claude Code's system prompt", async () => {
+    execFileSync("git", ["init", "-q", dir]);
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    const out = join(dir, "claude-args");
+    writeFileSync(join(bin, "claude"), `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(out)}\n`);
+    chmodSync(join(bin, "claude"), 0o755);
+    const err: string[] = [];
+    const base = io([], err);
+    const env = { ...base.env, PATH: `${bin}:${process.env.PATH}` };
+    const start = { startDaemon: async () => ({ pid: 1 }) };
+
+    expect(await runAgent(["claude", "-p", "hi"], { ...base, env }, start)).toBe(0);
+    expect(readFileSync(out, "utf8").split("\n").slice(0, 2)).toEqual(["--append-system-prompt", ASK_FIRST]);
+    expect(err.at(-1)).toBe(ASKED_FIRST);
+
+    err.length = 0;
+    expect(await runAgent(["claude", "--append-system-prompt", "mine"], { ...base, env }, start)).toBe(0);
+    expect(err).not.toContain(ASKED_FIRST);
+  });
+
+  it("tells Claude Code in a repository to ask the exploration cache first, unless it gives its own system prompt", () => {
+    expect(asksFirst("/usr/local/bin/claude", ["-p", "hi"], true)).toBe(true);
+    expect(agentArgs("claude", ["-p", "hi"], "y", true)).toEqual(["--append-system-prompt", ASK_FIRST, "-p", "hi"]);
+    expect(ASK_FIRST).toContain("mcp__grenier__ask_codebase");
+    expect(asksFirst("claude", ["-p", "hi"], false)).toBe(false);
+    expect(asksFirst("codex", ["exec"], true)).toBe(false);
+    for (const own of ["--append-system-prompt", "--system-prompt-file=prompt.md", "--append-system-prompt-file"]) {
+      expect(asksFirst("claude", [own, "x"], true)).toBe(false);
+    }
   });
 
   it("returns 127 for a command that does not exist", async () => {

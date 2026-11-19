@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
 import { repoId, repoRoot } from "@grenier/connectors/git";
+import { ASK_FIRST } from "@grenier/gateway";
 import { startDaemon } from "../daemon.ts";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
 
@@ -14,11 +15,30 @@ export function newSessionId(): string {
   return randomBytes(9).toString("base64url");
 }
 
+export const ASKED_FIRST =
+  "grenier: asked Claude Code to call ask_codebase before exploring (--append-system-prompt; pass your own to skip it)";
+
+const SYSTEM_PROMPT_FLAG = /^--(append-)?system-prompt(-file)?(=|$)/;
+
+/** Whether Claude Code gets ASK_FIRST: in a repository, unless the command gives its own system prompt. */
+export function asksFirst(program: string, args: readonly string[], inRepository: boolean): boolean {
+  return (
+    inRepository && /^claude(\.exe)?$/i.test(basename(program)) && !args.some((arg) => SYSTEM_PROMPT_FLAG.test(arg))
+  );
+}
+
 /**
  * The command's arguments, plus what points it at the proxy when an environment variable cannot: Codex reads its base
- * URL only from its config, so it gets `-c openai_base_url=…` unless the command already sets one.
+ * URL only from its config, so it gets `-c openai_base_url=…` unless the command already sets one. With `askFirst`,
+ * Claude Code gets ASK_FIRST in its system prompt.
  */
-export function agentArgs(program: string, args: readonly string[], openaiBaseUrl: string): string[] {
+export function agentArgs(
+  program: string,
+  args: readonly string[],
+  openaiBaseUrl: string,
+  askFirst: boolean,
+): string[] {
+  if (askFirst) return ["--append-system-prompt", ASK_FIRST, ...args];
   const codex = /^codex(\.exe)?$/i.test(basename(program));
   if (!codex || args.some((arg) => /^openai_base_url\s*=/.test(arg) || /^--config=openai_base_url/.test(arg))) {
     return [...args];
@@ -54,11 +74,13 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
   );
 
   const baseUrl = `http://127.0.0.1:${config.proxy.port}/s/${id}`;
+  const openaiBaseUrl = `${baseUrl}/openai/v1`;
+  const askFirst = asksFirst(program, args, root !== null);
   io.err(`grenier: session ${id}, through ${baseUrl}`);
+  if (askFirst) io.err(ASKED_FIRST);
 
   const code = await new Promise<number>((resolve) => {
-    const openaiBaseUrl = `${baseUrl}/openai/v1`;
-    const child = spawn(program, agentArgs(program, args, openaiBaseUrl), {
+    const child = spawn(program, agentArgs(program, args, openaiBaseUrl, askFirst), {
       stdio: "inherit",
       cwd: io.cwd,
       env: { ...io.env, ANTHROPIC_BASE_URL: baseUrl, OPENAI_BASE_URL: openaiBaseUrl, GRENIER_SESSION: id },

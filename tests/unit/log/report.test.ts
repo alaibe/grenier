@@ -1,12 +1,13 @@
 import {
   buildReport,
   cacheHitRate,
+  folderName,
   formatReport,
   formatStatusLine,
   formatToday,
   loadPrices,
   parseSince,
-  repoName,
+  projectOf,
   startOfToday,
   totalOf,
 } from "@grenier/log";
@@ -29,6 +30,9 @@ function row(overrides: Partial<UsageWithSession>): UsageWithSession {
     status: 200,
     repoRoot: "/work/app",
     repoId: "r1",
+    cwd: "/work/app",
+    client: "claude",
+    startedAt: 0,
     ...overrides,
   };
 }
@@ -37,7 +41,7 @@ describe("buildReport", () => {
   const rows = [
     row({}),
     row({ sessionId: "s2", repoRoot: "/work/api/", ts: new Date(2026, 10, 17, 9).getTime(), cost: 0.02 }),
-    row({ sessionId: "untagged", repoRoot: null, model: "unknown", cost: null }),
+    row({ sessionId: "untagged", repoRoot: null, cwd: null, model: "unknown", cost: null }),
   ];
 
   it("groups by day in local time", () => {
@@ -47,9 +51,31 @@ describe("buildReport", () => {
     ]);
   });
 
-  it("groups by session and by repository", () => {
+  it("groups by session and by project", () => {
     expect(buildReport(rows, "session", prices).map((r) => r.key)).toEqual(["s1", "s2", "untagged"]);
-    expect(buildReport(rows, "repo", prices).map((r) => r.key)).toEqual(["app", "api", "(no repository)"]);
+    expect(buildReport(rows, "repo", prices).map((r) => r.key)).toEqual([
+      "app",
+      "api",
+      "(not started with grenier run)",
+    ]);
+  });
+
+  it("groups by folder name alone, whatever the repository", () => {
+    const projects = buildReport(
+      [
+        row({ repoRoot: "/work/app", repoId: "r1" }),
+        row({ repoRoot: "/home/old/app", repoId: "r2", cwd: "/home/old/app/src" }),
+        row({ repoRoot: "/work/app-fix", repoId: "r1" }),
+        row({ repoRoot: null, repoId: null, cwd: "/tmp/scratch" }),
+      ],
+      "repo",
+      prices,
+    );
+    expect(projects.map((r) => [r.key, r.requests])).toEqual([
+      ["app", 2],
+      ["app-fix", 1],
+      ["scratch", 1],
+    ]);
   });
 
   it("adds up tokens, cost and savings, and counts unpriced requests", () => {
@@ -108,7 +134,7 @@ describe("totalOf, formatStatusLine and formatToday", () => {
     const repos = buildReport(
       [
         row({ cost: 0.5, cacheReadTokens: 0 }),
-        row({ repoRoot: null, cost: 0.25, cacheReadTokens: 0 }),
+        row({ repoRoot: null, cwd: null, cost: 0.25, cacheReadTokens: 0 }),
         row({ repoRoot: "/work/api", cost: 0.75, cacheReadTokens: 1_000_000 }),
         row({ repoRoot: "/work/app", cost: 0.5, cacheReadTokens: 0 }),
       ],
@@ -118,7 +144,7 @@ describe("totalOf, formatStatusLine and formatToday", () => {
     expect(formatToday(repos).split("\n")).toEqual([
       "app: $1.00 spent, $0.00 cached",
       "api: $0.75 spent, $3.80 cached",
-      "(no repository): $0.25 spent, $0.00 cached",
+      "(not started with grenier run): $0.25 spent, $0.00 cached",
     ]);
     expect(formatToday([])).toBe("Nothing spent yet");
   });
@@ -139,10 +165,18 @@ describe("parseSince", () => {
   });
 });
 
-describe("startOfToday and repoName", () => {
-  it("finds local midnight and a repository's name", () => {
+describe("startOfToday, folderName and projectOf", () => {
+  it("finds local midnight and a folder's name", () => {
     expect(startOfToday(new Date(2026, 10, 16, 15, 30).getTime())).toBe(new Date(2026, 10, 16).getTime());
-    expect(repoName("/work/app")).toBe("app");
-    expect(repoName("/work/app/")).toBe("app");
+    expect(folderName("/work/app")).toBe("app");
+    expect(folderName("/work/app/")).toBe("app");
+    expect(folderName("/")).toBe("/");
+    expect(folderName("C:\\work\\app")).toBe("app");
+  });
+
+  it("takes the repository's folder, else the one the session started in", () => {
+    expect(projectOf({ repoRoot: "/work/app", cwd: "/work/app/packages/ui" })).toBe("app");
+    expect(projectOf({ repoRoot: null, cwd: "/tmp/scratch" })).toBe("scratch");
+    expect(projectOf({ repoRoot: null, cwd: null })).toBeNull();
   });
 });

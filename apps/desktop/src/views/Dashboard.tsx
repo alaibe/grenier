@@ -15,6 +15,7 @@ import {
   Notice,
   Page,
   Table,
+  times,
   useAction,
   useLoad,
 } from "../ui.tsx";
@@ -64,7 +65,7 @@ export function Dashboard({ go }: ViewProps) {
             <Figure value={money(cost)} label="API cost" />
             <Figure value={money(cached)} label="cached: the prompt-cache discount" />
           </Figures>
-          <Spending title="Per project" first="Project" rows={data?.repos ?? []} name={(row) => row.key} />
+          <Spending title="Per project" first="Project" rows={data?.projects ?? []} name={(row) => row.key} />
           <Sessions rows={data?.sessions ?? []} />
           <Spending
             title="Per day"
@@ -117,7 +118,7 @@ function Spending({
 function asked(row: SessionRow): string {
   if (row.asks === null) return "–";
   if (row.asks === 0) return "never";
-  return `${count(row.asks)} (${count(row.hits ?? 0)} ${row.hits === 1 ? "hit" : "hits"})`;
+  return `${count(row.asks)} (${times(row.hits ?? 0, "hit")})`;
 }
 
 function Sessions({ rows }: { rows: SessionRow[] }) {
@@ -140,11 +141,11 @@ function Sessions({ rows }: { rows: SessionRow[] }) {
           {rows.map((row) => (
             <tr key={row.key}>
               <td>
-                {row.startedAt === null
-                  ? "Not started with grenier run"
-                  : `${row.repo ?? "no repository"} · ${row.client ?? "agent"}`}
+                {row.project === null ? "Not started with grenier run" : `${row.project} · ${row.client ?? "agent"}`}
               </td>
-              <td className="tabular-nums">{row.startedAt === null ? "" : moment(row.startedAt)}</td>
+              <td className="tabular-nums">
+                {row.project === null || row.startedAt === null ? "" : moment(row.startedAt)}
+              </td>
               <td className="text-right tabular-nums">{asked(row)}</td>
               <td className="text-right tabular-nums">{money(row.cost)}</td>
               <td className="text-right tabular-nums">{money(row.saved)}</td>
