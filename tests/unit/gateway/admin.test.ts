@@ -164,11 +164,63 @@ describe("the admin API", () => {
     expect((await store.items.get("memory:r1"))?.body).toBe("Remember this.");
   });
 
-  it("gives the overview and the reports", async () => {
-    await store.usage.add({ sessionId: "s", ts: Date.now(), model: "claude-opus-5-5", inputTokens: 10, cost: 0.1 });
-    const overview = (await (await call("/overview")).json()) as { version: string; days: { requests: number }[] };
+  it("gives the overview, per day, project and session, and the reports", async () => {
+    const now = Date.now();
+    await store.sessions.create({
+      id: "s1",
+      client: "claude",
+      startedAt: now - 1000,
+      repoRoot: "/work/app",
+      repoId: "r1",
+    });
+    await store.sessions.create({ id: "s2", client: "codex", startedAt: now });
+    await store.sessions.create({ id: "untagged", startedAt: now });
+    const ask = { tool: "mcp__grenier__ask_codebase", kind: "ask" as const, ts: now, sessionId: "s1" };
+    await store.steps.add([
+      { ...ask, callId: "c1", outcome: "hit" },
+      { ...ask, callId: "c2", outcome: "miss" },
+    ]);
+    for (const [sessionId, cost] of [
+      ["s1", 0.125],
+      ["s2", 0.5],
+      ["untagged", 0.25],
+    ] as const) {
+      await store.usage.add({ sessionId, ts: now, model: "claude-opus-5-5", inputTokens: 10, cost });
+    }
+
+    const overview = (await (await call("/overview")).json()) as {
+      version: string;
+      days: { requests: number }[];
+      repos: { key: string; cost: number }[];
+      sessions: {
+        key: string;
+        client: string | null;
+        repo: string | null;
+        startedAt: number | null;
+        asks: number | null;
+        hits: number | null;
+      }[];
+    };
     expect(overview.version).toBe("test");
-    expect(overview.days[0]?.requests).toBe(1);
+    expect(overview.days[0]?.requests).toBe(3);
+    expect(overview.repos.map((row) => [row.key, row.cost])).toEqual([
+      ["(no repository)", 0.75],
+      ["app", 0.125],
+    ]);
+    expect(
+      overview.sessions.map(({ key, client, repo, startedAt, asks, hits }) => ({
+        key,
+        client,
+        repo,
+        startedAt,
+        asks,
+        hits,
+      })),
+    ).toEqual([
+      { key: "s2", client: "codex", repo: null, startedAt: now, asks: null, hits: null },
+      { key: "s1", client: "claude", repo: "app", startedAt: now - 1000, asks: 2, hits: 1 },
+      { key: "untagged", client: null, repo: null, startedAt: null, asks: null, hits: null },
+    ]);
     expect((await call("/report?by=week")).status).toBe(400);
     expect((await call("/report?since=forever")).status).toBe(400);
   });

@@ -26,7 +26,7 @@ Commands:
                              Tokens, cache hit rate, cost and savings
   report --cache [--since 7d]
                              Prompt-cache writes and reads by session, flagging churn
-  statusline [--today]       One line for Claude Code's status line: what this session and today spent and saved
+  statusline [--today]       One line for Claude Code's status line: what this session and today spent and cached
   budget                     Show the spending limits
   budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]
                              Set limits in dollars ("off" removes one)

@@ -10,7 +10,7 @@ export function sessionOf(env: NodeJS.ProcessEnv): string | undefined {
 
 /**
  * `grenier statusline [--today]`: one line for Claude Code's status line, with what the agent's session and today
- * spent and saved. `--today` prints today's alone, for the desktop app's menu bar.
+ * spent and what the prompt cache took off. `--today` prints today per project instead, for the desktop app's menu bar.
  */
 export async function statusline(argv: string[], io: Io, now = Date.now()): Promise<string> {
   const { values } = parseArgs({ args: argv, strict: true, options: { today: { type: "boolean", default: false } } });
@@ -19,8 +19,9 @@ export async function statusline(argv: string[], io: Io, now = Date.now()): Prom
   const sessionId = values.today ? undefined : sessionOf(io.env);
 
   return withStore(paths, async (store) => {
-    const today = totalOf(buildReport(await store.usage.list({ since: startOfToday(now) }), "day", prices));
-    if (values.today) return formatToday(today);
+    const rows = await store.usage.list({ since: startOfToday(now) });
+    if (values.today) return formatToday(buildReport(rows, "repo", prices));
+    const today = totalOf(buildReport(rows, "day", prices));
     const session = sessionId ? totalOf(buildReport(await store.usage.list({ sessionId }), "session", prices)) : null;
     return formatStatusLine(today, session);
   });

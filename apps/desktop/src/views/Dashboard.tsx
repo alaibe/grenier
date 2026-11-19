@@ -1,14 +1,16 @@
 import { useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api, type Overview, type PausedSession } from "../api.ts";
+import { api, type Overview, type PausedSession, type ReportRow, type SessionRow } from "../api.ts";
 import {
   ago,
   Button,
+  count,
   day,
   Empty,
   Figure,
   Figures,
   Loading,
+  moment,
   money,
   Notice,
   Page,
@@ -34,10 +36,13 @@ export function Dashboard({ go }: ViewProps) {
 
   const days = data?.days ?? [];
   const cost = days.reduce((sum, row) => sum + row.cost, 0);
-  const saved = days.reduce((sum, row) => sum + row.saved, 0);
+  const cached = days.reduce((sum, row) => sum + row.saved, 0);
 
   return (
-    <Page title="Dashboard" intro="Your agents' requests through Grenier in the last 7 days, priced at API rates.">
+    <Page
+      title="Dashboard"
+      intro="Your agents' requests through Grenier in the last 7 days, priced at API rates. Cached is what Anthropic's prompt cache took off: its reads cost less than fresh input."
+    >
       <Notice message={error} />
       {!data && !error && <Loading what="usage" />}
       {data && data.paused > 0 && <Paused key={data.paused} changed={reload} />}
@@ -57,34 +62,97 @@ export function Dashboard({ go }: ViewProps) {
         <>
           <Figures className="mb-7 grid-cols-2">
             <Figure value={money(cost)} label="API cost" />
-            <Figure value={money(saved)} label="saved by the prompt cache" />
+            <Figure value={money(cached)} label="cached: the prompt-cache discount" />
           </Figures>
-          <section>
-            <h2 className="mb-2.5 font-semibold">Per day</h2>
-            <Table>
-              <thead>
-                <tr>
-                  <th>Day</th>
-                  <th className="text-right tabular-nums">API cost</th>
-                  <th className="text-right tabular-nums">Saved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...days]
-                  .sort((a, b) => b.key.localeCompare(a.key))
-                  .map((row) => (
-                    <tr key={row.key}>
-                      <td>{day(row.key)}</td>
-                      <td className="text-right tabular-nums">{money(row.cost)}</td>
-                      <td className="text-right tabular-nums">{money(row.saved)}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </Table>
-          </section>
+          <Spending title="Per project" first="Project" rows={data?.repos ?? []} name={(row) => row.key} />
+          <Sessions rows={data?.sessions ?? []} />
+          <Spending
+            title="Per day"
+            first="Day"
+            rows={[...days].sort((a, b) => b.key.localeCompare(a.key))}
+            name={(row) => day(row.key)}
+          />
         </>
       )}
     </Page>
+  );
+}
+
+function Spending({
+  title,
+  first,
+  rows,
+  name,
+}: {
+  title: string;
+  first: string;
+  rows: ReportRow[];
+  name: (row: ReportRow) => string;
+}) {
+  return (
+    <section className="mb-7">
+      <h2 className="mb-2.5 font-semibold">{title}</h2>
+      <Table>
+        <thead>
+          <tr>
+            <th>{first}</th>
+            <th className="text-right tabular-nums">API cost</th>
+            <th className="text-right tabular-nums">Cached</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <td>{name(row)}</td>
+              <td className="text-right tabular-nums">{money(row.cost)}</td>
+              <td className="text-right tabular-nums">{money(row.saved)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    </section>
+  );
+}
+
+function asked(row: SessionRow): string {
+  if (row.asks === null) return "–";
+  if (row.asks === 0) return "never";
+  return `${count(row.asks)} (${count(row.hits ?? 0)} ${row.hits === 1 ? "hit" : "hits"})`;
+}
+
+function Sessions({ rows }: { rows: SessionRow[] }) {
+  return (
+    <section className="mb-7">
+      <h2 className="mb-2.5 font-semibold">Per session</h2>
+      <Table>
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Started</th>
+            <th className="text-right tabular-nums" title="Questions to Grenier's exploration cache, and its hits">
+              Asked Grenier
+            </th>
+            <th className="text-right tabular-nums">API cost</th>
+            <th className="text-right tabular-nums">Cached</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <td>
+                {row.startedAt === null
+                  ? "Not started with grenier run"
+                  : `${row.repo ?? "no repository"} · ${row.client ?? "agent"}`}
+              </td>
+              <td className="tabular-nums">{row.startedAt === null ? "" : moment(row.startedAt)}</td>
+              <td className="text-right tabular-nums">{asked(row)}</td>
+              <td className="text-right tabular-nums">{money(row.cost)}</td>
+              <td className="text-right tabular-nums">{money(row.saved)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    </section>
   );
 }
 

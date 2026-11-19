@@ -2,8 +2,9 @@ import { syncSources } from "@grenier/connectors";
 import type { Config } from "@grenier/core";
 import { addClient, approveMemory, CacheError, forgetAnswer, type RepoFiles, SCOPE_KINDS } from "@grenier/index";
 import { buildReport, cacheReport, type GroupBy, type Prices, parseSince, repoName, startOfToday } from "@grenier/log";
-import type { BudgetScope, Source, Store } from "@grenier/store";
+import type { BudgetScope, Source, Store, UsageWithSession } from "@grenier/store";
 import { Hono } from "hono";
+import { UNTAGGED } from "./proxy.ts";
 
 export interface AdminOptions {
   store: Store;
@@ -28,6 +29,29 @@ async function repoRoots(store: Store): Promise<Map<string, string>> {
   }
   for (const repo of await store.team.repos()) roots.set(repo.repoId, repo.root);
   return roots;
+}
+
+/**
+ * Each session's spending, the newest first, with where it ran and its questions to the exploration cache: null
+ * outside a repository, where no step is traced.
+ */
+async function sessionReport(store: Store, rows: readonly UsageWithSession[], prices: Prices, since: number) {
+  const traced = new Map((await store.steps.sessions(since)).map((summary) => [summary.sessionId, summary]));
+  const sessions = await Promise.all(
+    buildReport(rows, "session", prices).map(async (row) => {
+      const session = row.key === UNTAGGED ? null : await store.sessions.get(row.key);
+      const steps = traced.get(row.key);
+      return {
+        ...row,
+        client: session?.client ?? null,
+        repo: session?.repoRoot ? repoName(session.repoRoot) : null,
+        startedAt: session?.startedAt ?? null,
+        asks: session?.repoRoot ? (steps?.asks ?? 0) : null,
+        hits: session?.repoRoot ? (steps?.hits ?? 0) : null,
+      };
+    }),
+  );
+  return sessions.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }
 
 const BUDGET_SCOPES: readonly BudgetScope[] = ["daily", "session", "repo"];
@@ -137,6 +161,8 @@ export function createAdmin(options: AdminOptions): Hono {
     return c.json({
       version: options.version,
       days: buildReport(rows, "day", prices),
+      repos: buildReport(rows, "repo", prices).sort((a, b) => b.cost - a.cost),
+      sessions: await sessionReport(store, rows, prices, since),
       cache: await store.answers.stats(),
       sources: (await store.sources.list()).length,
       items: counts.reduce((total, row) => total + row.items, 0),

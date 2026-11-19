@@ -94,18 +94,33 @@ describe("totalOf, formatStatusLine and formatToday", () => {
   it("shows the session, then today", () => {
     const session = totalOf(buildReport([row({ cost: 1.5 })], "session", prices));
     expect(formatStatusLine(today, session)).toMatch(
-      /^grenier · session \$1\.50 spent, \$\d+\.\d\d saved · today \$3\.50 spent, \$\d+\.\d\d saved$/,
+      /^grenier · session \$1\.50 spent, \$\d+\.\d\d cached · today \$3\.50 spent, \$\d+\.\d\d cached$/,
     );
   });
 
   it("says when the agent was not started with grenier run", () => {
     expect(formatStatusLine(totalOf([]), null)).toBe(
-      "grenier · not started with grenier run · today $0.00 spent, $0.00 saved",
+      "grenier · not started with grenier run · today $0.00 spent, $0.00 cached",
     );
   });
 
-  it("shows today alone for the menu bar", () => {
-    expect(formatToday(totalOf([]))).toBe("$0.00 spent · $0.00 saved");
+  it("shows today per project for the menu bar, the most spent first", () => {
+    const repos = buildReport(
+      [
+        row({ cost: 0.5, cacheReadTokens: 0 }),
+        row({ repoRoot: null, cost: 0.25, cacheReadTokens: 0 }),
+        row({ repoRoot: "/work/api", cost: 0.75, cacheReadTokens: 1_000_000 }),
+        row({ repoRoot: "/work/app", cost: 0.5, cacheReadTokens: 0 }),
+      ],
+      "repo",
+      prices,
+    );
+    expect(formatToday(repos).split("\n")).toEqual([
+      "app: $1.00 spent, $0.00 cached",
+      "api: $0.75 spent, $3.80 cached",
+      "(no repository): $0.25 spent, $0.00 cached",
+    ]);
+    expect(formatToday([])).toBe("Nothing spent yet");
   });
 });
 

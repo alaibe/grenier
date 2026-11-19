@@ -211,7 +211,7 @@ describe("grenier statusline", () => {
     const store = db();
     const yesterday = Date.now() - 2 * 86_400_000;
     await store.sessions.create({ id: "s1", startedAt: yesterday });
-    await store.sessions.create({ id: "s2", startedAt: Date.now() });
+    await store.sessions.create({ id: "s2", startedAt: Date.now(), repoRoot: "/work/app", repoId: "r1" });
     await store.usage.add({ sessionId: "s1", ts: yesterday, model: "claude-opus-5-5", cost: 4 });
     await store.usage.add({ sessionId: "s1", ts: Date.now(), model: "claude-opus-5-5", cost: 0.5 });
     await store.usage.add({ sessionId: "s2", ts: Date.now(), model: "claude-opus-5-5", cost: 0.25 });
@@ -228,26 +228,28 @@ describe("grenier statusline", () => {
   it("shows the session grenier run started, then today", async () => {
     expect(await statusline({ GRENIER_SESSION: "s1" })).toEqual({
       code: 0,
-      out: "grenier · session $4.50 spent, $0.00 saved · today $0.75 spent, $0.00 saved",
+      out: "grenier · session $4.50 spent, $0.00 cached · today $0.75 spent, $0.00 cached",
     });
   });
 
   it("finds the session in the base URL when GRENIER_SESSION is not set", async () => {
     expect((await statusline({ ANTHROPIC_BASE_URL: "http://127.0.0.1:7788/s/s2" })).out).toBe(
-      "grenier · session $0.25 spent, $0.00 saved · today $0.75 spent, $0.00 saved",
+      "grenier · session $0.25 spent, $0.00 cached · today $0.75 spent, $0.00 cached",
     );
   });
 
   it("says when the agent was not started with grenier run", async () => {
-    const today = "today $0.75 spent, $0.00 saved";
+    const today = "today $0.75 spent, $0.00 cached";
     expect((await statusline({})).out).toBe(`grenier · not started with grenier run · ${today}`);
     expect((await statusline({ ANTHROPIC_BASE_URL: "http://127.0.0.1:7788" })).out).toBe(
       `grenier · not started with grenier run · ${today}`,
     );
   });
 
-  it("shows today alone with --today, whatever the session", async () => {
-    expect((await statusline({ GRENIER_SESSION: "s1" }, "--today")).out).toBe("$0.75 spent · $0.00 saved");
+  it("shows today per project with --today, whatever the session", async () => {
+    expect((await statusline({ GRENIER_SESSION: "s1" }, "--today")).out).toBe(
+      "(no repository): $0.50 spent, $0.00 cached\napp: $0.25 spent, $0.00 cached",
+    );
   });
 });
 

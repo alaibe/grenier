@@ -169,18 +169,22 @@ function tokens(count: number): string {
   return String(count);
 }
 
-const spentAndSaved = (row: ReportRow) => `$${row.cost.toFixed(2)} spent, $${row.saved.toFixed(2)} saved`;
+const spentAndCached = (row: ReportRow) => `$${row.cost.toFixed(2)} spent, $${row.saved.toFixed(2)} cached`;
 
 /**
- * One line for an agent's status bar: what its session spent and saved, then today. `session` is null for an agent
- * not started by `grenier run`.
+ * One line for an agent's status bar: what its session spent and what the prompt cache took off it, then today.
+ * `session` is null for an agent not started by `grenier run`.
  */
 export function formatStatusLine(today: ReportRow, session: ReportRow | null): string {
-  const first = session ? `session ${spentAndSaved(session)}` : "not started with grenier run";
-  return `grenier · ${first} · today ${spentAndSaved(today)}`;
+  const first = session ? `session ${spentAndCached(session)}` : "not started with grenier run";
+  return `grenier · ${first} · today ${spentAndCached(today)}`;
 }
 
-/** Today's spending and savings alone, for the desktop app's menu bar. */
-export function formatToday(today: ReportRow): string {
-  return `$${today.cost.toFixed(2)} spent · $${today.saved.toFixed(2)} saved`;
+/** Today per project, the most spent first, one line each, for the desktop app's menu bar. */
+export function formatToday(repos: readonly ReportRow[]): string {
+  if (repos.length === 0) return "Nothing spent yet";
+  return [...repos]
+    .sort((a, b) => b.cost - a.cost || a.key.localeCompare(b.key))
+    .map((row) => `${row.key}: ${spentAndCached(row)}`)
+    .join("\n");
 }

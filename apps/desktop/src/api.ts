@@ -55,9 +55,23 @@ export interface ReportRow {
   saved: number;
 }
 
+export interface SessionRow extends ReportRow {
+  client: string | null;
+  repo: string | null;
+  /** Null for requests no `grenier run` session tagged. */
+  startedAt: number | null;
+  /** Questions to the exploration cache and its hits; null outside a repository, where no step is traced. */
+  asks: number | null;
+  hits: number | null;
+}
+
 export interface Overview {
   version: string;
   days: ReportRow[];
+  /** The most spent first. */
+  repos: ReportRow[];
+  /** The newest first. */
+  sessions: SessionRow[];
   cache: { repoId: string; answers: number; hits: number }[];
   sources: number;
   items: number;
