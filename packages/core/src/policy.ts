@@ -22,12 +22,12 @@ export async function sha256(text: string): Promise<string> {
 }
 
 /**
- * Watches one session's tool calls. `observe` returns true when a hash reaches `threshold` occurrences within the
- * last `window` observations, once per streak: it fires again only after that hash has dropped below the threshold.
+ * Watches one conversation's tool calls. `observe` returns true when a hash reaches `threshold` occurrences within
+ * the last `window` observations. Those occurrences are then forgotten, so a loop that goes on fires again after as
+ * many repeats.
  */
 export class LoopDetector {
-  readonly #recent: string[] = [];
-  readonly #flagged = new Set<string>();
+  #recent: string[] = [];
 
   constructor(
     readonly threshold: number,
@@ -38,14 +38,9 @@ export class LoopDetector {
     this.#recent.push(hash);
     if (this.#recent.length > this.window) this.#recent.shift();
 
-    for (const flagged of this.#flagged) {
-      if (this.count(flagged) < this.threshold) this.#flagged.delete(flagged);
-    }
-    if (this.count(hash) >= this.threshold && !this.#flagged.has(hash)) {
-      this.#flagged.add(hash);
-      return true;
-    }
-    return false;
+    if (this.count(hash) < this.threshold) return false;
+    this.#recent = this.#recent.filter((seen) => seen !== hash);
+    return true;
   }
 
   count(hash: string): number {
@@ -63,7 +58,7 @@ export interface BudgetLimit {
 
 /** Limits set with `grenier budget set` win over the config file's. */
 export function effectiveLimits(
-  configured: Config["budgets"],
+  configured: Pick<Config["budgets"], "daily" | "session">,
   stored: readonly { scope: string; key: string; limitAmount: number }[],
   project: string | null,
 ): BudgetLimit[] {
@@ -103,16 +98,25 @@ export function firstBreach(
   return null;
 }
 
+/** Dollars with cents, or with the two digits that matter below ten cents: $1.25, $0.004, $0.0049. */
+export function money(amount: number): string {
+  if (amount === 0 || Math.abs(amount) >= 0.1) return `$${amount.toFixed(2)}`;
+  return `$${Number(amount.toPrecision(2))}`;
+}
+
+function limitName(limit: BudgetLimit): string {
+  return {
+    daily: `the daily budget of ${money(limit.limit)}`,
+    session: `this session's budget of ${money(limit.limit)}`,
+    repo: `the daily budget of ${money(limit.limit)} for ${limit.key}`,
+    team: `the team's daily budget of ${money(limit.limit)}`,
+    member: `your daily budget of ${money(limit.limit)} in the team`,
+  }[limit.scope];
+}
+
 /** The message an agent shows when a budget stops it: the limit, what was spent, and the command to change it. */
 export function budgetMessage(breach: BudgetBreach): string {
-  const money = (amount: number) => `$${amount.toFixed(2)}`;
-  const what = {
-    daily: `the daily budget of ${money(breach.limit)}`,
-    session: `this session's budget of ${money(breach.limit)}`,
-    repo: `the daily budget of ${money(breach.limit)} for ${breach.key}`,
-    team: `the team's daily budget of ${money(breach.limit)}`,
-    member: `your daily budget of ${money(breach.limit)} in the team`,
-  }[breach.scope];
+  const what = limitName(breach);
   const change = {
     daily: "grenier budget set --daily <amount>",
     session: "grenier budget set --session <amount>",
@@ -125,6 +129,30 @@ export function budgetMessage(breach: BudgetBreach): string {
       ? `${what} is reached (${money(breach.spent)} spent)`
       : `${what} would be passed (${money(breach.spent)} spent, and this session's last request cost ${money(breach.next)})`;
   return `Grenier stopped this request: ${why}. To change it, run: ${change}`;
+}
+
+/** Why a request to a model with no price is stopped while `limit` applies, and the two ways out. */
+export function unpricedMessage(model: string, limit: BudgetLimit): string {
+  return `Grenier stopped this request: ${model} has no price in prices.toml, so it would count as $0 against ${limitName(limit)}. Add its price under [prices."${model}"] in config.toml, or set budgets.unpriced = "allow" to let it through at $0.`;
+}
+
+/** The share of a limit past which Grenier warns that it is near. */
+export const WARN_AT = 0.8;
+
+/** The limits whose spending has reached `share` of them without reaching them. */
+export function limitsNear(
+  limits: readonly BudgetLimit[],
+  spent: (limit: BudgetLimit) => number,
+  share: number,
+): (BudgetLimit & { spent: number })[] {
+  return limits
+    .map((limit) => ({ ...limit, spent: spent(limit) }))
+    .filter((limit) => limit.spent >= limit.limit * share && limit.spent < limit.limit);
+}
+
+/** The notification for a limit that `limitsNear` returned. */
+export function warningMessage(near: BudgetLimit & { spent: number }): string {
+  return `${money(near.spent)} of ${limitName(near)} is spent.`;
 }
 
 export const MAX_SHARED_TEXT = 4000;
@@ -227,17 +255,57 @@ const STREET_LAST = new RegExp(
   "g",
 );
 
+// A card number as cards print it: 13 to 19 digits run together, groups of four (the last one shorter), or 4-6-5.
+const CARD = /(?<![\d-])(?:\d{13,19}|\d{4}(?:([ -])\d{4}){2}\1\d{1,7}|\d{4}([ -])\d{6}\2\d{5})(?![\d-])/g;
+const OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+// Dates, times and IPv4 addresses have the shape of a phone number; they are set aside while PHONE runs.
+const KEPT = [
+  /\b\d{4}-\d{2}-\d{2}(?:[T ]\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?/g,
+  /\b\d{1,2}[/.]\d{1,2}[/.]\d{4}\b/g,
+  /\b\d{1,2}:\d{2}(?::\d{2})?\b/g,
+  new RegExp(`(?<![\\d.])${OCTET}(?:\\.${OCTET}){3}(?![.\\d])`, "g"),
+];
+
+/** The Luhn checksum card numbers carry, so an order or account number is not taken for one. */
+function luhn(digits: string): boolean {
+  let total = 0;
+  for (let index = 0; index < digits.length; index++) {
+    let digit = Number(digits[digits.length - 1 - index]);
+    if (index % 2 === 1) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    total += digit;
+  }
+  return total % 10 === 0;
+}
+
 /**
- * Removes IBANs (checked with their mod-97 digits), phone numbers and street addresses from text before it leaves
- * the daemon. Heuristics: an address without a street word, or a phone number written with letters, passes through.
+ * Removes IBANs (checked with their mod-97 digits), card numbers (checked with Luhn), phone numbers and street
+ * addresses from text before it leaves the daemon. Heuristics: an address without a street word, or a phone number
+ * written with letters, passes through; a date, a time or an IPv4 address stays.
  */
 export function redact(text: string): string {
-  return text
-    .replace(IBAN, (match) => (validIban(match) ? "[IBAN removed]" : match))
+  // Every pattern below needs a digit.
+  if (!/\d/.test(text)) return text;
+  const kept: string[] = [];
+  let result = text.replace(IBAN, (match) => (validIban(match) ? "[IBAN removed]" : match));
+  // Text that holds private-use characters already (icon fonts) is not marked, so no mark can be mistaken for one.
+  const marking = !/[\uE000-\uF8FF]/.test(text);
+  for (const pattern of marking ? KEPT : []) {
+    result = result.replace(pattern, (match) => {
+      if (kept.length >= 0x1900) return match;
+      kept.push(match);
+      return String.fromCharCode(0xe000 + kept.length - 1);
+    });
+  }
+  return result
+    .replace(CARD, (match) => (luhn(match.replace(/\D/g, "")) ? "[card removed]" : match))
     .replace(STREET_FIRST, "[address removed]")
     .replace(STREET_LAST, "[address removed]")
     .replace(PHONE, (match) => {
       const digits = match.replace(/\D/g, "").length;
       return digits >= 9 && digits <= 15 ? "[phone removed]" : match;
-    });
+    })
+    .replace(/[\uE000-\uF8FF]/g, (mark) => kept[mark.charCodeAt(0) - 0xe000] ?? mark);
 }

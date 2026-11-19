@@ -1,22 +1,6 @@
 import { closeSync, openSync } from "node:fs";
 import Database from "better-sqlite3";
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  gt,
-  gte,
-  inArray,
-  isNull,
-  lt,
-  lte,
-  notInArray,
-  type SQL,
-  sql,
-  sum,
-} from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, type SQL, sql, sum } from "drizzle-orm";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { migrations as allMigrations, type Migration, StoreError } from "./index.ts";
 import * as schema from "./schema.ts";
@@ -48,11 +32,22 @@ function useWal(sqlite: Database.Database): void {
   }
 }
 
+/** Lower case without accents, so a name matches however it was typed. */
+function foldText(text: string): string {
+  const lower = text.toLowerCase();
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: the ASCII range, which has no accent to drop.
+  return /^[\x00-\x7f]*$/.test(lower) ? lower : lower.normalize("NFD").replace(/\p{M}/gu, "");
+}
+
 /** Opens (or creates, readable by this user only) the database at `file` and brings its schema up to date. */
 export function openSqliteStore(file: string, options: SqliteStoreOptions = {}): Store {
   if (file !== ":memory:") closeSync(openSync(file, "a", 0o600));
 
   const sqlite = new Database(file);
+  // SQLite's lower() folds ASCII only.
+  sqlite.function("fold", { deterministic: true }, (text: unknown) =>
+    typeof text === "string" ? foldText(text) : text,
+  );
   const db = drizzle(sqlite, { schema });
   try {
     sqlite.pragma(`busy_timeout = ${BUSY_TIMEOUT}`);
@@ -192,7 +187,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
         db
           .select({ cost: usage.cost })
           .from(usage)
-          .where(eq(usage.sessionId, sessionId))
+          .where(and(eq(usage.sessionId, sessionId), gt(usage.cost, 0)))
           .orderBy(desc(usage.ts), desc(usage.id))
           .limit(1)
           .get()?.cost ?? null,
@@ -277,7 +272,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
               .where(
                 and(
                   eq(answers.repoId, answer.repoId),
-                  sql`lower(trim(${answers.question})) = lower(trim(${answer.question}))`,
+                  sql`fold(trim(${answers.question})) = fold(trim(${answer.question}))`,
                 ),
               )
               .run();
@@ -362,6 +357,9 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
             .where(inArray(answers.id, [...ids]))
             .run();
       },
+      unshareAll: async () => {
+        db.update(answers).set({ shared: false, shareError: null }).run();
+      },
       refuse: async (id, reason) => {
         db.update(answers).set({ shareError: reason }).where(eq(answers.id, id)).run();
       },
@@ -432,11 +430,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
               .delete(items)
               .where(inArray(items.id, [...ids]))
               .run().changes,
-      prune: async (sourceId, keep) =>
-        db
-          .delete(items)
-          .where(and(eq(items.sourceId, sourceId), keep.size === 0 ? undefined : notInArray(items.id, [...keep])))
-          .run().changes,
       ids: async (sourceId) =>
         db
           .select({ id: items.id })
@@ -475,14 +468,11 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       },
       withPerson: async (name, filter, limit) => {
         if (filter.sourceIds.length === 0 || name.trim() === "") return [];
-        const pattern = `%${name
-          .trim()
-          .toLowerCase()
-          .replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        const pattern = `%${foldText(name.trim()).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
         return db
           .select()
           .from(items)
-          .where(and(sql`lower(${items.people}) LIKE ${pattern} ESCAPE '\\'`, itemConditions(filter)))
+          .where(and(sql`fold(${items.people}) LIKE ${pattern} ESCAPE '\\'`, itemConditions(filter)))
           .orderBy(desc(items.ts))
           .limit(limit)
           .all();
@@ -600,6 +590,9 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
               .orderBy(asc(fileSummaries.createdAt))
               .limit(limit)
               .all(),
+      unshareAll: async () => {
+        db.update(fileSummaries).set({ shared: false, shareError: null }).run();
+      },
       markShared: async (keys) => {
         for (const key of keys) {
           db.update(fileSummaries)

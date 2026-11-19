@@ -1,14 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, delimiter, join } from "node:path";
 import { parseArgs } from "node:util";
 import { createMcpServer } from "@grenier/gateway";
-import { addClient, readerFor, SCOPE_KINDS } from "@grenier/index";
+import { addClient, readerFor, resolveScopes } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { version } from "../../package.json";
 import { embedderLoader, gitFiles, repoResolver } from "../exploration.ts";
-import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
+import { CommandError, environment, type Io, UsageError, withStore, writeAtomically } from "../io.ts";
 
 /** `grenier mcp serve`: the MCP server over stdio, for an agent that launches it in its working directory. */
 export async function serve(io: Io): Promise<number> {
@@ -56,10 +56,27 @@ export function configPath(client: McpClient, home: string, platform: NodeJS.Pla
   }
 }
 
-function writeAtomically(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(`${path}.grenier-tmp`, text, { mode: 0o600 });
-  renameSync(`${path}.grenier-tmp`, path);
+/**
+ * The same program at a path that survives upgrades: a versioned one (Homebrew's Cellar, a version manager's folder)
+ * is replaced by a PATH entry that resolves to the same file. Otherwise the program as given.
+ */
+export function stableProgram(program: string, searchPath: string | undefined): string {
+  let real: string;
+  try {
+    real = realpathSync(program);
+  } catch {
+    return program;
+  }
+  for (const dir of (searchPath ?? "").split(delimiter).filter(Boolean)) {
+    const candidate = join(dir, basename(program));
+    if (candidate === program || /[\\/]Cellar[\\/]|[\\/]versions[\\/]/.test(candidate)) continue;
+    try {
+      if (realpathSync(candidate) === real) return candidate;
+    } catch {
+      // Not there: try the next folder.
+    }
+  }
+  return program;
 }
 
 function tomlString(value: string): string {
@@ -117,7 +134,7 @@ function shellWord(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, "'\\''")}'`;
 }
 
-const isPromptHook = (command: unknown) =>
+export const isPromptHook = (command: unknown): command is string =>
   typeof command === "string" && command.includes("grenier") && command.endsWith(" hook prompt");
 
 /**
@@ -169,30 +186,40 @@ export async function install(
     .map((scope) => scope.trim())
     .filter(Boolean);
   const { paths } = environment(io);
+  const path = configPath(client as McpClient, where.home ?? homedir(), where.platform ?? process.platform, io.env);
+  const [self = process.execPath, ...prefix] = io.self;
+  const command = stableProgram(self, io.env.PATH);
+  const args = [...prefix, "mcp", "serve"];
+  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const settings = join(where.home ?? homedir(), ".claude", "settings.json");
+  const settingsText = values.hook && existsSync(settings) ? readFileSync(settings, "utf8") : "";
+  const configFor = (token: string) => {
+    const env: Record<string, string> = { GRENIER_CLIENT_TOKEN: token };
+    for (const name of ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"]) {
+      const value = io.env[name];
+      if (value) env[name] = value;
+    }
+    return client === "codex"
+      ? withCodexServer(text, command, args, env)
+      : withJsonServer(text, { command, args, env }, client === "claude-code" ? { type: "stdio" } : {});
+  };
+  const variables = ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"].flatMap((name) =>
+    io.env[name] ? [`${name}=${shellWord(io.env[name] as string)}`] : [],
+  );
+  const hook = [...variables, ...[command, ...prefix].map(shellWord), "hook", "prompt"].join(" ");
+  // Both files must be editable before the old token is revoked, so a failure leaves the client working.
+  configFor("gc_check");
+  const hooked = values.hook ? withPromptHook(settingsText, hook) : null;
+
   const token = await withStore(paths, async (store) => {
-    const known = new Set([...SCOPE_KINDS, ...(await store.sources.list()).map((source) => source.name)]);
-    const unknown = scopes.filter((scope) => !known.has(scope));
-    if (unknown.length > 0) throw new CommandError(`unknown scope ${unknown.join(", ")}: use ${[...known].join(", ")}`);
+    // Checked before the old token goes, so a mistyped scope leaves the client working.
+    await resolveScopes(store, scopes).catch((error: Error) => {
+      throw new CommandError(error.message);
+    });
     await store.clients.revoke(client as string, Date.now());
     return addClient(store, client as string, scopes);
   });
-  const path = configPath(client as McpClient, where.home ?? homedir(), where.platform ?? process.platform, io.env);
-  const [command = process.execPath, ...prefix] = io.self;
-  const args = [...prefix, "mcp", "serve"];
-  const env: Record<string, string> = { GRENIER_CLIENT_TOKEN: token };
-  for (const name of ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"]) {
-    const value = io.env[name];
-    if (value) env[name] = value;
-  }
-  const server = { command, args, env };
-  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
-
-  writeAtomically(
-    path,
-    client === "codex"
-      ? withCodexServer(text, command, args, env)
-      : withJsonServer(text, server, client === "claude-code" ? { type: "stdio" } : {}),
-  );
+  writeAtomically(path, configFor(token));
   const reads =
     scopes.length > 0
       ? `may read ${scopes.join(", ")}`
@@ -200,11 +227,6 @@ export async function install(
   const added = `Added Grenier's MCP server to ${path}, with a client token of its own that ${reads}.`;
   if (!values.hook) return `${added} Restart ${client} to load it.`;
 
-  const settings = join(where.home ?? homedir(), ".claude", "settings.json");
-  const variables = ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"].flatMap((name) =>
-    io.env[name] ? [`${name}=${shellWord(io.env[name] as string)}`] : [],
-  );
-  const hook = [...variables, ...[command, ...prefix].map(shellWord), "hook", "prompt"].join(" ");
-  writeAtomically(settings, withPromptHook(existsSync(settings) ? readFileSync(settings, "utf8") : "", hook));
+  writeAtomically(settings, hooked as string);
   return `${added} Added the prompt hook to ${settings}: a recorded answer close to a prompt reaches the agent with it. Restart ${client} to load both.`;
 }

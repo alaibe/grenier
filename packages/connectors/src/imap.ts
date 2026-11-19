@@ -9,8 +9,8 @@ const DAY = 86_400_000;
 export interface ImapClient {
   connect(): Promise<void>;
   logout(): Promise<void>;
-  /** Opens a mailbox; returns its UIDVALIDITY. */
-  open(mailbox: string): Promise<{ uidValidity: number; close: () => void }>;
+  /** Opens a mailbox; returns its UIDVALIDITY, and the UID its next message will get when the server says. */
+  open(mailbox: string): Promise<{ uidValidity: number; uidNext?: number; close: () => void }>;
   /** The UIDs above `after`, and since a date for a first pull. */
   search(criteria: { after: number; since?: Date }): Promise<number[]>;
   /** The raw message (RFC 5322) of each UID. */
@@ -34,7 +34,11 @@ function imapflowClient(config: Record<string, unknown>, password: string): Imap
     open: async (mailbox) => {
       const lock = await client.getMailboxLock(mailbox, { readOnly: true });
       const opened = client.mailbox;
-      return { uidValidity: opened ? Number(opened.uidValidity) : 0, close: () => lock.release() };
+      return {
+        uidValidity: opened ? Number(opened.uidValidity) : 0,
+        ...(opened !== false && opened.uidNext ? { uidNext: Number(opened.uidNext) } : {}),
+        close: () => lock.release(),
+      };
     },
     search: async ({ after, since }) => {
       const found = await client.search({ uid: `${after + 1}:*`, ...(since ? { since } : {}) }, { uid: true });
@@ -60,8 +64,9 @@ function addresses(field: AddressObject | AddressObject[] | undefined): string[]
 
 /**
  * Mailboxes over IMAP (INBOX unless `mailboxes` says otherwise), read-only. Each pull fetches only messages with a
- * UID above the last one seen; the first pull goes back `since_days` (90). A changed UIDVALIDITY starts the mailbox
- * over. Messages deleted on the server stay in the index until the source is removed.
+ * UID above the last one seen; the first pull goes back `since_days` (90), and the next ones start after the newest
+ * message even when the window held none. A changed UIDVALIDITY starts the mailbox over, dropping its old items.
+ * Messages deleted on the server stay in the index until the source is removed.
  */
 export async function pullImap(
   config: Record<string, unknown>,
@@ -74,14 +79,16 @@ export async function pullImap(
   const seen = (state.mailboxes ?? {}) as Record<string, { uidValidity: number; lastUid: number }>;
   const next: Record<string, { uidValidity: number; lastUid: number }> = {};
   const items: PulledItem[] = [];
+  const removedPrefixes: string[] = [];
 
   await client.connect();
   try {
     for (const mailbox of mailboxes) {
-      const { uidValidity, close } = await client.open(mailbox);
+      const { uidValidity, uidNext, close } = await client.open(mailbox);
       try {
         const previous = seen[mailbox];
         const fresh = !previous || previous.uidValidity !== uidValidity;
+        if (fresh && previous) removedPrefixes.push(`${mailbox}:${previous.uidValidity}:`);
         const after = fresh ? 0 : previous.lastUid;
         const uids = await client.search({
           after,
@@ -100,6 +107,7 @@ export async function pullImap(
           });
           lastUid = Math.max(lastUid, uid);
         }
+        if (fresh && uidNext) lastUid = Math.max(lastUid, uidNext - 1);
         next[mailbox] = { uidValidity, lastUid };
       } finally {
         close();
@@ -108,5 +116,5 @@ export async function pullImap(
   } finally {
     await client.logout().catch(() => {});
   }
-  return { items, removed: [], state: { mailboxes: next } };
+  return { items, removed: [], removedPrefixes, state: { mailboxes: next } };
 }

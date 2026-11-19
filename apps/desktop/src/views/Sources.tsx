@@ -4,6 +4,7 @@ import { api, type SourceSync, type SourceView } from "../api.ts";
 import {
   ago,
   Button,
+  ConfirmButton,
   count,
   Field,
   Input,
@@ -212,20 +213,17 @@ export function Sources(_: ViewProps) {
                       >
                         {action.busy === `sync:${source.name}` ? "Syncing…" : "Sync"}
                       </Button>
-                      <Button
-                        quiet
+                      <ConfirmButton
+                        label="Remove"
+                        question={`Remove ${source.name} and every item it brought?`}
                         disabled={action.busy !== null}
-                        onClick={() => {
-                          if (confirm(`Remove ${source.name} and every item it brought?`)) {
-                            void action.run(`remove:${source.name}`, async () => {
-                              await api(`/sources/${encodeURIComponent(source.name)}`, { method: "DELETE" });
-                              return { text: `Removed ${source.name}.` };
-                            });
-                          }
-                        }}
-                      >
-                        Remove
-                      </Button>
+                        onConfirm={() =>
+                          void action.run(`remove:${source.name}`, async () => {
+                            await api(`/sources/${encodeURIComponent(source.name)}`, { method: "DELETE" });
+                            return { text: `Removed ${source.name}.` };
+                          })
+                        }
+                      />
                     </div>
                   )}
                 </td>

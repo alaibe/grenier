@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import ICAL from "ical.js";
 import { createDAVClient } from "tsdav";
-import { ConnectorError, type Pull, type PulledItem, secretFor } from "./source.ts";
+import { ConnectorError, type Failed, type Pull, type PulledItem, secretFor } from "./source.ts";
 
 function person(value: string | null | undefined, name?: unknown): string | null {
   if (!value) return null;
@@ -112,6 +112,7 @@ export async function pullCalDav(
   const seen = (state.objects ?? {}) as Record<string, { etag: string; keys: string[] }>;
   const objects: Record<string, { etag: string; keys: string[] }> = {};
   const items: PulledItem[] = [];
+  const failed: Failed[] = [];
 
   for (const calendar of await client.fetchCalendars()) {
     if (wanted && !wanted.includes(String(calendar.displayName ?? ""))) continue;
@@ -122,7 +123,14 @@ export async function pullCalDav(
         objects[object.url] = previous;
         continue;
       }
-      const parsed = object.data ? parseEvents(object.data, `${object.url}#`) : [];
+      let parsed: PulledItem[];
+      try {
+        parsed = object.data ? parseEvents(object.data, `${object.url}#`) : [];
+      } catch (error) {
+        failed.push({ key: object.url, reason: (error as Error).message });
+        objects[object.url] = { etag, keys: previous?.keys ?? [] };
+        continue;
+      }
       objects[object.url] = { etag, keys: parsed.map((item) => item.key) };
       items.push(...parsed);
     }
@@ -133,5 +141,5 @@ export async function pullCalDav(
     const current = objects[url]?.keys ?? [];
     removed.push(...previous.keys.filter((key) => !current.includes(key)));
   }
-  return { items, removed, state: { objects } };
+  return { items, removed, failed, state: { objects } };
 }

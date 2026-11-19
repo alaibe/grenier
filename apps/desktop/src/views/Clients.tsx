@@ -1,7 +1,19 @@
 import { type FormEvent, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type ClientView } from "../api.ts";
-import { Button, Empty, Field, Input, Loading, Notice, Page, Table, useAction, useLoad } from "../ui.tsx";
+import {
+  Button,
+  ConfirmButton,
+  Empty,
+  Field,
+  Input,
+  Loading,
+  Notice,
+  Page,
+  Table,
+  useAction,
+  useLoad,
+} from "../ui.tsx";
 
 const load = () => api<{ clients: ClientView[]; scopes: string[] }>("/clients");
 
@@ -177,20 +189,17 @@ export function Clients(_: ViewProps) {
                 </td>
                 <td>
                   <div className="flex justify-end gap-1.5">
-                    <Button
-                      quiet
+                    <ConfirmButton
+                      label="Revoke"
+                      question={`Revoke ${client.name}? Its next call fails.`}
                       disabled={action.busy !== null}
-                      onClick={() => {
-                        if (confirm(`Revoke ${client.name}? Its next call fails.`)) {
-                          void action.run(`revoke:${client.name}`, async () => {
-                            await api(`/clients/${encodeURIComponent(client.name)}/revoke`, { method: "POST" });
-                            return { text: `Revoked ${client.name}.` };
-                          });
-                        }
-                      }}
-                    >
-                      Revoke
-                    </Button>
+                      onConfirm={() =>
+                        void action.run(`revoke:${client.name}`, async () => {
+                          await api(`/clients/${encodeURIComponent(client.name)}/revoke`, { method: "POST" });
+                          return { text: `Revoked ${client.name}.` };
+                        })
+                      }
+                    />
                   </div>
                 </td>
               </tr>

@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { sha256 } from "@grenier/core";
 import type { Source, Store } from "@grenier/store";
@@ -13,10 +15,20 @@ export interface PulledItem {
   ts: number;
 }
 
+/** An entry a connector could not read, and why. */
+export interface Failed {
+  key: string;
+  reason: string;
+}
+
 /** What changed since the state the connector was given, and its state for next time. */
 export interface Pull {
   items: PulledItem[];
   removed: string[];
+  /** Every item whose key starts with one of these goes too: a mailbox that started over. */
+  removedPrefixes?: string[];
+  /** Entries that could not be read, left out so they do not hold up the rest; tried again once they change. */
+  failed?: Failed[];
   state: Record<string, unknown>;
 }
 
@@ -35,7 +47,7 @@ export async function applyPull(
   source: Pick<Source, "id">,
   pull: Pull,
   now = Date.now(),
-): Promise<{ added: number; removed: number }> {
+): Promise<{ added: number; removed: number; failed: Failed[] }> {
   let added = 0;
   for (const item of pull.items) {
     const changed = await store.items.put({
@@ -50,9 +62,14 @@ export async function applyPull(
     });
     if (changed) added += 1;
   }
-  const removed = await store.items.remove(pull.removed.map((key) => itemId(source.id, key)));
+  const prefixes = (pull.removedPrefixes ?? []).map((prefix) => itemId(source.id, prefix));
+  const stale =
+    prefixes.length > 0
+      ? (await store.items.ids(source.id)).filter((id) => prefixes.some((prefix) => id.startsWith(prefix)))
+      : [];
+  const removed = await store.items.remove([...pull.removed.map((key) => itemId(source.id, key)), ...stale]);
   await store.sources.saveState(source.id, pull.state, now);
-  return { added, removed };
+  return { added, removed, failed: pull.failed ?? [] };
 }
 
 /**
@@ -79,4 +96,48 @@ export async function secretFor(
     throw new ConnectorError(`the environment variable ${config.password_env} is not set`);
   }
   throw new ConnectorError("the source has no password_command or password_env");
+}
+
+/** A path as people type it: `~` is their home folder, and a relative path starts from `base`. */
+export function localPath(path: string, base: string, home = homedir()): string {
+  const expanded = path === "~" ? home : path.startsWith("~/") ? join(home, path.slice(2)) : path;
+  return isAbsolute(expanded) ? expanded : resolve(base, expanded);
+}
+
+/**
+ * A command line as its words, quoted the way a shell quotes them ('…', "…" and \), without running a shell. Throws
+ * ConnectorError on a quote left open.
+ */
+export function commandWords(line: string): string[] {
+  const words: string[] = [];
+  let word = "";
+  let started = false;
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index] as string;
+    if (quote === "'") {
+      if (char === "'") quote = null;
+      else word += char;
+    } else if (quote === '"') {
+      if (char === '"') quote = null;
+      else if (char === "\\" && /["\\$`]/.test(line[index + 1] ?? "")) word += line[++index];
+      else word += char;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+      started = true;
+    } else if (char === "\\" && index + 1 < line.length) {
+      word += line[++index];
+      started = true;
+    } else if (/\s/.test(char)) {
+      if (started) words.push(word);
+      word = "";
+      started = false;
+    } else {
+      word += char;
+      started = true;
+    }
+  }
+  if (quote) throw new ConnectorError(`the command has a ${quote} left open: ${line}`);
+  if (started) words.push(word);
+  return words;
 }

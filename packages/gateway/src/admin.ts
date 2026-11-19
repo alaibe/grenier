@@ -1,6 +1,15 @@
-import { syncSources } from "@grenier/connectors";
-import type { Config } from "@grenier/core";
-import { addClient, approveMemory, CacheError, forgetAnswer, type RepoFiles, SCOPE_KINDS } from "@grenier/index";
+import { homedir } from "node:os";
+import { commandWords, localPath, syncSources } from "@grenier/connectors";
+import { type Config, effectiveLimits, WARN_AT } from "@grenier/core";
+import {
+  addClient,
+  approveMemory,
+  CacheError,
+  forgetAnswer,
+  type RepoFiles,
+  SCOPE_KINDS,
+  scopeNames,
+} from "@grenier/index";
 import {
   buildReport,
   cacheReport,
@@ -28,6 +37,8 @@ export interface AdminOptions {
   files?: Pick<RepoFiles, "hashes">;
   /** The config file's limits, which a limit set here or with `grenier budget set` replaces. */
   budgets?: Config["budgets"];
+  /** Who the daemon is, so a client can tell it from another program that reused its pid. */
+  identity?: { pid: number; port: number };
 }
 
 /** Where each repository is on this machine: the root it was shared from, else the latest session's. */
@@ -58,6 +69,7 @@ async function sessionReport(store: Store, rows: readonly UsageWithSession[], pr
         startedAt: session?.startedAt ?? null,
         asks: steps?.asks ?? null,
         hits: steps?.hits ?? null,
+        traced: traced.has(report.key),
       };
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
@@ -94,7 +106,7 @@ function sourceConfig(kind: (typeof SOURCE_KINDS)[number], body: Record<string, 
       : undefined;
   const password = () => {
     const command = text("password_command");
-    if (command) return { password_command: command.split(" ").filter(Boolean) };
+    if (command) return { password_command: commandWords(command) };
     const env = text("password_env");
     if (env) return { password_env: env };
     throw new CacheError("give password_command (a command printing the password) or password_env");
@@ -103,13 +115,13 @@ function sourceConfig(kind: (typeof SOURCE_KINDS)[number], body: Record<string, 
     case "markdown": {
       const path = text("path");
       if (!path) throw new CacheError("a markdown source needs path");
-      return { path };
+      return { path: localPath(path, homedir()) };
     }
     case "ics": {
       const url = text("url");
       const path = text("path");
       if (!url && !path) throw new CacheError("an ics source needs url or path");
-      return url ? { url } : { path };
+      return url ? { url } : { path: localPath(path as string, homedir()) };
     }
     case "caldav": {
       const url = text("url");
@@ -150,7 +162,10 @@ export function createAdmin(options: AdminOptions): Hono {
       });
     }
     if (c.req.header("authorization") !== `Bearer ${options.token}`) {
-      return problem(401, "the admin API needs the token in ~/.grenier/admin-token");
+      // The app's own origin gets the header even here, so it can read the 401 instead of seeing no answer.
+      const refused = problem(401, "the admin API needs the token in ~/.grenier/admin-token");
+      if (allowed) refused.headers.set("access-control-allow-origin", allowed);
+      return refused;
     }
     await next();
     if (allowed) c.res.headers.set("access-control-allow-origin", allowed);
@@ -163,6 +178,29 @@ export function createAdmin(options: AdminOptions): Hono {
     throw error;
   });
 
+  app.get("/health", (c) => c.json({ ...options.identity, version: options.version }));
+
+  /** Today's daily and project limits that spending has passed 80% of, or reached. */
+  async function limitsToday(rows: readonly UsageWithSession[]) {
+    const stored = await store.budgets.list();
+    const limits = [
+      ...effectiveLimits(options.budgets ?? {}, stored, null).filter((limit) => limit.scope === "daily"),
+      ...stored
+        .filter((budget) => budget.scope === "repo")
+        .map((budget) => ({ scope: "repo" as const, key: budget.key, limit: budget.limitAmount })),
+    ];
+    if (limits.length === 0) return [];
+    const today = rows.filter((row) => row.ts >= startOfToday(Date.now()));
+    const spentBy = (project: string | null) =>
+      today
+        .filter((row) => project === null || projectOf(row) === project)
+        .reduce((sum, row) => sum + (row.cost ?? 0), 0);
+    return limits
+      .map((limit) => ({ ...limit, spent: spentBy(limit.scope === "daily" ? null : limit.key) }))
+      .filter((limit) => limit.spent >= limit.limit * WARN_AT)
+      .map((limit) => ({ ...limit, reached: limit.spent >= limit.limit }));
+  }
+
   app.get("/overview", async (c) => {
     const since = parseSince("7d", Date.now());
     const rows = await store.usage.list({ since });
@@ -171,6 +209,7 @@ export function createAdmin(options: AdminOptions): Hono {
       version: options.version,
       days: buildReport(rows, "day", prices),
       projects: mostSpentFirst(buildReport(rows, "repo", prices)),
+      limits: await limitsToday(rows),
       sessions: await sessionReport(store, rows, prices, since),
       cache: await store.answers.stats(),
       sources: (await store.sources.list()).length,
@@ -381,14 +420,19 @@ export function createAdmin(options: AdminOptions): Hono {
     return (await store.sources.remove(name)) ? c.json({ removed: name }) : problem(404, `no source named ${name}`);
   });
 
-  app.get("/clients", async (c) =>
-    c.json({
+  app.get("/clients", async (c) => {
+    const sources = await store.sources.list();
+    return c.json({
       clients: (await store.clients.list())
         .filter((client) => client.revokedAt === null)
-        .map((client) => ({ name: client.name, scopes: client.scopes, createdAt: client.createdAt })),
-      scopes: [...SCOPE_KINDS, ...(await store.sources.list()).filter((s) => s.kind !== "memory").map((s) => s.name)],
-    }),
-  );
+        .map((client) => ({
+          name: client.name,
+          scopes: scopeNames(client.scopes, sources),
+          createdAt: client.createdAt,
+        })),
+      scopes: [...SCOPE_KINDS, ...sources.filter((s) => s.kind !== "memory").map((s) => s.name)],
+    });
+  });
 
   app.post("/clients", async (c) => {
     const body = await c.req
@@ -397,9 +441,6 @@ export function createAdmin(options: AdminOptions): Hono {
     const scopes = Array.isArray(body.scopes)
       ? body.scopes.filter((scope): scope is string => typeof scope === "string")
       : [];
-    const known = new Set<string>([...SCOPE_KINDS, ...(await store.sources.list()).map((source) => source.name)]);
-    const unknown = scopes.filter((scope) => !known.has(scope));
-    if (unknown.length > 0) return problem(400, `unknown scope ${unknown.join(", ")}`);
     if (typeof body.name !== "string") return problem(400, "name is required");
     const token = await addClient(store, body.name, scopes);
     return c.json({ name: body.name, scopes, token }, 201);

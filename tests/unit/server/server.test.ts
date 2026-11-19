@@ -93,11 +93,36 @@ describe("shared cache", () => {
     ]);
   });
 
+  it("keeps the newer answer when an older one to the same question arrives later, and tombstones carry no text", async () => {
+    const live = async () => {
+      const rows = (await (await call("/api/sync?repos=repo-late&answers=0", member)).json()) as {
+        answers: { id: string; answer: string; deleted: boolean }[];
+      };
+      return rows.answers;
+    };
+    const late = (id: string, createdAt: number) => ({
+      ...answer(id, "Who checks the budgets?", `Answer ${id}`),
+      repoId: "repo-late",
+      createdAt,
+    });
+    await call("/api/answers", member, json({ answers: [late("n1", 2_000)] }));
+    await call("/api/answers", member, json({ answers: [late("o1", 1_000)] }));
+    expect((await live()).filter((row) => !row.deleted).map((row) => row.id)).toEqual(["n1"]);
+
+    await call("/api/answers", member, json({ answers: [late("n2", 3_000)] }));
+    const rows = await live();
+    expect(rows.filter((row) => !row.deleted).map((row) => row.id)).toEqual(["n2"]);
+    expect(rows.find((row) => row.id === "n1")).toMatchObject({ deleted: true, answer: "" });
+  });
+
   it("refuses an answer or summary that copies code (rule 4)", async () => {
     const code = `\`\`\`ts\n${"const x = 1;\n".repeat(20)}\`\`\``;
     const refused = await call("/api/answers", member, json({ answers: [answer("a3", "q", code)] }));
     expect(refused.status).toBe(400);
     expect(((await refused.json()) as { error: string }).error).toContain("at most 10 lines of code");
+    const inQuestion = await call("/api/answers", member, json({ answers: [answer("a4", code, "An answer.")] }));
+    expect(inQuestion.status).toBe(400);
+    expect(((await inQuestion.json()) as { error: string }).error).toContain("question of answer a4 is refused");
     const summary = { repoId: "repo-1", path: "x.ts", blobHash: "b", summary: "x".repeat(5000), createdAt: 1 };
     expect((await call("/api/summaries", member, json({ summaries: [summary] }))).status).toBe(400);
   });
@@ -170,6 +195,22 @@ describe("team budgets and usage", () => {
     expect((await call("/api/usage", member, json({ usage: [{ ...usage(1), cost: -1 }] }))).status).toBe(400);
     expect((await call("/api/usage", member, json({ usage: [{ ...usage(1), day: "today" }] }))).status).toBe(400);
   });
+
+  it("counts a machine's usage batch once, however often it is sent", async () => {
+    const spent = async () =>
+      ((await (await call("/api/budget", member)).json()) as { member: { spent: number } }).member.spent;
+    const before = await spent();
+    const batch = { usage: [usage(0.2)], device: "laptop", from: 40, through: 45 };
+    expect((await call("/api/usage", member, json(batch))).status).toBe(200);
+    const again = await call("/api/usage", member, json(batch));
+    expect(again.status).toBe(409);
+    expect(await again.json()).toMatchObject({ through: 45 });
+    expect((await call("/api/usage", member, json({ ...batch, from: 45, through: 47 }))).status).toBe(200);
+    expect((await call("/api/usage", member, json({ ...batch, device: "desktop", from: 0, through: 3 }))).status).toBe(
+      200,
+    );
+    expect(await spent()).toBeCloseTo(before + 0.6, 10);
+  });
 });
 
 describe("revocation", () => {
@@ -178,5 +219,24 @@ describe("revocation", () => {
     expect((await call("/api/members/bob/revoke", ADMIN, { method: "POST" })).status).toBe(200);
     expect((await call("/api/me", member)).status).toBe(401);
     expect((await call("/api/members/ada/revoke", ADMIN, { method: "POST" })).status).toBe(400);
+  });
+
+  it("lets an admin invite a revoked member's name again", async () => {
+    const invited = await call("/api/members", ADMIN, json({ name: "bob" }));
+    expect(invited.status).toBe(201);
+    const token = ((await invited.json()) as { token: string }).token;
+    expect(await (await call("/api/me", token)).json()).toMatchObject({ name: "bob" });
+    expect((await call("/api/members", ADMIN, json({ name: "bob" }))).status).toBe(409);
+  });
+
+  it("gives a member a new token for their own, which stops working", async () => {
+    const carol = ((await (await call("/api/members", ADMIN, json({ name: "carol" }))).json()) as { token: string })
+      .token;
+    const rotated = await call("/api/me/rotate", carol, { method: "POST" });
+    expect(rotated.status).toBe(200);
+    const fresh = ((await rotated.json()) as { token: string }).token;
+    expect(fresh).toMatch(/^gt_/);
+    expect((await call("/api/me", carol)).status).toBe(401);
+    expect(await (await call("/api/me", fresh)).json()).toMatchObject({ name: "carol" });
   });
 });

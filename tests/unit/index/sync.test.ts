@@ -37,8 +37,25 @@ beforeEach(async () => {
   await machineB.team.share("repo-1", "/home/bob/app", 0);
 });
 
-const sync = (store: Store, team: TeamClient, shareAll = false) =>
-  syncOnce({ store, embedder: null, team, savedOf: (row) => (row.cacheReadTokens ?? 0) / 1_000_000, shareAll });
+const devices = new WeakMap<Store, string>();
+const sync = (store: Store, team: TeamClient, shareAll = false) => {
+  const device = devices.get(store) ?? `device-${Math.random().toString(36).slice(2)}`;
+  devices.set(store, device);
+  return syncOnce({
+    store,
+    embedder: null,
+    team,
+    savedOf: (row) => (row.cacheReadTokens ?? 0) / 1_000_000,
+    shareAll,
+    device,
+  });
+};
+async function spentBy(team: TeamClient): Promise<number> {
+  const response = await mf.dispatchFetch("https://team.test/api/budget", {
+    headers: { authorization: `Bearer ${team.token}` },
+  });
+  return ((await response.json()) as { member: { spent: number } }).member.spent;
+}
 
 async function record(store: Store, id: string, question: string, repoId = "repo-1", answer = `Answer to ${question}`) {
   await store.answers.add({ id, repoId, question, answer, createdAt: Date.now(), author: "local" }, [
@@ -126,6 +143,47 @@ describe("team sync", () => {
       await teamA.fetch?.("https://team.test/api/budget", { headers: { authorization: "Bearer gt_ada" } })
     )?.json();
     expect((budget as { member: { spent: number } }).member.spent).toBeCloseTo(0.5, 10);
+  });
+
+  it("brings a repository's older answers to a machine that shares it later", async () => {
+    const later = `repo-later-${Date.now()}`;
+    const first = `repo-first-${Date.now()}`;
+    await machineA.team.share(later, "/work/later", 0);
+    await machineA.team.share(first, "/work/first", 0);
+    await record(machineA, "old-in-later", "What came first?", later);
+    await sync(machineA, teamA);
+    await record(machineA, "new-in-first", "What came next?", first);
+    await sync(machineA, teamA);
+
+    await machineB.team.share(first, "/home/bob/first", 0);
+    await sync(machineB, teamB);
+    expect(await machineB.answers.get("new-in-first")).toBeDefined();
+    await machineB.team.share(later, "/home/bob/later", 0);
+    await sync(machineB, teamB);
+    expect(await machineB.answers.get("old-in-later")).toBeDefined();
+  });
+
+  it("counts usage once when a batch is sent again, or by two syncs at the same time", async () => {
+    const before = await spentBy(teamA);
+    await machineA.usage.add({ sessionId: "s", ts: Date.now(), model: "m", cost: 0.25 });
+    await sync(machineA, teamA);
+    await machineA.team.set("usage_id", "0");
+    await sync(machineA, teamA);
+    expect(await spentBy(teamA)).toBeCloseTo(before + 0.25, 10);
+
+    await machineA.usage.add({ sessionId: "s", ts: Date.now(), model: "m", cost: 0.5 });
+    await Promise.all([sync(machineA, teamA), sync(machineA, teamA)]);
+    await sync(machineA, teamA);
+    expect(await spentBy(teamA)).toBeCloseTo(before + 0.75, 10);
+  });
+
+  it("pushes the shared answers again to another team server", async () => {
+    const id = `moved-${Date.now()}`;
+    await record(machineA, id, `Where did it move? ${id}`);
+    expect((await sync(machineA, teamA)).pushed.answers).toBe(1);
+    const elsewhere = { ...teamA, url: "https://other-team.test" };
+    expect((await sync(machineA, elsewhere)).pushed.answers).toBeGreaterThanOrEqual(1);
+    expect((await sync(machineA, elsewhere)).pushed.answers).toBe(0);
   });
 
   it("sets aside an answer the server refuses, with the reason, and goes on with the others", async () => {

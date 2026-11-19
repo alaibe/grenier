@@ -2,6 +2,7 @@ import { version } from "../package.json";
 import { ask, promptHook } from "./commands/ask.ts";
 import { budget } from "./commands/budget.ts";
 import { cache } from "./commands/cache.ts";
+import { doctor } from "./commands/doctor.ts";
 import { install, serve } from "./commands/mcp.ts";
 import { audit, clients, review, sources } from "./commands/personal.ts";
 import { report } from "./commands/report.ts";
@@ -20,6 +21,7 @@ const USAGE = `Usage: grenier <command>
 
 Commands:
   status                     Show the config, the database and whether the daemon runs
+  doctor                     Check the daemon, the AI tools' configs, the hook and the team server
   start, stop                Start or stop the daemon (the proxy on 127.0.0.1)
   run -- <command>           Run an agent through the proxy as its own session
   report [--by day|session|repo] [--since 7d] [--json]
@@ -50,6 +52,7 @@ Commands:
   team share [--repo <path>], team unshare [--repo <path>]
                              Share a repository's answers and summaries with the team, or stop
   team status, team sync     The team connection; sync now (the daemon syncs on its own)
+  team rotate                A new team token for this machine; the old one stops working
   team budget [--team <n>] [--member <n>]
                              Team-wide and per-member daily limits in dollars (admins set them)
   sources add <markdown|ics|caldav|imap> <name> <path, url or host> [--user …] [--password-command "…"]
@@ -92,6 +95,12 @@ export async function run(argv: string[], io: Io): Promise<number> {
         noArguments(command, rest);
         for (const line of await status(io, version)) io.out(line);
         return 0;
+      case "doctor": {
+        noArguments(command, rest);
+        const { lines, code } = await doctor(io);
+        for (const line of lines) io.out(line);
+        return code;
+      }
       case "start": {
         noArguments(command, rest);
         const { pid, started } = await startDaemon(io);
@@ -100,8 +109,14 @@ export async function run(argv: string[], io: Io): Promise<number> {
       }
       case "stop": {
         noArguments(command, rest);
-        const pid = await stopDaemon(io);
-        io.out(pid === null ? "The daemon is not running." : `Daemon stopped (pid ${pid}).`);
+        const { pid, stale } = await stopDaemon(io);
+        if (stale !== undefined) {
+          io.out(
+            `The daemon is not running. Its record named pid ${stale}, now another program's: left alone, record removed.`,
+          );
+        } else {
+          io.out(pid === null ? "The daemon is not running." : `Daemon stopped (pid ${pid}).`);
+        }
         return 0;
       }
       case "daemon":
@@ -160,7 +175,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
     }
   } catch (error) {
     if (error instanceof UsageError || isParseArgsError(error)) {
-      io.err(`grenier: ${(error as Error).message}\n\n${USAGE}`);
+      const own = command ? helpFor(command) : [];
+      const help = own.length > 0 ? `${own.join("\n")}\n\nEvery command: grenier --help` : USAGE;
+      io.err(`grenier: ${(error as Error).message}\n\n${help}`);
       return 2;
     }
     if (isReported(error)) {
@@ -169,6 +186,18 @@ export async function run(argv: string[], io: Io): Promise<number> {
     }
     throw error;
   }
+}
+
+/** The usage lines of one command: those that start with its name, and the lines that continue them. */
+function helpFor(command: string): string[] {
+  const lines: string[] = [];
+  let taking = false;
+  for (const line of USAGE.split("\n")) {
+    if (/^ {2}\S/.test(line)) taking = line.trimStart().split(/[\s,]/)[0] === command;
+    else if (!/^ {29}\S/.test(line)) taking = false;
+    if (taking) lines.push(line);
+  }
+  return lines;
 }
 
 function noArguments(command: string, rest: string[]): void {

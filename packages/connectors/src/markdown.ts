@@ -1,6 +1,6 @@
 import { type FSWatcher, readdirSync, readFileSync, statSync, watch } from "node:fs";
 import { basename, extname, join, relative, sep } from "node:path";
-import { ConnectorError, type Pull, type PulledItem } from "./source.ts";
+import { ConnectorError, type Failed, type Pull, type PulledItem } from "./source.ts";
 
 const EXTENSIONS = new Set([".md", ".markdown"]);
 
@@ -75,14 +75,19 @@ export async function pullMarkdown(config: Record<string, unknown>, state: Recor
   const seen = (state.files ?? {}) as Record<string, string>;
   const files: Record<string, string> = {};
   const items: PulledItem[] = [];
+  const failed: Failed[] = [];
   for (const path of walk(root)) {
-    const stat = statSync(join(root, path));
-    const stamp = `${Math.round(stat.mtimeMs)}:${stat.size}`;
-    files[path] = stamp;
-    if (seen[path] !== stamp) items.push(toItem(root, path));
+    try {
+      const stat = statSync(join(root, path));
+      const stamp = `${Math.round(stat.mtimeMs)}:${stat.size}`;
+      files[path] = stamp;
+      if (seen[path] !== stamp) items.push(toItem(root, path));
+    } catch (error) {
+      failed.push({ key: path, reason: (error as Error).message });
+    }
   }
-  const removed = Object.keys(seen).filter((path) => !(path in files));
-  return { items, removed, state: { files } };
+  const removed = Object.keys(seen).filter((path) => !(path in files) && !failed.some((entry) => entry.key === path));
+  return { items, removed, failed, state: { files } };
 }
 
 /** Calls `onChange` (at most every `delay` ms) whenever something changes in the folder. */

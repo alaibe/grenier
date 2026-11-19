@@ -1,7 +1,9 @@
-import { type ComponentProps, type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ComponentProps, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "./api.ts";
 
-export const money = (amount: number) => `$${amount.toFixed(2)}`;
+/** Dollars with cents, or with the two digits that matter below ten cents, as the CLI writes them. */
+export const money = (amount: number) =>
+  amount === 0 || Math.abs(amount) >= 0.1 ? `$${amount.toFixed(2)}` : `$${Number(amount.toPrecision(2))}`;
 export const count = (value: number) => value.toLocaleString("en");
 
 /** A count with its noun, as in "1 hit" or "3 hits". */
@@ -165,6 +167,56 @@ export function Button({
       className={`h-8 cursor-pointer rounded-md border font-medium whitespace-nowrap disabled:cursor-default disabled:opacity-55 ${look} ${square ? "w-9 text-xl leading-none" : "px-3.5"} ${className}`}
       {...props}
     />
+  );
+}
+
+/**
+ * A button for something that cannot be undone, asked twice in the page: the first click shows the question with Yes
+ * and Cancel. The window's own confirm() cannot be used: in the app it does not wait for an answer.
+ */
+export function ConfirmButton({
+  label,
+  question,
+  onConfirm,
+  disabled = false,
+}: {
+  label: string;
+  question: string;
+  onConfirm: () => void;
+  disabled?: boolean;
+}) {
+  const [asking, setAsking] = useState(false);
+  const yes = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (asking) yes.current?.focus();
+  }, [asking]);
+  if (!asking) {
+    return (
+      <Button quiet disabled={disabled} onClick={() => setAsking(true)}>
+        {label}
+      </Button>
+    );
+  }
+  return (
+    <fieldset className="inline-flex items-center gap-1.5">
+      <legend className="sr-only">{question}</legend>
+      <span className="text-sm text-muted" aria-hidden="true">
+        {question}
+      </span>
+      <Button
+        ref={yes}
+        disabled={disabled}
+        onClick={() => {
+          setAsking(false);
+          onConfirm();
+        }}
+      >
+        Yes, {label.toLowerCase()}
+      </Button>
+      <Button quiet onClick={() => setAsking(false)}>
+        Cancel
+      </Button>
+    </fieldset>
   );
 }
 

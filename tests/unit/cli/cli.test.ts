@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
 import { run } from "../../../apps/cli/src/cli.ts";
 import { ASKED_FIRST, agentArgs, asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
-import { daemonPid, pidFile } from "../../../apps/cli/src/daemon.ts";
+import { daemonState, infoFile, pidFile, stopDaemon } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
 let dir: string;
@@ -73,8 +73,21 @@ describe("grenier --version and help", () => {
       const result = await grenier(...argv);
       expect(result.code).toBe(2);
       expect(result.err).toMatch(/^grenier: /);
-      expect(result.err).toContain("Usage: grenier <command>");
     }
+    expect((await grenier("frobnicate")).err).toContain("Usage: grenier <command>");
+  });
+
+  it("shows only the mistaken command's own lines of help, and where the rest is", async () => {
+    const { err } = await grenier("budget", "set", "--daily", "lots");
+    expect(err.split("\n")).toEqual([
+      'grenier: --daily takes an amount in dollars, such as 10 or 2.5, or "off", not "lots"',
+      "",
+      "  budget                     Show the spending limits",
+      "  budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]",
+      '                             Set limits in dollars ("off" removes one)',
+      "",
+      "Every command: grenier --help",
+    ]);
   });
 });
 
@@ -88,7 +101,7 @@ describe("grenier status", () => {
     expect(result.out.split("\n")).toEqual([
       `grenier ${version}`,
       `config    ${join(home, "config.toml")} (not found, using defaults)`,
-      `database  ${join(home, "grenier.db")} (schema 10)`,
+      `database  ${join(home, "grenier.db")} (schema 11)`,
       "proxy     127.0.0.1:7788 → https://api.anthropic.com",
       "daemon    stopped",
     ]);
@@ -113,16 +126,41 @@ describe("grenier status", () => {
   });
 });
 
-describe("daemonPid", () => {
-  it("is null without a pid file, the pid of a live process, and null for a dead one or garbage", async () => {
-    expect(daemonPid(home)).toBeNull();
+describe("the daemon's identity", () => {
+  it("is stopped without a record, or with one naming a dead pid or garbage", async () => {
     await grenier("status");
-    writeFileSync(pidFile(home), `${process.pid}\n`);
-    expect(daemonPid(home)).toBe(process.pid);
+    expect(await daemonState(home, 7799)).toEqual({ state: "stopped" });
     writeFileSync(pidFile(home), "2147483646\n");
-    expect(daemonPid(home)).toBeNull();
+    expect(await daemonState(home, 7799)).toEqual({ state: "stopped" });
+    writeFileSync(infoFile(home), "not json");
     writeFileSync(pidFile(home), "not a pid\n");
-    expect(daemonPid(home)).toBeNull();
+    expect(await daemonState(home, 7799)).toEqual({ state: "stopped" });
+  });
+
+  it("never signals another program that reused the daemon's pid, and removes the stale record", async () => {
+    await grenier("status");
+    // Its command line names both words, as a log viewer's would: only the daemon's own ending counts.
+    const stranger = spawn(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 30000)", "/home/ada/.grenier/daemon.log", "grenier", "daemon", "--follow"],
+      { stdio: "ignore" },
+    );
+    try {
+      const pid = stranger.pid as number;
+      writeFileSync(infoFile(home), JSON.stringify({ pid, port: 7799, version: "0.0.0" }));
+      expect(await daemonState(home, 7799)).toEqual({ state: "stale", pid });
+      expect(await stopDaemon(io())).toEqual({ pid: null, stale: pid });
+      expect(stranger.exitCode).toBeNull();
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      expect(existsSync(infoFile(home))).toBe(false);
+
+      writeFileSync(pidFile(home), `${pid}\n`);
+      const out: string[] = [];
+      await run(["status"], io(out));
+      expect(out.join("\n")).toContain(`daemon    stopped (its record names pid ${pid}, now another program's)`);
+    } finally {
+      stranger.kill();
+    }
   });
 });
 

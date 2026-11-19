@@ -1,4 +1,4 @@
-import { redact } from "@grenier/core";
+import { redact, sha256 } from "@grenier/core";
 import type { Item, Source, Store } from "@grenier/store";
 import { CacheError, terms } from "./cache.ts";
 
@@ -6,7 +6,7 @@ import { CacheError, terms } from "./cache.ts";
 export interface Reader {
   id: string;
   name: string;
-  /** Source names, or kinds: "notes", "mail", "calendar", "memory". */
+  /** Source ids, or kinds: "notes", "mail", "calendar", "memory". A source's name is resolved to its id once. */
   scopes: readonly string[];
 }
 
@@ -19,9 +19,31 @@ const SOURCE_SCOPE: Record<Source["kind"], string> = {
 };
 export const SCOPE_KINDS = ["notes", "mail", "calendar", "memory"] as const;
 
-/** Whether a client's scope reaches this source: by the source's name, or by the kind of data it holds. */
-export function inScope(scopes: readonly string[], source: Pick<Source, "name" | "kind">): boolean {
-  return scopes.includes(source.name) || scopes.includes(SOURCE_SCOPE[source.kind]);
+/**
+ * Whether a client's scope reaches this source: by the source's id, or by the kind of data it holds. Never by name: a
+ * source added later under a removed one's name is another source.
+ */
+export function inScope(scopes: readonly string[], source: Pick<Source, "id" | "kind">): boolean {
+  return scopes.includes(source.id) || scopes.includes(SOURCE_SCOPE[source.kind]);
+}
+
+/**
+ * The id a client sees for an item: its source's id and a hash of the item's own id. The item's id holds a file's
+ * path or an event's UID, which whoever sent the invitation chose; neither leaves the daemon.
+ */
+export async function itemRef(item: Pick<Item, "id" | "sourceId">): Promise<string> {
+  return `${item.sourceId}:${(await sha256(item.id)).slice(0, 24)}`;
+}
+
+/** The item a ref names, among the sources given. */
+async function itemFor(deps: PersonalDeps, ref: string, sources: readonly Source[]): Promise<Item | undefined> {
+  const match = /^(.+):([0-9a-f]{24})$/.exec(ref);
+  const source = match && sources.find((candidate) => candidate.id === match[1]);
+  if (!match || !source) return undefined;
+  for (const id of await deps.store.items.ids(source.id)) {
+    if ((await sha256(id)).startsWith(match[2] as string)) return deps.store.items.get(id);
+  }
+  return undefined;
 }
 
 export interface PersonalDeps {
@@ -82,23 +104,26 @@ async function deliver(
   const names = new Map(sources.map((source) => [source.id, source.name]));
   return {
     notice: NOTICE,
-    items: found.map((item) => {
-      const source = names.get(item.sourceId) ?? item.sourceId;
-      const lines = [
-        `title: ${redact(item.title)}`,
-        ...(item.people.length > 0 ? [`people: ${redact(item.people.join(", "))}`] : []),
-        `date: ${new Date(item.ts).toISOString()}`,
-        "",
-        redact(item.body),
-      ];
-      return {
-        id: item.id,
-        source,
-        kind: item.kind,
-        ts: item.ts,
-        content: `<untrusted-data-${nonce} source="${source}" id="${item.id}">\n${lines.join("\n")}\n</untrusted-data-${nonce}>`,
-      };
-    }),
+    items: await Promise.all(
+      found.map(async (item) => {
+        const source = names.get(item.sourceId) ?? item.sourceId;
+        const ref = await itemRef(item);
+        const lines = [
+          `title: ${redact(item.title)}`,
+          ...(item.people.length > 0 ? [`people: ${redact(item.people.join(", "))}`] : []),
+          `date: ${new Date(item.ts).toISOString()}`,
+          "",
+          redact(item.body),
+        ];
+        return {
+          id: ref,
+          source,
+          kind: item.kind,
+          ts: item.ts,
+          content: `<untrusted-data-${nonce} source="${source}" id="${ref}">\n${lines.join("\n")}\n</untrusted-data-${nonce}>`,
+        };
+      }),
+    ),
   };
 }
 
@@ -122,8 +147,8 @@ export async function searchItems(
 /** get: one item, if the client may read its source. Out of scope and missing look the same. */
 export async function getItem(deps: PersonalDeps, reader: Reader, input: { id: string }): Promise<ReadResult> {
   const sources = await allowedSources(deps, reader);
-  const item = await deps.store.items.get(input.id);
-  const visible = item && sources.some((source) => source.id === item.sourceId) ? [item] : [];
+  const item = await itemFor(deps, input.id, sources);
+  const visible = item ? [item] : [];
   const result = await deliver(deps, reader, "get", { ...input }, visible, sources);
   if (visible.length === 0) throw new CacheError(`no item ${input.id} that this client may read`);
   return result;

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -89,8 +90,10 @@ describe("personal data through the built binary", () => {
     outsider = tokenFrom(await grenier("clients", "add", "coder"));
 
     const found = await call(reader, "search", { query: "Lisbon flights" });
-    expect(ids(found)).toEqual([expect.stringMatching(/:trip\.md$/)]);
+    expect(ids(found)).toEqual([expect.stringMatching(/^[\w-]+:[0-9a-f]{24}$/)]);
     const text = JSON.stringify(found);
+    expect(text).toContain("title: Lisbon trip");
+    expect(text).not.toContain("trip.md");
     expect(text).toContain("[phone removed]");
     expect(text).toMatch(/untrusted-data-[0-9a-f]{12}/);
     expect(ids(await call(reader, "people", { name: "marie" }))).toHaveLength(2);
@@ -100,7 +103,7 @@ describe("personal data through the built binary", () => {
   it("logs every read, per client", async () => {
     const log = await grenier("audit", "--client", "planner");
     expect(log).toMatch(/planner\s+people\s+\{"name":"marie"\} → 2 item\(s\)/);
-    expect(log).toMatch(/planner\s+search\s+\{"query":"Lisbon flights"\} → 1 item\(s\)/);
+    expect(log).toMatch(/planner\s+search\s+\{"query":"Lisbon flights"\} → 1 item\(s\): [\w-]+:trip\.md/);
     expect(await grenier("audit", "--client", "coder")).toMatch(/coder\s+search .* → 0 item\(s\)/);
   });
 
@@ -110,18 +113,19 @@ describe("personal data through the built binary", () => {
     expect(await grenier("review")).toContain("+ The user flies on Fridays.");
     expect(await grenier("review", "approve", proposed.id)).toContain("Approved");
     const memory = tokenFrom(await grenier("clients", "add", "assistant", "--scope", "memory"));
-    expect(ids(await call(memory, "search", { query: "flies Fridays" }))).toEqual([`memory:${proposed.id}`]);
+    const ref = createHash("sha256").update(`memory:${proposed.id}`).digest("hex").slice(0, 24);
+    expect(ids(await call(memory, "search", { query: "flies Fridays" }))).toEqual([`memory:${ref}`]);
   });
 
   it("picks up an edited note while the daemon watches the folder", async () => {
     await grenier("start");
     writeFileSync(join(notes, "garden.md"), "# Garden\n\nPlant the tulips in October.\n");
-    let found: string[] = [];
-    for (let tries = 0; tries < 40 && found.length === 0; tries++) {
+    let found = "";
+    for (let tries = 0; tries < 40 && !found.includes("tulips"); tries++) {
       await new Promise((resolve) => setTimeout(resolve, 250));
-      found = ids(await call(reader, "search", { query: "tulips" }));
+      found = JSON.stringify(await call(reader, "search", { query: "tulips" }));
     }
-    expect(found).toEqual([expect.stringMatching(/:garden\.md$/)]);
+    expect(found).toContain("title: Garden");
   }, 30_000);
 
   it("stops a revoked client at its next call", async () => {

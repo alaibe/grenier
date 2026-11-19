@@ -71,6 +71,13 @@
       "when": 1794996689488,
       "tag": "0009_share_error",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795107190809,
+      "tag": "0010_scopes_by_source_id",
+      "breakpoints": true
     }
   ]
 }

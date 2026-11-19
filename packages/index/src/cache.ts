@@ -100,6 +100,8 @@ export async function recordAnswer(
   const answer = input.answer.trim();
   if (question === "" || answer === "") throw new CacheError("question and answer must not be empty");
   if (question.length > MAX_QUESTION) throw new CacheError(`the question holds at most ${MAX_QUESTION} characters`);
+  const asked = unshareable(question);
+  if (asked) throw new CacheError(`the question is refused: ${asked}`);
   const problem = unshareable(answer);
   if (problem) throw new CacheError(`the answer is refused: ${problem}`);
   if (input.files.length === 0) throw new CacheError("list the files the answer was worked out from");
@@ -108,6 +110,7 @@ export async function recordAnswer(
   const hashes = await deps.files.hashes(repo.root, paths);
   const missing = paths.filter((path) => !hashes.get(path));
   if (missing.length > 0) throw new CacheError(`no such file: ${missing.join(", ")}`);
+  await checkCopies(deps, repo, "question", question, paths);
   await checkCopies(deps, repo, "answer", answer, paths);
 
   const id = newId();
@@ -134,7 +137,8 @@ export interface AskResult {
 }
 
 /**
- * ask_codebase: the best recorded answer to this question, by full-text and vector search fused by rank. A `hit`
+ * ask_codebase: the best recorded answer to this question, by full-text and vector search fused by rank; between
+ * answers ranked alike, the one whose question means the closest wins. A `hit`
  * while every source file still has its recorded blob hash, `stale` with the changed paths otherwise, `miss` when
  * nothing recorded is close enough.
  */
@@ -166,16 +170,14 @@ export async function askCodebase(
     if (query) {
       const scored = (await deps.store.answers.vectors(repo.id, deps.embedder.model))
         .map(({ id, vector }) => ({ id, similarity: cosine(query, vector) }))
-        .filter(({ similarity }) => similarity >= SIMILAR)
         .sort((a, b) => b.similarity - a.similarity);
-      for (const [rank, { id, similarity }] of scored.entries()) {
-        fuse(id, rank);
-        similarities.set(id, similarity);
-      }
+      for (const { id, similarity } of scored) similarities.set(id, similarity);
+      for (const [rank, { id }] of scored.filter(({ similarity }) => similarity >= SIMILAR).entries()) fuse(id, rank);
     }
   }
 
-  const best = [...candidates.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const closeness = (id: string) => similarities.get(id) ?? -1;
+  const best = [...candidates.entries()].sort((a, b) => b[1] - a[1] || closeness(b[0]) - closeness(a[0]))[0]?.[0];
   const answer = best ? await deps.store.answers.get(best) : undefined;
   if (!answer) return { status: "miss", sources: [], changed: [] };
 

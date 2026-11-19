@@ -20,9 +20,13 @@ export interface TokenCounts {
   speed?: string;
 }
 
-/** The price entry for a model id: the exact id, else the id without a trailing date, else null. */
+/**
+ * The price entry for a model id: the exact id, else the id without a trailing variant such as `[1m]` or a trailing
+ * date, else null.
+ */
 export function priceOf(model: string, prices: Prices): ModelPrice | null {
-  return prices[model] ?? prices[model.replace(/-\d{8}$/, "")] ?? null;
+  const base = model.replace(/\[[^\]]*\]$/, "");
+  return prices[model] ?? prices[base] ?? prices[base.replace(/-\d{8}$/, "")] ?? null;
 }
 
 /** What a response cost in USD, or null for a model with no price. */

@@ -9,6 +9,7 @@ upstream_anthropic = "https://api.anthropic.com"
 [budgets]
 daily = 10
 session = 3
+unpriced = "allow"
 
 [guards]
 loop_repeat_threshold = 3
@@ -43,7 +44,7 @@ describe("defaultConfig", () => {
         upstream_openai: "https://api.openai.com",
         inject_cache_control: false,
       },
-      budgets: {},
+      budgets: { unpriced: "block" },
       guards: { loop_repeat_threshold: 3, loop_window: 10, on_loop: "notify", pause_timeout: 600 },
       cache: { embeddings: "local", share_with_team: false },
       team: { url: "", token_env: "GRENIER_TEAM_TOKEN", sync_interval: 20 },
@@ -57,7 +58,7 @@ describe("defaultConfig", () => {
 describe("parseConfig", () => {
   it("reads a full example config", () => {
     const config = parseConfig(EXAMPLE, "config.toml");
-    expect(config.budgets).toEqual({ daily: 10, session: 3 });
+    expect(config.budgets).toEqual({ daily: 10, session: 3, unpriced: "allow" });
     expect(config.guards.on_loop).toBe("notify");
   });
 

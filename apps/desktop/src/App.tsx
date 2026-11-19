@@ -11,7 +11,9 @@ import { Sources } from "./views/Sources.tsx";
 import { Traces } from "./views/Traces.tsx";
 
 export interface ViewProps {
-  go: (view: ViewName) => void;
+  /** Shows another view; `focus` names what to show first in it, as a session for Traces. */
+  go: (view: ViewName, focus?: string) => void;
+  focus?: string;
   /** Tells the shell that something it shows (the review count) may have changed. */
   changed: () => void;
 }
@@ -33,9 +35,11 @@ const loadOverview = () => api<Overview>("/overview");
 
 export function App() {
   const [current, setCurrent] = useState<ViewName>("dashboard");
+  const [focus, setFocus] = useState<string | undefined>();
   const overview = useLoad(loadOverview);
-  const go = (name: ViewName) => {
+  const go = (name: ViewName, next?: string) => {
     setCurrent(name);
+    setFocus(next);
     overview.reload();
   };
   const View = VIEWS[current].view;
@@ -71,7 +75,7 @@ export function App() {
       </nav>
       <main className="px-8 pt-7 pb-12 max-md:px-5 max-md:pt-5.5 max-md:pb-10">
         <div className={current === "traces" ? "max-w-320" : "max-w-220"}>
-          <View key={current} go={go} changed={overview.reload} />
+          <View key={`${current}:${focus ?? ""}`} go={go} changed={overview.reload} {...(focus ? { focus } : {})} />
         </div>
       </main>
     </div>

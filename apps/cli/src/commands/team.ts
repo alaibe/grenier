@@ -5,11 +5,13 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { repoId, repoRoot } from "@grenier/connectors/git";
+import { money } from "@grenier/core";
 import { syncOnce, type TeamBudget, type TeamClient, TeamError, teamApi } from "@grenier/index";
 import { cacheSavingsOf, loadPrices } from "@grenier/log";
 import { embedderLoader } from "../exploration.ts";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
-import { newTeamToken, saveTeam, teamClient } from "../team.ts";
+import { newTeamToken, saveTeam, saveToken, teamClient } from "../team.ts";
+import { deviceId } from "./vault.ts";
 
 /** The Wrangler that `grenier team deploy` runs, pinned like every other dependency. */
 export const WRANGLER_VERSION = "4.159.0";
@@ -54,12 +56,16 @@ function needTeam(io: Io, fetchImpl?: typeof fetch): TeamClient {
   return fetchImpl ? { ...team, fetch: fetchImpl } : team;
 }
 
+function teamProblem(team: TeamClient, error: unknown): CommandError {
+  if (error instanceof TeamError) return new CommandError(error.message);
+  return new CommandError(`cannot reach the team server at ${team.url}: ${(error as Error).message}`);
+}
+
 async function call<T>(team: TeamClient, path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   try {
     return await teamApi<T>(team, path, init);
   } catch (error) {
-    if (error instanceof TeamError) throw new CommandError(error.message);
-    throw new CommandError(`cannot reach the team server at ${team.url}: ${(error as Error).message}`);
+    throw teamProblem(team, error);
   }
 }
 
@@ -282,7 +288,7 @@ export async function team(argv: string[], io: Io, dependencies: TeamDependencie
       if (Object.keys(change).length > 0) await call(client, "/api/budget", { method: "PUT", body: change });
       const budget = await call<TeamBudget>(client, "/api/budget");
       const line = (label: string, entry: { limit: number | null; spent: number }) =>
-        `${label.padEnd(8)}$${entry.spent.toFixed(2)} spent today (UTC), ${entry.limit === null ? "no limit" : `limit $${entry.limit.toFixed(2)}`}`;
+        `${label.padEnd(8)}${money(entry.spent)} spent today (UTC), ${entry.limit === null ? "no limit" : `limit ${money(entry.limit)}`}`;
       return [line("team", budget.team), line("you", budget.member)];
     }
 
@@ -298,6 +304,7 @@ export async function team(argv: string[], io: Io, dependencies: TeamDependencie
             team: client,
             savedOf: (row) => cacheSavingsOf(row.model, row.cacheReadTokens ?? 0, prices),
             shareAll: config.cache.share_with_team,
+            device: await deviceId(store),
           });
           await store.team.set("last_sync", String(Date.now()));
           return done;
@@ -312,7 +319,32 @@ export async function team(argv: string[], io: Io, dependencies: TeamDependencie
       ];
     }
 
+    case "rotate": {
+      if (rest.length > 0) throw new UsageError("team rotate takes no arguments");
+      const { paths, config } = environment(io);
+      const client = needTeam(io, dependencies.fetch);
+      let token: string;
+      try {
+        ({ token } = await teamApi<{ token: string }>(client, "/api/me/rotate", { method: "POST" }));
+      } catch (error) {
+        if (error instanceof TeamError && error.status === 404) {
+          throw new CommandError(
+            "this team server is too old to rotate tokens: an admin updates it with grenier team deploy",
+          );
+        }
+        throw teamProblem(client, error);
+      }
+      if (io.env[config.team.token_env]) {
+        return [
+          `The new team token, shown once: ${token}`,
+          `Put it in ${config.team.token_env}; the old one no longer works.`,
+        ];
+      }
+      saveToken(paths, token);
+      return ["This machine has a new team token; the old one no longer works."];
+    }
+
     default:
-      throw new UsageError("team takes: deploy, join, invite, share, unshare, status, budget or sync");
+      throw new UsageError("team takes: deploy, join, invite, share, unshare, status, budget, sync or rotate");
   }
 }

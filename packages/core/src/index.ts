@@ -16,11 +16,16 @@ export {
   effectiveLimits,
   firstBreach,
   LoopDetector,
+  limitsNear,
   MAX_CODE_LINES,
   MAX_QUESTION,
   MAX_SHARED_TEXT,
+  money,
   redact,
   sha256,
+  unpricedMessage,
   unshareable,
+  WARN_AT,
+  warningMessage,
 } from "./policy.ts";
 export { newVaultKey, open, seal, VaultError } from "./vault.ts";

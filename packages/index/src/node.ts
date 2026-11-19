@@ -52,8 +52,10 @@ export async function loadLocalEmbedder(
       bytes = new Uint8Array(await response.arrayBuffer());
       const actual = sha256(bytes);
       if (actual !== expected) throw new Error(`${url} has SHA-256 ${actual}, expected ${expected}`);
-      writeFileSync(`${path}.partial`, bytes, { mode: 0o600 });
-      renameSync(`${path}.partial`, path);
+      // Each process writes its own partial file: two downloading at once must not rename one under the other.
+      const partial = `${path}.${process.pid}.partial`;
+      writeFileSync(partial, bytes, { mode: 0o600 });
+      renameSync(partial, path);
     }
     files[name] = bytes;
   }

@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { syncSources } from "@grenier/connectors";
-import { addClient, approveMemory, SCOPE_KINDS } from "@grenier/index";
+import { commandWords, localPath, syncSources } from "@grenier/connectors";
+import { addClient, approveMemory, SCOPE_KINDS, scopeNames } from "@grenier/index";
 import { parseSince } from "@grenier/log";
 import type { Source } from "@grenier/store";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
 
 function passwordConfig(values: { "password-command"?: string; "password-env"?: string }): Record<string, unknown> {
-  if (values["password-command"]) return { password_command: values["password-command"].split(" ").filter(Boolean) };
+  if (values["password-command"]) return { password_command: commandWords(values["password-command"]) };
   if (values["password-env"]) return { password_env: values["password-env"] };
   throw new UsageError('give --password-command "<command printing the password>" or --password-env <VAR>');
 }
@@ -29,12 +28,12 @@ export async function sources(argv: string[], io: Io): Promise<string[]> {
     let source: { kind: Source["kind"]; config: Record<string, unknown> };
     switch (kind) {
       case "markdown":
-        source = { kind: "markdown", config: { path: resolve(io.cwd, where) } };
+        source = { kind: "markdown", config: { path: localPath(where, io.cwd) } };
         break;
       case "ics":
         source = {
           kind: "ics",
-          config: /^https?:\/\//.test(where) ? { url: where } : { path: resolve(io.cwd, where) },
+          config: /^https?:\/\//.test(where) ? { url: where } : { path: localPath(where, io.cwd) },
         };
         break;
       case "caldav": {
@@ -157,11 +156,6 @@ export async function clients(argv: string[], io: Io): Promise<string[]> {
       .map((scope) => scope.trim())
       .filter(Boolean);
     return withStore(paths, async (store) => {
-      const known = new Set([...SCOPE_KINDS, ...(await store.sources.list()).map((source) => source.name)]);
-      const unknown = scopes.filter((scope) => !known.has(scope));
-      if (unknown.length > 0) {
-        throw new CommandError(`unknown scope ${unknown.join(", ")}: use ${[...known].join(", ")}`);
-      }
       let token: string;
       try {
         token = await addClient(store, name, scopes);
@@ -187,14 +181,15 @@ export async function clients(argv: string[], io: Io): Promise<string[]> {
   }
 
   if (action === "list") {
-    return withStore(paths, async (store) =>
-      (await store.clients.list())
+    return withStore(paths, async (store) => {
+      const sources = await store.sources.list();
+      return (await store.clients.list())
         .filter((client) => client.revokedAt === null)
-        .map(
-          (client) =>
-            `${client.name.padEnd(24)}${client.scopes.length > 0 ? client.scopes.join(", ") : "(no personal data)"}`,
-        ),
-    );
+        .map((client) => {
+          const names = scopeNames(client.scopes, sources);
+          return `${client.name.padEnd(24)}${names.length > 0 ? names.join(", ") : "(no personal data)"}`;
+        });
+    });
   }
 
   throw new UsageError("clients takes: add <name> --scope <…>, list or revoke <name>");

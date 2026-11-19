@@ -40,7 +40,7 @@ export async function ask(argv: string[], io: Io): Promise<string> {
     const repo = await repoResolver(io.cwd)(values.repo);
     const embedder = await embedderLoader(config, paths, io.err)();
     const result = await withStore(paths, (store) =>
-      askCodebase({ store, embedder, files: gitFiles }, repo, { question }),
+      askCodebase({ store, embedder, files: gitFiles }, repo, { question, count: false }),
     );
     return values.json ? JSON.stringify(result, null, 2) : asText(result);
   } catch (error) {

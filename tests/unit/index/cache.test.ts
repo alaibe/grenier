@@ -150,6 +150,22 @@ describe("record_answer and ask_codebase", () => {
     expect((await askCodebase(deps(embedder), repo, { question: "budgets checked where" })).id).toBe(id);
   });
 
+  it("prefers a close vector match to a loose word match, and says how close it is", async () => {
+    const query = "Which file holds the stream proxy settings?";
+    const loose = "Stream proxy settings: which file is generated?";
+    const close = "Where is relaying configured?";
+    const embedder = new TableEmbedder({ [query]: [1, 0, 0], [close]: [0.95, 0.1, 0], [loose]: [0, 0, 1] });
+    await recordAnswer(deps(embedder), repo, { question: loose, answer: "In config.", files: ["src/proxy.ts"] });
+    const { id } = await recordAnswer(deps(embedder), repo, {
+      question: close,
+      answer: "src/budget.ts sets it up.",
+      files: ["src/budget.ts"],
+    });
+    const result = await askCodebase(deps(embedder), repo, { question: query });
+    expect(result.id).toBe(id);
+    expect(result.similarity).toBeGreaterThan(0.9);
+  });
+
   it("replaces an earlier answer to the same question", async () => {
     await recordAnswer(deps(), repo, { question: STREAM_Q, answer: "old", files: ["src/proxy.ts"] });
     await recordAnswer(deps(), repo, {
@@ -181,6 +197,9 @@ describe("record_answer and ask_codebase", () => {
       "it may quote at most 10 lines of code",
     );
     await expect(record("q".repeat(2001), STREAM_A)).rejects.toThrow("the question holds at most 2000 characters");
+    await expect(record(`Why does this fail?\n\`\`\`ts\n${"line\n".repeat(11)}\`\`\``, STREAM_A)).rejects.toThrow(
+      "the question is refused: it may quote at most 10 lines of code",
+    );
     expect(await store.answers.stats()).toEqual([]);
   });
 
@@ -191,6 +210,13 @@ describe("record_answer and ask_codebase", () => {
     await expect(
       recordAnswer(deps(), repo, { question: "What does long.ts do?", answer: copied, files: ["src/long.ts"] }),
     ).rejects.toThrow("the answer is refused: it copies 12 lines of src/long.ts");
+    await expect(
+      recordAnswer(deps(), repo, {
+        question: `Why is this slow?\n${copied}`,
+        answer: "It is not.",
+        files: ["src/long.ts"],
+      }),
+    ).rejects.toThrow("the question is refused: it copies 12 lines of src/long.ts");
     await expect(recordSummary(deps(), repo, { path: "src/long.ts", summary: copied })).rejects.toThrow(
       "the summary is refused: it copies 12 lines of src/long.ts",
     );

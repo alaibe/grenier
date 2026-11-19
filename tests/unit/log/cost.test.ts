@@ -23,6 +23,7 @@ describe("loadPrices", () => {
 describe("priceOf", () => {
   it("finds a dated id by its undated name, and nothing for an unknown model", () => {
     expect(priceOf("claude-opus-5-5-20260101", prices)).toBe(prices["claude-opus-5-5"]);
+    expect(priceOf("claude-opus-5-5[1m]", prices)).toBe(prices["claude-opus-5-5"]);
     expect(priceOf("gpt-x", prices)).toBeNull();
   });
 });

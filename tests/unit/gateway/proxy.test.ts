@@ -182,6 +182,55 @@ describe("usage", () => {
     ]);
   });
 
+  it("records what a stream reported when the upstream fails before the end", async () => {
+    const half = STREAM.slice(0, new TextDecoder().decode(STREAM).indexOf("event: content_block_delta"));
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        if (pulls === 1) controller.enqueue(half);
+        else controller.error(new Error("connection reset"));
+      },
+    });
+    gateway = testGateway(fakeUpstream(() => sse(body as unknown as Uint8Array)));
+
+    const response = await gateway.request("/s/s1/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+    await response.arrayBuffer().catch(() => undefined);
+
+    expect(await gateway.store.usage.list()).toMatchObject([{ inputTokens: 12, cacheReadTokens: 30000 }]);
+  });
+
+  it("answers 502 in the API's own shape when the upstream cannot be reached", async () => {
+    gateway = testGateway({
+      requests: [],
+      fetch: (async () => {
+        throw new TypeError("fetch failed");
+      }) as typeof fetch,
+    });
+
+    const response = await gateway.request("/s/s1/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ type: "error", error: { type: "api_error" } });
+  });
+
+  it("still answers when the usage row cannot be written, and logs why", async () => {
+    const lines: string[] = [];
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      () => {},
+      { log: (line) => lines.push(line) },
+    );
+    gateway.store.usage.add = async () => {
+      throw new Error("disk full");
+    };
+
+    const response = await gateway.request("/s/s1/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+
+    expect(await bytes(response)).toEqual(STREAM);
+    expect(lines.join("\n")).toContain("disk full");
+  });
+
   it("never stores the API key or the authorization header", async () => {
     gateway = testGateway(fakeUpstream(() => sse(STREAM)));
     await (

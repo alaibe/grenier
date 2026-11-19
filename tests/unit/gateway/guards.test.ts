@@ -130,6 +130,97 @@ describe("budgets", () => {
     expect((await send("/s/s2/v1/messages")).status).toBe(200);
   });
 
+  it("counts requests still in flight against a limit", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    gateway = testGateway(
+      fakeUpstream(async () => {
+        calls += 1;
+        if (calls > 1) await gate;
+        return sse(STREAM);
+      }),
+      (config) => {
+        config.budgets.session = 0.05;
+      },
+    );
+    expect((await send("/s/s1/v1/messages")).status).toBe(200);
+
+    const pending = Array.from({ length: 5 }, () => send("/s/s1/v1/messages"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    const statuses = (await Promise.all(pending)).map((response) => response.status);
+
+    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+    expect(await gateway.store.usage.spend({ sessionId: "s1" })).toBeLessThanOrEqual(0.05);
+  });
+
+  it("stops a request to a model with no price while a limit applies, unless told to allow it", async () => {
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      (config) => {
+        config.budgets.daily = 10;
+      },
+    );
+    const refused = await send("/s/s1/v1/messages", { model: "mystery-model" });
+    expect(refused.status).toBe(429);
+    expect(JSON.parse(refused.text).error.message).toContain("mystery-model has no price");
+    expect((await send("/s/s1/v1/messages", { model: "claude-opus-5-5-20260101" })).status).toBe(200);
+    await gateway.store.close();
+
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      (config) => {
+        config.budgets.daily = 10;
+        config.budgets.unpriced = "allow";
+      },
+    );
+    expect((await send("/s/s1/v1/messages", { model: "mystery-model" })).status).toBe(200);
+    expect((await send("/s/s1/v1/messages", { model: "mystery-model" })).status).toBe(200);
+    expect(gateway.notifications.filter((line) => line.includes("mystery-model"))).toHaveLength(1);
+  });
+
+  it("lets a model with no price through when no limit applies, and says once that it counts as $0", async () => {
+    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
+    expect((await send("/s/s1/v1/messages", { model: "mystery-model" })).status).toBe(200);
+    expect((await send("/s/s2/v1/messages", { model: "mystery-model" })).status).toBe(200);
+    expect(gateway.notifications.filter((line) => line.includes("mystery-model"))).toHaveLength(1);
+    expect(await gateway.store.events.list({ kind: "unpriced" })).toHaveLength(1);
+  });
+
+  it("warns once when today's spending passes 80% of a limit", async () => {
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      (config) => {
+        config.budgets.daily = 1;
+      },
+    );
+    await spend("earlier", 0.85);
+
+    expect((await send("/s/s1/v1/messages")).status).toBe(200);
+    expect((await send("/s/s1/v1/messages")).status).toBe(200);
+
+    expect(gateway.notifications.filter((line) => line.includes("80%"))).toEqual([
+      "Grenier: 80% of a budget: $0.85 of the daily budget of $1.00 is spent.",
+    ]);
+    expect(await gateway.store.events.list({ kind: "budget_warning" })).toHaveLength(1);
+  });
+
+  it("writes small amounts with the digits that matter", async () => {
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      (config) => {
+        config.budgets.daily = 0.004;
+      },
+    );
+    await spend("earlier", 0.0049);
+    expect(JSON.parse((await send("/s/s1/v1/messages")).text).error.message).toContain(
+      "the daily budget of $0.004 is reached ($0.0049 spent)",
+    );
+  });
+
   it("does not hold back requests other than inference", async () => {
     const upstream = fakeUpstream(() => Response.json({ input_tokens: 10 }));
     gateway = testGateway(upstream, (config) => {
@@ -199,6 +290,94 @@ describe("loops", () => {
     expect(JSON.parse(event?.detail ?? "{}").tool).toBe("error");
   });
 
+  it("tells errors at other lines apart, and keeps a conversation whose cache marker moved", async () => {
+    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
+    const test = { command: "pnpm tsc" };
+    const first = (marked: boolean) => ({
+      role: "user",
+      content: [{ type: "text", text: "fix the types", ...(marked ? { cache_control: { type: "ephemeral" } } : {}) }],
+    });
+    const turns = [
+      [toolUse("b1", test), toolResult("b1", "src/a.ts:12:5 error")],
+      [toolUse("b2", test), toolResult("b2", "src/a.ts:40:9 error")],
+      [toolUse("b3", test), toolResult("b3", "src/a.ts:77:2 error")],
+    ];
+    const messages: unknown[] = [];
+    for (const [index, turn] of turns.entries()) {
+      messages.push(...turn);
+      await send("/s/s1/v1/messages", { model: "claude-opus-5-5", messages: [first(index % 2 === 0), ...messages] });
+    }
+    expect(await gateway.store.events.list({ kind: "loop" })).toEqual([]);
+
+    const same = [
+      [toolUse("c1", test), toolResult("c1", "src/a.ts:12:5 error")],
+      [toolUse("c2", test), toolResult("c2", "src/a.ts:12:5 error")],
+    ];
+    for (const [index, turn] of same.entries()) {
+      messages.push(...turn);
+      await send("/s/s1/v1/messages", { model: "claude-opus-5-5", messages: [first(index % 2 === 1), ...messages] });
+    }
+    expect(await gateway.store.events.list({ kind: "loop" })).toHaveLength(1);
+  });
+
+  it("does not count a call run again while its result changes, as in an edit and test cycle", async () => {
+    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
+    const test = { command: "pnpm test" };
+    await conversation("/s/s1/v1/messages", [
+      [toolUse("e1", { file_path: "a.ts", new_string: "1" }, "Edit"), toolResult("e1", "ok")],
+      [toolUse("b1", test), toolResult("b1", "3 failing")],
+      [toolUse("e2", { file_path: "a.ts", new_string: "2" }, "Edit"), toolResult("e2", "ok")],
+      [toolUse("b2", test), toolResult("b2", "1 failing")],
+      [toolUse("e3", { file_path: "a.ts", new_string: "3" }, "Edit"), toolResult("e3", "ok")],
+      [toolUse("b3", test), toolResult("b3", "all pass")],
+    ]);
+    expect(await gateway.store.events.list({ kind: "loop" })).toEqual([]);
+  });
+
+  it("counts a call whose result differs only in its timings", async () => {
+    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
+    const test = { command: "pnpm test" };
+    await conversation("/s/s1/v1/messages", [
+      [toolUse("b1", test), toolResult("b1", "1 failing\nDuration 1.03s (start at 14:02:11)")],
+      [toolUse("b2", test), toolResult("b2", "1 failing\nDuration 980ms (start at 14:02:40)")],
+      [toolUse("b3", test), toolResult("b3", "1 failing\nDuration 1.2 s (start at 14:03:05)")],
+    ]);
+    expect(await gateway.store.events.list({ kind: "loop" })).toHaveLength(1);
+  });
+
+  it("watches each conversation of a session apart, as parallel subagents", async () => {
+    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
+    const read = (id: string) => [toolUse(id, { file_path: "README.md" }, "Read"), toolResult(id, "# Demo")];
+    for (const [task, id] of [
+      ["find the budgets", "a1"],
+      ["find the loops", "b1"],
+      ["find the cache", "c1"],
+    ] as const) {
+      await send("/s/s1/v1/messages", {
+        model: "claude-opus-5-5",
+        messages: [{ role: "user", content: task }, ...read(id)],
+      });
+    }
+    expect(await gateway.store.events.list({ kind: "loop" })).toEqual([]);
+  });
+
+  it("only notifies for a loop in untagged requests, since pausing them would hold every client", async () => {
+    gateway = testGateway(
+      fakeUpstream(() => sse(STREAM)),
+      (config) => {
+        config.guards.on_loop = "pause";
+      },
+    );
+    const statuses = await conversation("/v1/messages", [
+      [toolUse("t1", { command: "x" }), toolResult("t1", "same")],
+      [toolUse("t2", { command: "x" }), toolResult("t2", "same")],
+      [toolUse("t3", { command: "x" }), toolResult("t3", "same")],
+    ]);
+    expect(statuses).toEqual([200, 200, 200]);
+    expect((await gateway.store.sessions.get("untagged"))?.paused).toBe(false);
+    expect(gateway.notifications[0]).toContain("possible loop");
+  });
+
   it("does not count calls that differ", async () => {
     gateway = testGateway(fakeUpstream(() => sse(STREAM)));
     await conversation("/s/s1/v1/messages", [
@@ -247,6 +426,16 @@ describe("loops", () => {
     expect((await held).status).toBe(200);
     expect(upstream.requests.length).toBe(before + 1);
     expect((await gateway.store.events.list({ kind: "pause" })).length).toBe(1);
+
+    const more = ["t4", "t5", "t6"].flatMap((id) => [toolUse(id, { command: "x" }), toolResult(id, "same")]);
+    messages.push(...more.slice(0, 4));
+    expect((await send("/s/s1/v1/messages", { messages })).status).toBe(200);
+    messages.push(...more.slice(4));
+    void send("/s/s1/v1/messages", { messages });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((await gateway.store.sessions.get("s1"))?.paused).toBe(true);
+    expect((await gateway.store.events.list({ kind: "pause" })).length).toBe(2);
+    await gateway.store.sessions.setPaused("s1", false);
   });
 
   it("answers a held request with an error once the pause outlasts its timeout", async () => {

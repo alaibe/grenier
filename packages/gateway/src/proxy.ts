@@ -1,5 +1,15 @@
-import { type BudgetLimit, budgetMessage, type Config, effectiveLimits, firstBreach } from "@grenier/core";
-import { costOf, type Prices, projectOf, startOfToday } from "@grenier/log";
+import {
+  type BudgetLimit,
+  budgetMessage,
+  type Config,
+  effectiveLimits,
+  firstBreach,
+  limitsNear,
+  unpricedMessage,
+  WARN_AT,
+  warningMessage,
+} from "@grenier/core";
+import { costOf, type Prices, priceOf, projectOf, startOfToday } from "@grenier/log";
 import type { Session, Store } from "@grenier/store";
 import { LoopWatch, type ToolCall, type ToolUse } from "./loops.ts";
 import { OpenAIUsageReader } from "./openai.ts";
@@ -37,6 +47,13 @@ export interface ProxyOptions {
 }
 
 const TEAM_BUDGET_TTL = 15_000;
+
+/** What a request let through is expected to cost, held against the limits until its usage row is written. */
+interface Reservation {
+  sessionId: string;
+  project: string | null;
+  amount: number;
+}
 
 // Hop-by-hop headers (RFC 9110 §7.6.1) and the ones fetch sets itself.
 const DROPPED_REQUEST_HEADERS = new Set([
@@ -94,7 +111,7 @@ export function createProxy(options: ProxyOptions) {
       await store.events.add({ sessionId: session.id, ts: now(), kind: "loop", detail: JSON.stringify(detail) });
       const what = call.tool === "error" ? "The same tool error" : `The same ${call.tool} call`;
       const repeated = `${what} came ${config.guards.loop_repeat_threshold} times in the last ${config.guards.loop_window} tool calls`;
-      if (config.guards.on_loop === "pause") {
+      if (config.guards.on_loop === "pause" && session.id !== UNTAGGED) {
         await store.sessions.setPaused(session.id, true);
         await store.events.add({ sessionId: session.id, ts: now(), kind: "pause", detail: JSON.stringify(detail) });
         notify("Grenier paused a session", `${repeated}. Run: grenier resume ${session.id}`);
@@ -130,7 +147,110 @@ export function createProxy(options: ProxyOptions) {
     return true;
   }
 
-  let teamStatus: { at: number; value: Awaited<ReturnType<NonNullable<ProxyOptions["teamBudget"]>>> } | undefined;
+  const reservations = new Set<Reservation>();
+  const warned = new Set<string>();
+  const unpricedSeen = new Set<string>();
+  // Budget checks and usage writes run one at a time, so requests in flight are always counted.
+  let queue: Promise<unknown> = Promise.resolve();
+  function serial<T>(task: () => Promise<T>): Promise<T> {
+    const run = queue.then(task, task);
+    queue = run.catch(() => undefined);
+    return run;
+  }
+
+  function reserved(limit: BudgetLimit, session: Session, project: string | null): number {
+    let total = 0;
+    for (const reservation of reservations) {
+      if (
+        limit.scope === "daily" ||
+        (limit.scope === "session" && reservation.sessionId === session.id) ||
+        (limit.scope === "repo" && reservation.project === project)
+      ) {
+        total += reservation.amount;
+      }
+    }
+    return total;
+  }
+
+  async function warnNear(session: Session, limits: readonly BudgetLimit[], spent: (limit: BudgetLimit) => number) {
+    const day = startOfToday(now());
+    for (const near of limitsNear(limits, spent, WARN_AT)) {
+      const key = `${near.scope}:${near.scope === "session" ? session.id : near.key}:${day}`;
+      if (warned.has(key)) continue;
+      warned.add(key);
+      await store.events.add({
+        sessionId: session.id,
+        ts: now(),
+        kind: "budget_warning",
+        detail: JSON.stringify(near),
+      });
+      notify("Grenier: 80% of a budget", warningMessage(near));
+    }
+  }
+
+  /** Says once, ever, that a model has no price, so its requests count as $0. */
+  async function sawUnpriced(session: Session, model: string) {
+    if (unpricedSeen.has(model)) return;
+    unpricedSeen.add(model);
+    const earlier = await store.events.list({ kind: "unpriced" });
+    if (earlier.some((event) => event.detail === JSON.stringify({ model }))) return;
+    await store.events.add({ sessionId: session.id, ts: now(), kind: "unpriced", detail: JSON.stringify({ model }) });
+    notify("Grenier: a model with no price", `${model} has no price in prices.toml: its requests count as $0.`);
+  }
+
+  type Admission = { refused: Response; reservation?: undefined } | { refused?: undefined; reservation: Reservation };
+
+  /**
+   * Lets a request through with a reservation of what it is expected to cost (the session's last request that cost
+   * something), or refuses it: a limit is reached, the request would pass one, or its model has no price.
+   */
+  function admit(session: Session, model: string | null, next: number): Promise<Admission> {
+    return serial(async () => {
+      const project = projectOf(session);
+      const limits = effectiveLimits(config.budgets, await store.budgets.list(), project);
+      const today = startOfToday(now());
+      const stored = new Map<string, number>();
+      for (const limit of limits) {
+        if (limit.scope === "daily") stored.set("daily", await store.usage.spend({ since: today }));
+        if (limit.scope === "session") stored.set("session", await store.usage.spend({ sessionId: session.id }));
+        if (limit.scope === "repo") {
+          const folders = (await store.usage.spendByFolder(today)).filter((folder) => projectOf(folder) === project);
+          stored.set(
+            "repo",
+            folders.reduce((total, folder) => total + folder.spent, 0),
+          );
+        }
+      }
+      const spent = (limit: BudgetLimit) => (stored.get(limit.scope) ?? 0) + reserved(limit, session, project);
+      const breach = firstBreach(limits, spent, next);
+      if (breach) return { refused: await refuse(session, breach, budgetMessage(breach)) };
+      const unpriced = model !== null && priceOf(model, prices) === null;
+      const first = limits[0] ?? teamLimits(teamStatus?.value)[0];
+      if (unpriced && first && config.budgets.unpriced === "block") {
+        return { refused: await refuse(session, { ...first, model, unpriced: true }, unpricedMessage(model, first)) };
+      }
+      if (unpriced) await sawUnpriced(session, model);
+      await warnNear(session, limits, spent);
+      const reservation = { sessionId: session.id, project, amount: next };
+      reservations.add(reservation);
+      return { reservation };
+    });
+  }
+
+  async function refuse(session: Session, detail: unknown, message: string): Promise<Response> {
+    await store.events.add({ sessionId: session.id, ts: now(), kind: "budget", detail: JSON.stringify(detail) });
+    return errorResponse(429, "rate_limit_error", message);
+  }
+
+  type TeamStatus = Awaited<ReturnType<NonNullable<ProxyOptions["teamBudget"]>>>;
+  function teamLimits(status: TeamStatus | undefined): BudgetLimit[] {
+    const limits: BudgetLimit[] = [];
+    if (status?.team.limit != null) limits.push({ scope: "team", key: "", limit: status.team.limit });
+    if (status?.member.limit != null) limits.push({ scope: "member", key: "", limit: status.member.limit });
+    return limits;
+  }
+
+  let teamStatus: { at: number; value: TeamStatus } | undefined;
   async function teamBreach(next: number) {
     if (!options.teamBudget) return null;
     if (!teamStatus || now() - teamStatus.at > TEAM_BUDGET_TTL) {
@@ -139,33 +259,8 @@ export function createProxy(options: ProxyOptions) {
     }
     const status = teamStatus.value;
     if (!status) return null;
-    const limits: BudgetLimit[] = [];
-    if (status.team.limit !== null) limits.push({ scope: "team", key: "", limit: status.team.limit });
-    if (status.member.limit !== null) limits.push({ scope: "member", key: "", limit: status.member.limit });
-    return firstBreach(limits, (limit) => (limit.scope === "team" ? status.team.spent : status.member.spent), next);
-  }
-
-  /** The first limit reached, or that the next request would pass if it cost what the session's last one did. */
-  async function budgetBreach(session: Session) {
-    const stored = await store.budgets.list();
-    const project = projectOf(session);
-    const limits = effectiveLimits(config.budgets, stored, project);
-    const next = (await store.usage.lastCost(session.id)) ?? 0;
-    if (limits.length === 0) return teamBreach(next);
-    const today = startOfToday(now());
-    const spent = new Map<string, number>();
-    for (const limit of limits) {
-      if (limit.scope === "daily") spent.set("daily", await store.usage.spend({ since: today }));
-      if (limit.scope === "session") spent.set("session", await store.usage.spend({ sessionId: session.id }));
-      if (limit.scope === "repo") {
-        const folders = (await store.usage.spendByFolder(today)).filter((folder) => projectOf(folder) === project);
-        spent.set(
-          "repo",
-          folders.reduce((sum, folder) => sum + folder.spent, 0),
-        );
-      }
-    }
-    return firstBreach(limits, (limit) => spent.get(limit.scope) ?? 0, next) ?? teamBreach(next);
+    const spent = (limit: BudgetLimit) => (limit.scope === "team" ? status.team.spent : status.member.spent);
+    return firstBreach(teamLimits(status), spent, next);
   }
 
   return async function proxy(
@@ -205,13 +300,19 @@ export function createProxy(options: ProxyOptions) {
       );
     }
 
+    const requestedModel = typeof parsed?.model === "string" ? parsed.model : null;
+    let reservation: Reservation | undefined;
     if (inference) {
-      const breach = await budgetBreach(session);
-      if (breach) {
-        await store.events.add({ sessionId: session.id, ts: now(), kind: "budget", detail: JSON.stringify(breach) });
-        return errorResponse(429, "rate_limit_error", budgetMessage(breach));
-      }
+      const next = (await store.usage.lastCost(session.id)) ?? 0;
+      const team = await teamBreach(next);
+      if (team) return refuse(session, team, budgetMessage(team));
+      const admission = await admit(session, requestedModel, next);
+      if (admission.refused) return admission.refused;
+      reservation = admission.reservation;
     }
+    const release = () => {
+      if (reservation) reservations.delete(reservation);
+    };
 
     // The body changes only behind an opt-in flag, and every change is logged.
     if (
@@ -242,19 +343,26 @@ export function createProxy(options: ProxyOptions) {
     }
     headers.set("accept-encoding", "identity");
 
-    const response = await fetchUpstream(target, {
-      method: request.method,
-      headers,
-      ...(body === undefined ? {} : { body }),
-      signal: request.signal,
-      redirect: "manual",
-    });
+    let response: Response;
+    try {
+      response = await fetchUpstream(target, {
+        method: request.method,
+        headers,
+        ...(body === undefined ? {} : { body }),
+        signal: request.signal,
+        redirect: "manual",
+      });
+    } catch (error) {
+      release();
+      return errorResponse(502, "api_error", `Grenier could not reach ${target.host}: ${(error as Error).message}`);
+    }
 
     const responseHeaders = new Headers();
     for (const [name, value] of response.headers) {
       if (!DROPPED_RESPONSE_HEADERS.has(name.toLowerCase())) responseHeaders.append(name, value);
     }
     if (!inference || !response.body) {
+      release();
       return new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
@@ -264,35 +372,60 @@ export function createProxy(options: ProxyOptions) {
 
     const contentType = response.headers.get("content-type");
     const reader = provider === "openai" ? new OpenAIUsageReader(contentType) : new UsageReader(contentType);
-    const requestedModel = typeof parsed?.model === "string" ? parsed.model : null;
     let recorded = false;
-    const record = async () => {
-      if (recorded) return;
+    // However the body ends (all read, cut off by the upstream, or dropped by the client), its usage is written once.
+    const record = () => {
+      if (recorded) return Promise.resolve();
       recorded = true;
-      const usage = reader.result();
-      const model = usage.model ?? requestedModel;
-      await store.usage.add({
-        sessionId: session.id,
-        ts: now(),
-        model,
-        inputTokens: usage.inputTokens,
-        cacheWriteTokens: usage.cacheWriteTokens,
-        cacheReadTokens: usage.cacheReadTokens,
-        outputTokens: usage.outputTokens,
-        cost: costOf(model, usage, prices),
-        status: response.status,
+      return serial(async () => {
+        try {
+          const usage = reader.result();
+          const model = usage.model ?? requestedModel;
+          await store.usage.add({
+            sessionId: session.id,
+            ts: now(),
+            model,
+            inputTokens: usage.inputTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            outputTokens: usage.outputTokens,
+            cost: costOf(model, usage, prices),
+            status: response.status,
+          });
+        } catch (error) {
+          log(`grenier: could not record the usage of session ${session.id}: ${(error as Error).message}`);
+        } finally {
+          release();
+        }
       });
     };
     request.signal.addEventListener("abort", () => void record(), { once: true });
 
-    const tap = new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-        reader.push(chunk);
+    const source = response.body.getReader();
+    const tapped = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        let chunk: Awaited<ReturnType<typeof source.read>>;
+        try {
+          chunk = await source.read();
+        } catch (error) {
+          await record();
+          controller.error(error);
+          return;
+        }
+        if (chunk.done) {
+          await record();
+          controller.close();
+          return;
+        }
+        reader.push(chunk.value);
+        controller.enqueue(chunk.value);
       },
-      flush: record,
+      async cancel(reason) {
+        await record();
+        await source.cancel(reason).catch(() => undefined);
+      },
     });
-    return new Response(response.body.pipeThrough(tap), {
+    return new Response(tapped, {
       status: response.status,
       statusText: response.statusText,
       headers: responseHeaders,

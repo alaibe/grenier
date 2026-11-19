@@ -80,7 +80,7 @@ afterAll(async () => {
 
 describe("the daemon and grenier run", () => {
   it("reports the running daemon", async () => {
-    expect((await grenier("status")).stdout).toMatch(/daemon {4}running \(pid \d+\)/);
+    expect((await grenier("status")).stdout).toMatch(/daemon {4}running \(pid \d+, port \d+\)/);
     expect((await grenier("start")).stdout).toMatch(/already running/);
   });
 

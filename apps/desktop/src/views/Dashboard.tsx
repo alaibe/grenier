@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type Overview, type PausedSession, type ReportRow, type SessionRow } from "../api.ts";
 import {
@@ -27,7 +27,10 @@ const REFRESH_MS = 30_000;
 export function Dashboard({ go }: ViewProps) {
   const { data, error, reload } = useLoad(load);
   useEffect(() => {
-    const timer = window.setInterval(reload, REFRESH_MS);
+    // Nothing to refresh while the window is hidden; it catches up when it is shown again.
+    const timer = window.setInterval(() => {
+      if (!document.hidden) reload();
+    }, REFRESH_MS);
     window.addEventListener("focus", reload);
     return () => {
       window.clearInterval(timer);
@@ -47,11 +50,23 @@ export function Dashboard({ go }: ViewProps) {
       <Notice message={error} />
       {!data && !error && <Loading what="usage" />}
       {data && data.paused > 0 && <Paused key={data.paused} changed={reload} />}
+      {data?.limits?.map((limit) => (
+        <Banner key={`${limit.scope}:${limit.key}`} problem={limit.reached}>
+          <p>
+            {money(limit.spent)} spent today of the{" "}
+            {limit.scope === "daily" ? "daily budget" : `budget for ${limit.key}`} of {money(limit.limit)}
+            {limit.reached ? ": it is reached, and requests stop until tomorrow or a higher limit." : "."}
+          </p>
+          <Button quiet onClick={() => go("budgets")}>
+            Budgets
+          </Button>
+        </Banner>
+      ))}
       {data && data.pendingReview > 0 && (
-        <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-accent bg-accent-soft py-2.5 pr-2.5 pl-4">
+        <Banner>
           <p>{data.pendingReview === 1 ? "1 memory waits" : `${data.pendingReview} memories wait`} for your review.</p>
           <Button onClick={() => go("review")}>Review</Button>
-        </div>
+        </Banner>
       )}
       {data && days.length === 0 && (
         <Empty>
@@ -66,7 +81,7 @@ export function Dashboard({ go }: ViewProps) {
             <Figure value={money(cached)} label="cached: the prompt-cache discount" />
           </Figures>
           <Spending title="Per project" first="Project" rows={data?.projects ?? []} name={(row) => row.key} />
-          <Sessions rows={data?.sessions ?? []} />
+          <Sessions rows={data?.sessions ?? []} open={(id) => go("traces", id)} />
           <Spending
             title="Per day"
             first="Day"
@@ -76,6 +91,15 @@ export function Dashboard({ go }: ViewProps) {
         </>
       )}
     </Page>
+  );
+}
+
+function Banner({ problem = false, children }: { problem?: boolean; children: ReactNode }) {
+  const look = problem ? "border-problem bg-problem-soft" : "border-accent bg-accent-soft";
+  return (
+    <div className={`mb-5 flex items-center justify-between gap-4 rounded-xl border py-2.5 pr-2.5 pl-4 ${look}`}>
+      {children}
+    </div>
   );
 }
 
@@ -121,7 +145,7 @@ function asked(row: SessionRow): string {
   return `${count(row.asks)} (${times(row.hits ?? 0, "hit")})`;
 }
 
-function Sessions({ rows }: { rows: SessionRow[] }) {
+function Sessions({ rows, open }: { rows: SessionRow[]; open: (id: string) => void }) {
   return (
     <section className="mb-7">
       <h2 className="mb-2.5 font-semibold">Per session</h2>
@@ -142,6 +166,15 @@ function Sessions({ rows }: { rows: SessionRow[] }) {
             <tr key={row.key}>
               <td>
                 {row.project === null ? "Not started with grenier run" : `${row.project} · ${row.client ?? "agent"}`}
+                {row.traced && (
+                  <button
+                    type="button"
+                    className="ml-2 cursor-pointer text-accent underline underline-offset-2"
+                    onClick={() => open(row.key)}
+                  >
+                    Trace
+                  </button>
+                )}
               </td>
               <td className="tabular-nums">
                 {row.project === null || row.startedAt === null ? "" : moment(row.startedAt)}

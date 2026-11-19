@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { money } from "@grenier/core";
 import type { BudgetScope } from "@grenier/store";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
 
@@ -55,7 +56,7 @@ export async function budget(argv: string[], io: Io): Promise<string[]> {
   const stored = await withStore(paths, (store) => store.budgets.list());
   const find = (scope: string, key = "") => stored.find((b) => b.scope === scope && b.key === key)?.limitAmount;
   const line = (label: string, limit: number | undefined, per: string) =>
-    `${label.padEnd(16)}${limit === undefined ? "no limit" : `$${limit.toFixed(2)} a ${per}`}`;
+    `${label.padEnd(16)}${limit === undefined ? "no limit" : `${money(limit)} a ${per}`}`;
   return [
     line("daily", find("daily") ?? config.budgets.daily, "day"),
     line("session", find("session") ?? config.budgets.session, "session"),

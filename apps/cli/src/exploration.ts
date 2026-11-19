@@ -28,22 +28,35 @@ export function repoResolver(base: string | null): (repo: string | undefined) =>
   };
 }
 
+/** How long after a failed load of the model the next use tries again. */
+export const EMBEDDER_RETRY_MS = 60_000;
+
 /**
- * Loads the embedding model on first use, once. When it cannot be loaded, search falls back to full text. `offline`
- * uses only a model already downloaded.
+ * Loads the embedding model on first use, once. When it cannot be loaded, search falls back to full text, and a use
+ * a minute later tries again: a download that failed on a bad connection does not turn embeddings off until restart.
+ * `offline` uses only a model already downloaded.
  */
 export function embedderLoader(
   config: Config,
   paths: GrenierPaths,
   log: (line: string) => void,
   options: { offline?: boolean } = {},
+  deps: { load?: typeof loadLocalEmbedder; now?: () => number } = {},
 ): () => Promise<Embedder | null> {
+  const load = deps.load ?? loadLocalEmbedder;
+  const now = deps.now ?? Date.now;
   let loading: Promise<Embedder | null> | undefined;
+  let failedAt: number | null = null;
   return () => {
+    if (failedAt !== null && now() - failedAt >= EMBEDDER_RETRY_MS) {
+      loading = undefined;
+      failedAt = null;
+    }
     loading ??=
       config.cache.embeddings === "off"
         ? Promise.resolve(null)
-        : loadLocalEmbedder(join(paths.home, "models"), options).catch((error: unknown) => {
+        : load(join(paths.home, "models"), options).catch((error: unknown) => {
+            failedAt = now();
             log(`grenier: embeddings unavailable, using full-text search only: ${(error as Error).message}`);
             return null;
           });

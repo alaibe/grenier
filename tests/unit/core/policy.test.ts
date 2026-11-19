@@ -53,6 +53,18 @@ describe("LoopDetector", () => {
     ]);
   });
 
+  it("fires again after as many repeats again, so a loop that goes on is caught again", () => {
+    const detector = new LoopDetector(3, 10);
+    expect(["a", "a", "a", "a", "a", "a"].map((hash) => detector.observe(hash))).toEqual([
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+    ]);
+  });
+
   it("fires again for a new streak once the old one has left the window", () => {
     const detector = new LoopDetector(2, 3);
     const fired = ["a", "a", "b", "c", "d", "a", "a"].map((hash) => detector.observe(hash));

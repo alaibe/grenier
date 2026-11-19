@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -6,7 +15,9 @@ import { join } from "node:path";
 import {
   applyPull,
   type CalDavClient,
+  commandWords,
   type ImapClient,
+  localPath,
   parseEvents,
   pullCalDav,
   pullIcs,
@@ -32,6 +43,19 @@ afterEach(() => {
 });
 
 describe("markdown", () => {
+  it("reports a note it cannot read and reads the others", async () => {
+    writeFileSync(join(dir, "fine.md"), "# Fine\n");
+    writeFileSync(join(dir, "locked.md"), "# Locked\n");
+    chmodSync(join(dir, "locked.md"), 0o000);
+    try {
+      const pull = await pullMarkdown({ path: dir }, {});
+      expect(pull.items.map((item) => item.key)).toEqual(["fine.md"]);
+      expect(pull.failed).toEqual([{ key: "locked.md", reason: expect.stringContaining("EACCES") }]);
+    } finally {
+      chmodSync(join(dir, "locked.md"), 0o600);
+    }
+  });
+
   it("reads notes with their front matter, title and date", async () => {
     writeFileSync(
       join(dir, "a.md"),
@@ -58,7 +82,7 @@ describe("markdown", () => {
     expect(first.items).toHaveLength(2);
 
     const unchanged = await pullMarkdown({ path: dir }, first.state);
-    expect(unchanged).toEqual({ items: [], removed: [], state: first.state });
+    expect(unchanged).toEqual({ items: [], removed: [], failed: [], state: first.state });
 
     writeFileSync(join(dir, "a.md"), "A, longer now");
     utimesSync(join(dir, "a.md"), new Date(), new Date(Date.now() + 5_000));
@@ -170,6 +194,18 @@ describe("CalDAV", () => {
     return { client, parsed: () => parsed };
   }
 
+  it("reports an object it cannot parse and reads the others, without trying it again until it changes", async () => {
+    const objects = [
+      { url: "/cal/work/bad.ics", etag: "b1", data: "BEGIN:VCALENDAR\nnot really" },
+      { url: "/cal/work/good.ics", etag: "g1", data: ICS },
+    ];
+    const pulled = await pullCalDav({}, {}, { client: stand(objects).client });
+    expect(pulled.items.length).toBeGreaterThan(0);
+    expect(pulled.failed).toEqual([{ key: "/cal/work/bad.ics", reason: expect.stringContaining("not an iCalendar") }]);
+    const again = await pullCalDav({}, pulled.state, { client: stand(objects).client });
+    expect(again.failed ?? []).toEqual([]);
+  });
+
   it("parses only objects whose etag changed, and removes those that are gone", async () => {
     const one = ICS.replace(/BEGIN:VEVENT\nUID:standup[\s\S]*?END:VEVENT\n/, "");
     const two = ICS.replace(/BEGIN:VEVENT\nUID:budget-review[\s\S]*?END:VEVENT\n/, "");
@@ -199,12 +235,16 @@ describe("IMAP", () => {
     ),
   });
 
-  function stand(mailbox: { uidValidity: number; messages: ReturnType<typeof message>[] }) {
+  function stand(mailbox: { uidValidity: number; messages: ReturnType<typeof message>[]; uidNext?: number }) {
     const searches: { after: number; since?: Date }[] = [];
     const client: ImapClient = {
       connect: async () => {},
       logout: async () => {},
-      open: async () => ({ uidValidity: mailbox.uidValidity, close: () => {} }),
+      open: async () => ({
+        uidValidity: mailbox.uidValidity,
+        uidNext: mailbox.uidNext ?? Math.max(0, ...mailbox.messages.map((m) => m.uid)) + 1,
+        close: () => {},
+      }),
       search: async (criteria) => {
         searches.push(criteria);
         return mailbox.messages.map((m) => m.uid).filter((uid) => uid > criteria.after);
@@ -243,6 +283,31 @@ describe("IMAP", () => {
     const after = await pullImap({}, next.state, { client: reset.client, now });
     expect(reset.searches[0]?.after).toBe(0);
     expect(after.items).toHaveLength(3);
+    expect(after.removedPrefixes).toEqual(["INBOX:7:"]);
+  });
+
+  it("replaces a mailbox's items when its UIDVALIDITY changes, instead of keeping both", async () => {
+    const store: Store = openSqliteStore(":memory:");
+    try {
+      await store.sources.add({ id: "m", name: "mail", kind: "imap", config: {} });
+      const box = { uidValidity: 7, messages: [message(1, "Budget"), message(2, "Lunch")] };
+      const first = await pullImap({}, {}, { client: stand(box).client });
+      await applyPull(store, { id: "m" }, first);
+      const reset = await pullImap({}, first.state, { client: stand({ ...box, uidValidity: 8 }).client });
+      await applyPull(store, { id: "m" }, reset);
+      expect((await store.items.ids("m")).sort()).toEqual(["m:INBOX:8:1", "m:INBOX:8:2"]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("starts after the newest message when the first pull finds nothing in its window", async () => {
+    const box = { uidValidity: 7, messages: [] as ReturnType<typeof message>[], uidNext: 501 };
+    const first = await pullImap({ since_days: 30 }, {}, { client: stand(box).client });
+    expect(first.items).toEqual([]);
+    const second = stand(box);
+    await pullImap({}, first.state, { client: second.client });
+    expect(second.searches[0]).toEqual({ after: 500 });
   });
 });
 
@@ -264,21 +329,50 @@ describe("secrets and applying a pull", () => {
       ).toEqual({
         added: 2,
         removed: 0,
+        failed: [],
       });
       expect(
         await applyPull(store, { id: "s" }, { items: [item("a", "1"), item("b", "3")], removed: [], state: {} }),
       ).toEqual({
         added: 1,
         removed: 0,
+        failed: [],
       });
       expect(await applyPull(store, { id: "s" }, { items: [], removed: ["a"], state: { v: 2 } })).toEqual({
         added: 0,
         removed: 1,
+        failed: [],
       });
       expect(await store.items.ids("s")).toEqual(["s:b"]);
       expect((await store.sources.get("notes"))?.state).toEqual({ v: 2 });
     } finally {
       await store.close();
     }
+  });
+});
+
+describe("localPath and commandWords", () => {
+  it("reads ~ as the home folder and a relative path from its base", () => {
+    expect(localPath("~/Notes", "/work", "/home/ada")).toBe("/home/ada/Notes");
+    expect(localPath("~", "/work", "/home/ada")).toBe("/home/ada");
+    expect(localPath("notes", "/work", "/home/ada")).toBe("/work/notes");
+    expect(localPath("/abs/notes", "/work", "/home/ada")).toBe("/abs/notes");
+  });
+
+  it("splits a command line as a shell would, without running one", () => {
+    expect(commandWords("op read 'op://Personal/Mail/password'")).toEqual([
+      "op",
+      "read",
+      "op://Personal/Mail/password",
+    ]);
+    expect(commandWords('security find-generic-password -s "grenier mail" -w')).toEqual([
+      "security",
+      "find-generic-password",
+      "-s",
+      "grenier mail",
+      "-w",
+    ]);
+    expect(commandWords("pass\\ word  ''")).toEqual(["pass word", ""]);
+    expect(() => commandWords("op read 'open")).toThrow("left open");
   });
 });

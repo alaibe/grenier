@@ -14,6 +14,8 @@ export class TeamError extends Error {
     readonly status: number,
     /** The server's own message. */
     readonly reason = message,
+    /** The server's whole answer, when it was JSON. */
+    readonly body?: unknown,
   ) {
     super(message);
   }
@@ -39,7 +41,7 @@ export async function teamApi<T>(
   }
   if (!response.ok) {
     const message = (body as { error?: string } | undefined)?.error ?? `HTTP ${response.status}`;
-    throw new TeamError(`the team server answered: ${message}`, response.status, message);
+    throw new TeamError(`the team server answered: ${message}`, response.status, message, body);
   }
   return body as T;
 }
@@ -58,6 +60,8 @@ export interface SyncDeps {
   savedOf: (row: Usage) => number;
   /** `[cache] share_with_team`: every repository with something in the cache, not only those shared one by one. */
   shareAll: boolean;
+  /** This machine's id, so the server counts each of its usage rows once however often they are sent. */
+  device?: string;
 }
 
 export interface SyncResult {
@@ -68,6 +72,7 @@ export interface SyncResult {
 }
 
 const BATCH = 200;
+const SYNC_REPOS = 100;
 const FORGOTTEN = "forgotten_answers";
 
 /**
@@ -171,6 +176,14 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   };
   const repos = await sharedRepos(deps);
 
+  // Joining another team server: what was shared with the last one is pushed again.
+  const server = await store.team.get("server");
+  if (server !== null && server !== team.url) {
+    await store.answers.unshareAll();
+    await store.summaries.unshareAll();
+  }
+  if (server !== team.url) await store.team.set("server", team.url);
+
   const forgotten = JSON.parse((await store.team.get(FORGOTTEN)) ?? "[]") as string[];
   const sent: string[] = [];
   for (let at = 0; at < forgotten.length; at += BATCH) {
@@ -237,14 +250,27 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
     result.refused.summaries += refused;
   }
 
-  if (repos.length > 0) {
+  // Each repository has its own place in each server's changes, so one shared later pulls its whole history.
+  // Repositories at the same place are pulled together, in calls of at most SYNC_REPOS (the server's limit).
+  const cursorKey = (repo: string) => `cursor ${team.url} ${repo}`;
+  const groups = new Map<string, string[]>();
+  for (const repo of repos) {
+    const at = (await store.team.get(cursorKey(repo))) ?? '{"answers":0,"summaries":0}';
+    groups.set(at, [...(groups.get(at) ?? []), repo]);
+  }
+  const batches = [...groups.entries()].flatMap(([at, group]) =>
+    Array.from({ length: Math.ceil(group.length / SYNC_REPOS) }, (_, index) => ({
+      start: at,
+      batch: group.slice(index * SYNC_REPOS, (index + 1) * SYNC_REPOS),
+    })),
+  );
+  for (const { start, batch } of batches) {
+    let cursor = JSON.parse(start) as { answers: number; summaries: number };
     for (;;) {
-      const answersSince = Number((await store.team.get("answers_seq")) ?? 0);
-      const summariesSince = Number((await store.team.get("summaries_seq")) ?? 0);
       const query = new URLSearchParams({
-        repos: repos.join(","),
-        answers: String(answersSince),
-        summaries: String(summariesSince),
+        repos: batch.join(","),
+        answers: String(cursor.answers),
+        summaries: String(cursor.summaries),
       });
       const changes = await teamApi<{
         answers: RemoteAnswer[];
@@ -286,9 +312,9 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
         });
         result.pulled.summaries += 1;
       }
-      await store.team.set("answers_seq", String(changes.cursors.answers));
-      await store.team.set("summaries_seq", String(changes.cursors.summaries));
       if (changes.answers.length === 0 && changes.summaries.length === 0) break;
+      for (const repo of batch) await store.team.set(cursorKey(repo), JSON.stringify(changes.cursors));
+      cursor = changes.cursors;
     }
   }
 
@@ -334,14 +360,22 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
     delta.answerHits = newHits;
     days.set(today, delta);
   }
+  let through = rows.at(-1)?.id ?? usageCursor;
   if (days.size > 0) {
-    await teamApi(team, "/api/usage", {
-      body: { usage: [...days.entries()].map(([day, delta]) => ({ day, ...delta })) },
-    });
-    result.pushed.usageRows = rows.length;
+    const range = deps.device ? { device: deps.device, from: usageCursor, through } : {};
+    try {
+      await teamApi(team, "/api/usage", {
+        body: { usage: [...days.entries()].map(([day, delta]) => ({ day, ...delta })), ...range },
+      });
+      result.pushed.usageRows = rows.length;
+    } catch (error) {
+      // Already counted (a lost answer, or another sync at the same time): carry on from where the server is.
+      const counted = error instanceof TeamError && error.status === 409 ? (error.body as { through?: unknown }) : null;
+      if (typeof counted?.through !== "number") throw error;
+      through = counted.through;
+    }
   }
-  const last = rows.at(-1);
-  if (last) await store.team.set("usage_id", String(last.id));
+  if (through !== usageCursor) await store.team.set("usage_id", String(through));
   await store.team.set("hits_pushed", String(hits));
   return result;
 }

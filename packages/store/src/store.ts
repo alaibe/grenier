@@ -78,7 +78,7 @@ export interface UsageStore {
   list(filter?: { since?: number; sessionId?: string }): Promise<UsageWithSession[]>;
   /** Rows with an id above `id`, in order, at most `limit`. */
   after(id: number, limit: number): Promise<Usage[]>;
-  /** What the session's latest request cost, or null before its first. */
+  /** What the session's latest request that cost something cost, or null before its first. */
   lastCost(sessionId: string): Promise<number | null>;
   /** Removes the rows older than `before`; returns how many. */
   prune(before: number): Promise<number>;
@@ -152,6 +152,8 @@ export interface AnswerStore {
   /** Answers of these repositories not yet on the team server, oldest first, without those it refused. */
   unshared(repoIds: readonly string[], limit: number): Promise<AnswerWithSources[]>;
   markShared(ids: readonly string[]): Promise<void>;
+  /** Marks every answer as not on the team server, nor refused: for a new team server. */
+  unshareAll(): Promise<void>;
   /** Keeps why the team server refused an answer, so sync passes over it. */
   refuse(id: string, reason: string): Promise<void>;
   remove(id: string): Promise<void>;
@@ -168,6 +170,7 @@ export interface SummaryStore {
   /** Summaries of these repositories not yet on the team server, oldest first, without those it refused. */
   unshared(repoIds: readonly string[], limit: number): Promise<FileSummary[]>;
   markShared(keys: readonly { repoId: string; path: string; blobHash: string }[]): Promise<void>;
+  unshareAll(): Promise<void>;
   refuse(key: { repoId: string; path: string; blobHash: string }, reason: string): Promise<void>;
   clear(repoId?: string): Promise<number>;
   stats(): Promise<{ repoId: string; summaries: number }[]>;
@@ -217,8 +220,6 @@ export interface ItemStore {
   get(id: string): Promise<Item | undefined>;
   /** Removes these items; returns how many there were. */
   remove(ids: readonly string[]): Promise<number>;
-  /** Removes the items of a source whose ids are not in `keep`; returns how many. */
-  prune(sourceId: string, keep: ReadonlySet<string>): Promise<number>;
   ids(sourceId: string): Promise<string[]>;
   /** Full-text matches for any of the terms, best first (BM25). */
   search(terms: readonly string[], filter: ItemFilter, limit: number): Promise<Item[]>;

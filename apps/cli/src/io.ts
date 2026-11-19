@@ -1,3 +1,5 @@
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { type Config, ConfigError } from "@grenier/core";
 import { ensureDirectories, type GrenierPaths, loadConfig, resolvePaths } from "@grenier/core/node";
 import { type Store, StoreError } from "@grenier/store";
@@ -50,4 +52,12 @@ export async function withStore<T>(paths: GrenierPaths, use: (store: Store) => P
   } finally {
     await store.close();
   }
+}
+
+/** Writes a file readable by this user only, all at once: a reader sees the old text or the new, never half. */
+export function writeAtomically(path: string, text: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, text, { mode: 0o600 });
+  renameSync(temporary, path);
 }

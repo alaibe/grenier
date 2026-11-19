@@ -43,9 +43,14 @@ export function withTomlValue(text: string, table: string, key: string, value: s
   return lines.join("\n");
 }
 
+/** Saves this machine's member token, readable by this user only. */
+export function saveToken(paths: GrenierPaths, token: string): void {
+  writeFileSync(tokenFile(paths), `${token}\n`, { mode: 0o600 });
+}
+
 /** Saves the team server's address in config.toml and the token beside it. */
 export function saveTeam(paths: GrenierPaths, url: string, token: string): void {
   const text = existsSync(paths.config) ? readFileSync(paths.config, "utf8") : "";
   writeFileSync(paths.config, withTomlValue(text, "team", "url", url), { mode: 0o600 });
-  writeFileSync(tokenFile(paths), `${token}\n`, { mode: 0o600 });
+  saveToken(paths, token);
 }

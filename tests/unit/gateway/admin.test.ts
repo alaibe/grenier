@@ -76,6 +76,11 @@ describe("the admin API", () => {
       headers: { origin: "https://evil.example" },
     });
     expect(evil.status).toBe(403);
+    const refused = await app.request("http://127.0.0.1:7788/admin/overview", {
+      headers: { origin: "tauri://localhost", authorization: "Bearer wrong" },
+    });
+    expect(refused.status).toBe(401);
+    expect(refused.headers.get("access-control-allow-origin")).toBe("tauri://localhost");
     expect(
       (await call("/overview", { origin: "https://evil.example" })).headers.get("access-control-allow-origin"),
     ).toBeNull();
@@ -192,6 +197,7 @@ describe("the admin API", () => {
       version: string;
       days: { requests: number }[];
       projects: { key: string; cost: number }[];
+      limits: unknown[];
       sessions: {
         key: string;
         client: string | null;
@@ -203,6 +209,15 @@ describe("the admin API", () => {
     };
     expect(overview.version).toBe("test");
     expect(overview.days[0]?.requests).toBe(3);
+    expect(overview.limits).toEqual([]);
+    await store.budgets.set("daily", "", 1);
+    await store.budgets.set("repo", "app", 0.125);
+    await store.budgets.set("repo", "api", 5);
+    const limited = (await (await call("/overview")).json()) as { limits: unknown[] };
+    expect(limited.limits).toEqual([
+      { scope: "daily", key: "", limit: 1, spent: 0.875, reached: false },
+      { scope: "repo", key: "app", limit: 0.125, spent: 0.125, reached: true },
+    ]);
     expect(overview.projects.map((row) => [row.key, row.cost])).toEqual([
       ["(not started with grenier run)", 0.75],
       ["app", 0.125],
@@ -220,6 +235,11 @@ describe("the admin API", () => {
       { key: "s2", client: "codex", project: null, startedAt: now, asks: null, hits: null },
       { key: "s1", client: "claude", project: "app", startedAt: now - 1000, asks: 2, hits: 1 },
       { key: "untagged", client: null, project: null, startedAt: now - 5000, asks: null, hits: null },
+    ]);
+    expect((overview.sessions as { key: string; traced?: boolean }[]).map(({ key, traced }) => [key, traced])).toEqual([
+      ["s2", false],
+      ["s1", true],
+      ["untagged", false],
     ]);
     expect((await call("/report?by=week")).status).toBe(400);
     expect((await call("/report?since=forever")).status).toBe(400);

@@ -14,7 +14,14 @@ export function Budgets(_: ViewProps) {
   const change = (scope: Scope, key: string, limit: number | null, label: string) =>
     action.run(`${scope}:${key}`, async () => {
       await api("/budgets", { body: { scope, key, limit } });
-      return { text: limit === null ? `Removed the limit ${label}.` : `The limit ${label} is now ${money(limit)}.` };
+      if (limit !== null) return { text: `The limit ${label} is now ${money(limit)}.` };
+      const now = scope === "repo" ? null : (await api<BudgetsView>("/budgets"))[scope];
+      return {
+        text:
+          now === null
+            ? `Removed the limit ${label}.`
+            : `Removed the limit set here ${label}; the one in config.toml, ${money(now)}, applies again.`,
+      };
     });
 
   const save = (scope: Scope, key: string, label: string) => (event: FormEvent<HTMLFormElement>) => {

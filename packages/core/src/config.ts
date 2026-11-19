@@ -52,6 +52,8 @@ const configSchema = z.strictObject({
     .strictObject({
       daily: z.number().positive().optional(),
       session: z.number().positive().optional(),
+      /** A request to a model prices.toml has no price for, while a limit applies: "block" it, or "allow" it at $0. */
+      unpriced: z.enum(["block", "allow"]).default("block"),
     })
     .prefault({}),
   guards: z

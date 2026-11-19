@@ -84,7 +84,7 @@ afterEach(() => {
 });
 
 describe("grenier ask", () => {
-  it("prints the recorded answer with where it came from, and counts the reuse", async () => {
+  it("prints the recorded answer with where it came from, without counting a reuse: a person looked, not an agent", async () => {
     await record(null);
     const out: string[] = [];
     expect(await run(["ask", "how", "does", "the", "proxy", "stream", "responses?"], io(out))).toBe(0);
@@ -97,7 +97,7 @@ describe("grenier ask", () => {
         `Id: ${id} (grenier cache forget ${id} removes it)`,
       ].join("\n"),
     );
-    expect(await hits()).toBe(1);
+    expect(await hits()).toBe(0);
   });
 
   it("says when the files changed since, or when nothing is recorded", async () => {

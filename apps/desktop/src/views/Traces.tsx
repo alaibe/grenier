@@ -40,9 +40,9 @@ const FOLLOW_LINES = 300;
 
 const loadTraces = () => api<{ traces: TraceSummary[] }>("/traces");
 
-export function Traces(_: ViewProps) {
+export function Traces({ focus }: ViewProps) {
   const list = useLoad(loadTraces);
-  const [chosen, setChosen] = useState("");
+  const [chosen, setChosen] = useState(focus ?? "");
   const traces = list.data?.traces ?? [];
   const id = traces.some((trace) => trace.id === chosen) ? chosen : (traces[0]?.id ?? "");
 
@@ -451,14 +451,10 @@ function FileTree({
           const rereads = [...again].filter((i) => i <= at && tree.rowOfStep[i] === r).length;
           const current = r === row;
           const ahead = visited === 0 && firstStep !== -1;
-          const className = `absolute inset-x-0 flex h-6.5 items-center gap-2 pr-2.5 text-left font-mono text-sm whitespace-nowrap ${current ? "bg-panel inset-ring inset-ring-line-strong" : ""} ${ahead ? "text-muted opacity-60" : "text-fg"}`;
+          const className = `absolute inset-x-0 flex h-6.5 items-center gap-2 pr-2.5 text-left font-mono text-sm whitespace-nowrap ${current ? "bg-panel inset-ring inset-ring-line-strong" : ""} ${ahead ? "text-muted" : "text-fg"}`;
           const style = { top: r * ROW_H, paddingLeft: GUTTER + entry.depth * 12 };
           const nameColor = current ? "font-semibold text-fg" : ahead || !entry.file ? "text-muted" : "";
-          const name = (
-            <span className={`relative overflow-hidden text-ellipsis ${nameColor} ${ahead ? "opacity-60" : ""}`}>
-              {entry.label}
-            </span>
-          );
+          const name = <span className={`relative overflow-hidden text-ellipsis ${nameColor}`}>{entry.label}</span>;
           // A directory only on the way to others: nothing happened there, so nothing to jump to.
           if (firstStep === -1) {
             return (

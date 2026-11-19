@@ -1,6 +1,6 @@
 import type { Source, Store } from "@grenier/store";
 import { pullSource } from "./pull.ts";
-import { applyPull } from "./source.ts";
+import { applyPull, type Failed } from "./source.ts";
 
 export interface SourceSync {
   name: string;
@@ -10,7 +10,10 @@ export interface SourceSync {
 }
 
 /** Pulls one source and applies what changed; null for the memory source, which has nothing to pull. */
-export async function syncSource(store: Store, source: Source): Promise<{ added: number; removed: number } | null> {
+export async function syncSource(
+  store: Store,
+  source: Source,
+): Promise<{ added: number; removed: number; failed: Failed[] } | null> {
   const pulling = pullSource(source);
   if (!pulling) return null;
   return applyPull(store, source, await pulling);
@@ -23,7 +26,9 @@ export async function syncSources(store: Store, log: (line: string) => void, onl
     if (only && source.name !== only) continue;
     try {
       const result = await syncSource(store, source);
-      if (result) results.push({ name: source.name, ...result });
+      if (!result) continue;
+      for (const entry of result.failed) log(`grenier: ${source.name}: could not read ${entry.key}: ${entry.reason}`);
+      results.push({ name: source.name, added: result.added, removed: result.removed });
     } catch (error) {
       const message = (error as Error).message;
       log(`grenier: could not sync ${source.name}: ${message}`);

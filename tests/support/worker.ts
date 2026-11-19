@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { build } from "esbuild";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 
@@ -37,12 +37,16 @@ export async function startWorker(options: { listen?: boolean } = {}): Promise<{
   );
   const url = options.listen ? await mf.ready : null;
   const db = await mf.getD1Database("DB");
-  const migration = readFileSync(new URL("migrations/0001_team.sql", SERVER), "utf8")
-    .replace(/--.*$/gm, "")
-    .split(";")
-    .map((statement) => statement.trim())
-    .filter(Boolean);
-  await db.batch(migration.map((statement) => db.prepare(statement)));
+  for (const file of readdirSync(new URL("migrations/", SERVER))
+    .filter((name) => name.endsWith(".sql"))
+    .sort()) {
+    const migration = readFileSync(new URL(`migrations/${file}`, SERVER), "utf8")
+      .replace(/--.*$/gm, "")
+      .split(";")
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+    await db.batch(migration.map((statement) => db.prepare(statement)));
+  }
   return {
     mf,
     url,

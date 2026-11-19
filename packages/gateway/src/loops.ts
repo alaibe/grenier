@@ -84,10 +84,23 @@ function resultsOf(body: MessagesBody): Map<string, { error: boolean; text: stri
   return results;
 }
 
+/** A result without what changes from run to run of the same work: durations, clock times and timestamps. */
+function steadyText(text: string): string {
+  return (
+    text
+      .replace(/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g, "<time>")
+      // Not a file's line and column, as in `a.ts:12:34`: errors at other places are other errors.
+      .replace(/(?<![\w.:])\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?(?![\w:])/g, "<time>")
+      .replace(/\b\d+(?:\.\d+)?\s?(?:ms|s|sec|secs|seconds?|m|min|mins|minutes?)\b/g, "<duration>")
+  );
+}
+
 /**
  * Every tool call in the conversation, keyed by its id, in order: Anthropic's tool_use blocks and tool_result blocks
  * marked as errors, OpenAI's Chat Completions tool_calls and Responses function, custom tool and shell call items.
- * Calls whose key is in `seen` are left out before they are hashed: each request resends the whole conversation.
+ * A call is hashed with its result, when the request carries it: the same call returning something else is progress,
+ * not a loop. Calls whose key is in `seen` are left out before they are hashed: each request resends the whole
+ * conversation.
  */
 export async function toolCalls(
   body: MessagesBody,
@@ -99,9 +112,10 @@ export async function toolCalls(
     if (!id || seen.has(`use:${id}`)) return;
     const tool = name ?? "";
     const result = results.get(id);
+    const returned = result ? `${result.error ? "error" : "ok"}\0${steadyText(result.text)}` : "";
     calls.push({
       key: `use:${id}`,
-      call: { tool, hash: await sha256(`${tool}\0${canonicalJson(input)}`) },
+      call: { tool, hash: await sha256(`${tool}\0${canonicalJson(input)}\0${returned}`) },
       use: { id, tool, input, ...(result ? { result } : {}) },
     });
   };
@@ -134,13 +148,25 @@ export async function toolCalls(
   return calls;
 }
 
+/** Which conversation of a session a request belongs to: its first user message. Subagents each have their own. */
+async function conversationOf(body: MessagesBody): Promise<string> {
+  const first =
+    body.messages?.find((message) => message.role === "user") ??
+    (Array.isArray(body.input)
+      ? ((body.input as { role?: string }[]).find((item) => item?.role === "user") ?? body.input[0])
+      : body.input);
+  // Its text only: an agent moves cache markers between requests, and the conversation stays the same.
+  const content = first && typeof first === "object" && "content" in first ? first.content : first;
+  return sha256(textOf(content) || canonicalJson(content ?? null));
+}
+
 /** How long a session may go without a request before its state is dropped. */
 export const IDLE_SESSION = 6 * 60 * 60 * 1000;
 const SWEEP_EVERY = 60 * 1000;
 
 /**
- * The tool calls each session has made, across its requests. Each request resends the whole conversation, so only
- * calls not seen before are observed. For a session that started before this process (the daemon restarted under
+ * The tool calls each conversation of each session has made, across its requests. Each request resends the whole
+ * conversation, so only calls not seen before are observed. For a session that started before this process (the daemon restarted under
  * it), the first request only marks what it carries as seen, so old history is not counted twice as a loop. A
  * session idle for `idle` is dropped; when it comes back, its history is marked as seen again, neither counted nor
  * returned as fresh, since it was both when it was first seen.
@@ -165,13 +191,14 @@ export class LoopWatch {
   ): Promise<{ loops: ToolCall[]; fresh: ToolUse[] }> {
     const now = this.now();
     this.#sweep(now);
-    let state = this.#sessions.get(sessionId);
+    const conversation = `${sessionId}\0${await conversationOf(body)}`;
+    let state = this.#sessions.get(conversation);
     let counting = true;
     let recording = true;
     if (!state) {
-      const returning = this.#dropped.delete(sessionId);
+      const returning = this.#dropped.delete(conversation);
       state = { seen: new Set(), detector: new LoopDetector(this.threshold, this.window), at: now };
-      this.#sessions.set(sessionId, state);
+      this.#sessions.set(conversation, state);
       counting = !startedBeforeUs && !returning;
       recording = !returning;
     }
@@ -187,7 +214,7 @@ export class LoopWatch {
     return { loops, fresh };
   }
 
-  /** How many sessions are held in memory. */
+  /** How many conversations are held in memory. */
   get size(): number {
     return this.#sessions.size;
   }

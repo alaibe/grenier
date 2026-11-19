@@ -3,11 +3,12 @@ import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
 import { repoId, repoRoot } from "@grenier/connectors/git";
 import { ASK_FIRST } from "@grenier/gateway";
+import { version } from "../../package.json";
 import { startDaemon } from "../daemon.ts";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
 
 export interface RunDependencies {
-  startDaemon: (io: Io) => Promise<{ pid: number }>;
+  startDaemon: (io: Io) => Promise<{ pid: number; port?: number; version?: string | null }>;
 }
 
 /** A short random session id, safe in a URL path. */
@@ -57,7 +58,12 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
   if (program === undefined) throw new UsageError("run needs a command, as in: grenier run -- claude");
 
   const { paths, config } = environment(io);
-  await dependencies.startDaemon(io);
+  const daemon = await dependencies.startDaemon(io);
+  if (daemon.version && daemon.version !== version) {
+    io.err(
+      `grenier: the daemon runs ${daemon.version}, this command is ${version}; to update it: grenier stop && grenier start`,
+    );
+  }
 
   const id = newSessionId();
   const root = await repoRoot(io.cwd);
@@ -73,7 +79,7 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
     }),
   );
 
-  const baseUrl = `http://127.0.0.1:${config.proxy.port}/s/${id}`;
+  const baseUrl = `http://127.0.0.1:${daemon.port ?? config.proxy.port}/s/${id}`;
   const openaiBaseUrl = `${baseUrl}/openai/v1`;
   const askFirst = asksFirst(program, args, root !== null);
   io.err(`grenier: session ${id}, through ${baseUrl}`);

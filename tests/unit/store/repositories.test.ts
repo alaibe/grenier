@@ -193,3 +193,35 @@ describe("budgets", () => {
     expect((await store.budgets.list()).map((b) => b.scope)).toEqual(["daily"]);
   });
 });
+
+describe("items", () => {
+  it("finds a person by name whatever the case and accents, and a repeated question the same way", async () => {
+    await store.sources.add({ id: "src", name: "mail", kind: "imap", config: {} });
+    await store.items.put({
+      id: "src:1",
+      sourceId: "src",
+      kind: "mail",
+      title: "Lunch",
+      body: "",
+      people: ["Élodie Müller <elodie@example.org>"],
+      ts: 1,
+      contentHash: "h",
+    });
+    for (const name of ["élodie", "ELODIE", "muller", "Müller"]) {
+      expect(
+        (await store.items.withPerson(name, { sourceIds: ["src"] }, 10)).map((item) => item.id),
+        name,
+      ).toEqual(["src:1"]);
+    }
+
+    await store.answers.add(
+      { id: "a1", repoId: "r", question: "Où est le café ?", answer: "old", createdAt: 1, author: "x" },
+      [],
+    );
+    await store.answers.add(
+      { id: "a2", repoId: "r", question: "OÙ EST LE CAFÉ ?", answer: "new", createdAt: 2, author: "x" },
+      [],
+    );
+    expect(await store.answers.get("a1")).toBeUndefined();
+  });
+});

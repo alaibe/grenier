@@ -172,6 +172,26 @@ describe("grenier team join", () => {
   });
 });
 
+describe("grenier team rotate", () => {
+  it("swaps this machine's token for a new one, and says when the server is too old for it", async () => {
+    const joined = (async () => Response.json({ name: "bob", role: "member" })) as unknown as typeof fetch;
+    await team(["join", "https://team.example.com", "gt_old"], io(), { fetch: joined });
+    const seen: string[] = [];
+    const rotate = (async (input: URL | string, init: RequestInit = {}) => {
+      seen.push(`${init.method} ${input} ${(init.headers as Record<string, string>).authorization}`);
+      return Response.json({ token: "gt_new" });
+    }) as typeof fetch;
+    expect(await team(["rotate"], io(), { fetch: rotate })).toEqual([
+      "This machine has a new team token; the old one no longer works.",
+    ]);
+    expect(seen).toEqual(["POST https://team.example.com/api/me/rotate Bearer gt_old"]);
+    expect(readFileSync(join(home, "team-token"), "utf8")).toBe("gt_new\n");
+
+    const old = (async () => Response.json({ error: "Not Found" }, { status: 404 })) as unknown as typeof fetch;
+    await expect(team(["rotate"], io(), { fetch: old })).rejects.toThrow("grenier team deploy");
+  });
+});
+
 describe("withTomlValue", () => {
   it("sets a key in an existing table, adds it, or adds the table, keeping the rest", () => {
     const text = '# mine\n[proxy]\nport = 9000\n\n[team]\nurl = "old"\ntoken_env = "X"\n';

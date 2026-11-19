@@ -1,9 +1,15 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { configPath, install, withCodexServer, withPromptHook } from "../../../apps/cli/src/commands/mcp.ts";
+import {
+  configPath,
+  install,
+  stableProgram,
+  withCodexServer,
+  withPromptHook,
+} from "../../../apps/cli/src/commands/mcp.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
 let home: string;
@@ -171,7 +177,44 @@ describe("client tokens from grenier mcp install", () => {
     }
   });
 
+  it("keeps the old token working when the hook's settings cannot be edited", async () => {
+    const { openSqliteStore } = await import("@grenier/store/sqlite");
+    await install(["claude-code"], io, { home });
+    const before = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers.grenier.env
+      .GRENIER_CLIENT_TOKEN;
+    mkdirSync(join(home, ".claude"));
+    writeFileSync(join(home, ".claude", "settings.json"), "{ not json");
+
+    await expect(install(["claude-code", "--hook"], io, { home })).rejects.toThrow("settings.json is not valid JSON");
+
+    const after = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers.grenier.env
+      .GRENIER_CLIENT_TOKEN;
+    expect(after).toBe(before);
+    const store = openSqliteStore(join(home, ".grenier", "grenier.db"));
+    try {
+      const { createHash } = await import("node:crypto");
+      expect(await store.clients.findActive(createHash("sha256").update(before).digest("hex"))).toBeDefined();
+    } finally {
+      await store.close();
+    }
+  });
+
   it("refuses a scope that names nothing", async () => {
     await expect(install(["cursor", "--scope", "secrets"], io, { home })).rejects.toThrow("unknown scope secrets");
+  });
+});
+
+describe("stableProgram", () => {
+  it("writes a versioned program by a PATH entry that resolves to the same file", () => {
+    const cellar = join(home, "Cellar", "node", "26.1.0", "bin");
+    const bin = join(home, "bin");
+    mkdirSync(cellar, { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(join(cellar, "node"), "");
+    symlinkSync(join(cellar, "node"), join(bin, "node"));
+
+    expect(stableProgram(join(cellar, "node"), `/nowhere:${bin}`)).toBe(join(bin, "node"));
+    expect(stableProgram(join(cellar, "node"), "/nowhere")).toBe(join(cellar, "node"));
+    expect(stableProgram("/no/such/node", bin)).toBe("/no/such/node");
   });
 });

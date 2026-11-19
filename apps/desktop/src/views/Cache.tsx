@@ -1,7 +1,19 @@
 import { useCallback, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type CachedAnswer, type CacheRepo } from "../api.ts";
-import { Button, count, Empty, Loading, moment, Notice, Page, Select, times, useAction, useLoad } from "../ui.tsx";
+import {
+  ConfirmButton,
+  count,
+  Empty,
+  Loading,
+  moment,
+  Notice,
+  Page,
+  Select,
+  times,
+  useAction,
+  useLoad,
+} from "../ui.tsx";
 
 const loadRepos = () => api<{ repos: CacheRepo[] }>("/cache");
 const BADGE = "shrink-0 rounded-[5px] border px-1.75 text-xs leading-5";
@@ -53,8 +65,6 @@ function Answers({ repo, changed }: { repo: CacheRepo; changed: () => void }) {
   });
 
   const forget = (answer: CachedAnswer) => {
-    const where = answer.shared ? " It is forgotten on your teammates' machines too." : "";
-    if (!confirm(`Forget the answer to “${answer.question}”?${where}`)) return;
     void action.run(`forget:${answer.id}`, async () => {
       await api(`/cache/answers/${encodeURIComponent(answer.id)}`, { method: "DELETE" });
       return { text: "Forgot the answer." };
@@ -95,9 +105,12 @@ function Answers({ repo, changed }: { repo: CacheRepo; changed: () => void }) {
             </p>
           )}
           <div className="mt-3">
-            <Button quiet disabled={action.busy !== null} onClick={() => forget(answer)}>
-              {action.busy === `forget:${answer.id}` ? "Forgetting…" : "Forget"}
-            </Button>
+            <ConfirmButton
+              label={action.busy === `forget:${answer.id}` ? "Forgetting…" : "Forget"}
+              question={`Forget this answer?${answer.shared ? " It is forgotten on your teammates' machines too." : ""}`}
+              disabled={action.busy !== null}
+              onConfirm={() => forget(answer)}
+            />
           </div>
         </article>
       ))}

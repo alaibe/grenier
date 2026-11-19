@@ -77,6 +77,13 @@ interface UsageDelta {
   answerHits: number;
 }
 
+interface UsageBody {
+  usage?: UsageDelta[];
+  device?: unknown;
+  from?: unknown;
+  through?: unknown;
+}
+
 function isString(value: unknown, max = 512): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= max;
 }
@@ -110,6 +117,13 @@ export function createApp(): Hono<App> {
 
   app.get("/api/me", (c) => c.json(c.get("member")));
 
+  /** A new token for the caller, who keeps their name, role and history; the one they called with stops working. */
+  app.post("/api/me/rotate", async (c) => {
+    const { token, hash } = await newToken();
+    await c.env.DB.prepare("UPDATE members SET token_hash = ? WHERE id = ?").bind(hash, c.get("member").id).run();
+    return c.json({ token });
+  });
+
   app.post("/api/answers", async (c) => {
     const body = await c.req.json<{ answers?: SharedAnswer[] }>().catch(() => ({}) as { answers?: SharedAnswer[] });
     const answers = body.answers ?? [];
@@ -125,15 +139,21 @@ export function createApp(): Hono<App> {
         Array.isArray(answer.sources) &&
         answer.sources.every((source) => isString(source.path, 1024) && isString(source.blobHash, 128));
       if (!valid) return error(400, "each answer needs id, repoId, question, answer, sources and createdAt");
+      const asked = unshareable(answer.question);
+      if (asked) return error(400, `the question of answer ${answer.id} is refused: ${asked}`);
       const problem = unshareable(answer.answer);
       if (problem) return error(400, `answer ${answer.id} is refused: ${problem}`);
-      // The newest answer to a question replaces older ones, as it does on each machine.
+      // The newest answer to a question replaces older ones, as it does on each machine: one recorded earlier but
+      // sent late (a machine back online) changes nothing. A replaced answer stays as a tombstone, without its text.
+      const newer =
+        "NOT EXISTS (SELECT 1 FROM answers WHERE repo_id = ? AND lower(trim(question)) = lower(trim(?)) AND id != ? AND deleted = 0 AND created_at > ?)";
+      const same = [answer.repoId, answer.question, answer.id, answer.createdAt] as const;
       statements.push(
         c.env.DB.prepare(
-          "INSERT OR REPLACE INTO answers (id, repo_id, question, answer, sources, author, created_at, deleted) SELECT id, repo_id, question, answer, sources, author, created_at, 1 FROM answers WHERE repo_id = ? AND lower(trim(question)) = lower(trim(?)) AND id != ? AND deleted = 0",
-        ).bind(answer.repoId, answer.question, answer.id),
+          `INSERT OR REPLACE INTO answers (id, repo_id, question, answer, sources, author, created_at, deleted) SELECT id, repo_id, question, '', sources, author, created_at, 1 FROM answers WHERE repo_id = ? AND lower(trim(question)) = lower(trim(?)) AND id != ? AND deleted = 0 AND ${newer}`,
+        ).bind(answer.repoId, answer.question, answer.id, ...same),
         c.env.DB.prepare(
-          "INSERT OR REPLACE INTO answers (id, repo_id, question, answer, sources, author, created_at, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+          `INSERT OR REPLACE INTO answers (id, repo_id, question, answer, sources, author, created_at, deleted) SELECT ?, ?, ?, ?, ?, ?, ?, 0 WHERE ${newer}`,
         ).bind(
           answer.id,
           answer.repoId,
@@ -142,6 +162,7 @@ export function createApp(): Hono<App> {
           JSON.stringify(answer.sources),
           c.get("member").name,
           answer.createdAt,
+          ...same,
         ),
       );
     }
@@ -228,11 +249,29 @@ export function createApp(): Hono<App> {
     });
   });
 
+  /**
+   * Usage as daily numbers. A machine that names itself (`device`) says which of its usage rows the batch holds
+   * (`from`, exclusive, to `through`): a batch that does not start where the last one ended is refused with 409 and
+   * where it ended, so the same rows are never added twice. The first batch from a machine is taken as it comes.
+   */
   app.post("/api/usage", async (c) => {
-    const body = await c.req.json<{ usage?: UsageDelta[] }>().catch(() => ({}) as { usage?: UsageDelta[] });
+    const body = await c.req.json<UsageBody>().catch(() => ({}) as UsageBody);
     const deltas = body.usage ?? [];
     if (!Array.isArray(deltas) || deltas.length > MAX_BATCH) return error(400, `send at most ${MAX_BATCH} rows`);
     const member = c.get("member");
+    const ranged = body.device !== undefined;
+    if (
+      ranged &&
+      (!isString(body.device, 64) || !isCount(body.from) || !isCount(body.through) || body.through < body.from)
+    ) {
+      return error(400, "device takes a name, with from and through: the usage row ids the batch holds");
+    }
+    const device = String(body.device);
+    // Inside the batch's transaction, so of two batches sent at once only the first is counted.
+    const where = ranged
+      ? "WHERE EXISTS (SELECT 1 FROM usage_cursors WHERE member_id = ? AND device = ? AND through = ?) OR NOT EXISTS (SELECT 1 FROM usage_cursors WHERE member_id = ? AND device = ?)"
+      : "WHERE true";
+    const guard = ranged ? [member.id, device, body.from, member.id, device] : [];
     const statements: D1PreparedStatement[] = [];
     for (const delta of deltas) {
       const numbers = [
@@ -251,17 +290,33 @@ export function createApp(): Hono<App> {
       statements.push(
         c.env.DB.prepare(
           `INSERT INTO usage (member_id, day, requests, input_tokens, cache_write_tokens, cache_read_tokens, output_tokens, cost, saved, answer_hits)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${where}
            ON CONFLICT (member_id, day) DO UPDATE SET
              requests = requests + excluded.requests, input_tokens = input_tokens + excluded.input_tokens,
              cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
              cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
              output_tokens = output_tokens + excluded.output_tokens, cost = cost + excluded.cost,
              saved = saved + excluded.saved, answer_hits = answer_hits + excluded.answer_hits`,
-        ).bind(member.id, delta.day, ...numbers),
+        ).bind(member.id, delta.day, ...numbers, ...guard),
       );
     }
-    if (statements.length > 0) await c.env.DB.batch(statements);
+    if (ranged) {
+      statements.push(
+        c.env.DB.prepare(
+          "INSERT INTO usage_cursors (member_id, device, through) VALUES (?, ?, ?) ON CONFLICT (member_id, device) DO UPDATE SET through = excluded.through WHERE usage_cursors.through = ?",
+        ).bind(member.id, device, body.through, body.from),
+      );
+    }
+    const results = statements.length > 0 ? await c.env.DB.batch(statements) : [];
+    if (ranged && results.at(-1)?.meta.changes === 0) {
+      const cursor = await c.env.DB.prepare("SELECT through FROM usage_cursors WHERE member_id = ? AND device = ?")
+        .bind(member.id, device)
+        .first<{ through: number }>();
+      return Response.json(
+        { error: `this machine's usage is counted through row ${cursor?.through}`, through: cursor?.through ?? 0 },
+        { status: 409 },
+      );
+    }
     for (const delta of deltas) {
       if (delta.day === today() && delta.cost > 0) await counter(c.env).add(delta.day, member.id, delta.cost);
     }
@@ -313,12 +368,24 @@ export function createApp(): Hono<App> {
       .catch(() => ({}) as { name?: string; role?: string });
     if (!isString(body.name, 64) || !/^[\w.@-]+$/.test(body.name)) return error(400, "name: letters, digits, . _ @ -");
     const role = body.role === "admin" ? "admin" : "member";
-    const existing = await c.env.DB.prepare("SELECT 1 FROM members WHERE name = ?").bind(body.name).first();
+    const existing = await c.env.DB.prepare("SELECT 1 FROM members WHERE name = ? AND revoked_at IS NULL")
+      .bind(body.name)
+      .first();
     if (existing) return error(409, `there is already a member named ${body.name}`);
     const { token, hash } = await newToken();
-    await c.env.DB.prepare("INSERT INTO members (id, name, token_hash, role, created_at) VALUES (?, ?, ?, ?, ?)")
-      .bind(crypto.randomUUID(), body.name, hash, role, Date.now())
-      .run();
+    // A revoked member keeps their history under a name of their own, so the name can be given again.
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "UPDATE members SET name = name || '~' || revoked_at WHERE name = ? AND revoked_at IS NOT NULL",
+      ).bind(body.name),
+      c.env.DB.prepare("INSERT INTO members (id, name, token_hash, role, created_at) VALUES (?, ?, ?, ?, ?)").bind(
+        crypto.randomUUID(),
+        body.name,
+        hash,
+        role,
+        Date.now(),
+      ),
+    ]);
     return c.json({ name: body.name, role, token }, 201);
   });
 
