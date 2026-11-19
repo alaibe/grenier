@@ -70,13 +70,15 @@ export function Dashboard({ go }: ViewProps) {
                 </tr>
               </thead>
               <tbody>
-                {days.map((row) => (
-                  <tr key={row.key}>
-                    <td>{day(row.key)}</td>
-                    <td className="text-right tabular-nums">{money(row.cost)}</td>
-                    <td className="text-right tabular-nums">{money(row.saved)}</td>
-                  </tr>
-                ))}
+                {[...days]
+                  .sort((a, b) => b.key.localeCompare(a.key))
+                  .map((row) => (
+                    <tr key={row.key}>
+                      <td>{day(row.key)}</td>
+                      <td className="text-right tabular-nums">{money(row.cost)}</td>
+                      <td className="text-right tabular-nums">{money(row.saved)}</td>
+                    </tr>
+                  ))}
               </tbody>
             </Table>
           </section>
