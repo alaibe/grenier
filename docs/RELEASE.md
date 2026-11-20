@@ -2,7 +2,7 @@
 
 A release is a `v*` tag. The rest happens on git.laibe.cc's runners and on GitHub:
 
-1. **Tag.** Every night at 22:00 in Paris (21:00 UTC), `.forgejo/workflows/nightly.yml` looks for commits on main since
+1. **Tag.** Every night at 05:30 in Paris, all year, `.forgejo/workflows/nightly.yml` looks for commits on main since
    the last `v*` tag that change what ships: anything outside `.forgejo`, `docs`, `tests`, `bench` and the top-level
    notes. With some, the Mac runs `pnpm test`, moves a version that's already tagged to its next patch
    (`node scripts/version.ts bump`) and commits it, then tags `v<version>` and pushes both over SSH as Anthony: a tag

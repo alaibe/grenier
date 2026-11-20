@@ -6,14 +6,14 @@
 # (scripts/version.ts) and commits it, then tags `v<version>` and pushes both over SSH, as Anthony. A tag pushed with
 # the job's own token starts no workflow; this one starts release.yml. Its "Run workflow" button does the same at once.
 #
-# 22:00 in Paris in winter, 23:00 in summer, an hour before Kestrel's nightly; the job waits for the Mac when it's
-# asleep.
+# 05:30 in Paris all year (the TZ= prefix: Forgejo reads a bare cron as UTC), after the home server's 04:30 deploys and
+# an hour before Kestrel's nightly; Statim's follows at 07:30.
 
 name: Nightly release
 
 on:
   schedule:
-    - cron: "0 21 * * *"
+    - cron: "TZ=Europe/Paris 30 5 * * *"
   workflow_dispatch:
 
 # One run at a time, never cancelled: a cancelled one could stop between its version commit and its tag.
