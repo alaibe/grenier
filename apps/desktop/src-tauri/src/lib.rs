@@ -13,6 +13,7 @@ use tauri_plugin_shell::ShellExt;
 #[cfg(target_os = "macos")]
 mod menu_bar;
 mod updater;
+mod usage;
 
 /// The daemon this app started, if it had to: stopped when the app quits. One started by `grenier start` is left alone.
 struct Sidecar(Mutex<Option<CommandChild>>);
@@ -197,8 +198,26 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Sidecar(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![daemon_connection])
+        .invoke_handler(tauri::generate_handler![
+            daemon_connection,
+            usage::usage_page_view,
+            usage::usage_enabled,
+            usage::usage_set_enabled
+        ])
         .setup(|app| {
+            let store = usage::Store::new(
+                app.path()
+                    .app_local_data_dir()
+                    .ok()
+                    .map(|dir| dir.join(usage::STORE_FILE)),
+            );
+            let version = app.package_info().version.to_string();
+            app.manage(usage::Usage::new(
+                store,
+                !cfg!(debug_assertions),
+                usage::Os::current(),
+                version,
+            ));
             updater::schedule(app.handle());
             #[cfg(target_os = "macos")]
             menu_bar::install(app.handle())?;

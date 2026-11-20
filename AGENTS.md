@@ -8,7 +8,25 @@ Hard rules: a failing test is never a reason to relax one.
   uses. Client tokens are stored hashed, and a revoked one fails on its next call.
 - API keys and auth headers (`x-api-key`, `authorization`) are forwarded, never stored, logged or sent to the team
   server.
-- Nothing leaves the machine by default: team sharing and sync are opt-in, per repository and per source.
+- Nothing of the user's leaves the machine by default: team sharing and sync are opt-in, per repository and per
+  source. The one exception, on by default, is the desktop app's usage statistics below.
+- The desktop app's usage statistics (`apps/desktop/src-tauri/src/usage.rs`) are page views to Umami at
+  stats.laibe.cc, from release builds only, until turned off in its Settings. The page passes only a screen's url, from
+  the fixed list, and the display's size; Rust refuses any other url or field and builds the hit itself, so no
+  repository, session, source, path, id, amount or text the app shows ever goes in it.
+  - When: a screen once it has stayed a second in front, never twice in a row, and again after 30 minutes or more
+    away. Nothing while the app is behind other apps or hidden, launch included (`src/usage/tracker.ts`, fed by
+    `src/usage/front.ts`). A wake from sleep with the app in front sends no return hit until the next screen change or
+    app switch: a known limit, the same in Kestrel and Statim.
+  - The store, `usage.json` in the app's local data folder, holds either `{"id":…,"made":…}` or `{"off":true}`.
+    Nothing stored is on; anything else is damaged and counts as off. The id is random, made for this alone at the
+    first hit, and replaced at the next hit once it is 365 days old or dated in the future (CNIL's 13-month limit for
+    audience-measurement trackers). Off replaces it at once; on removes an off or damaged store, and the next hit makes
+    a new id. No hit leaves when a new id can't be saved.
+  - Shared with Kestrel and Statim, byte for byte: `src/usage/tracker.ts`, `src/usage/use-usage.ts` and
+    `src-tauri/src/usage-vectors.json`. `usage.rs`'s core is the same text as Kestrel's. Change all three apps
+    together.
+  - The CLI, the daemon and the team server send none.
 - The team server never stores file contents, prompts or keys, and a summary quotes at most a short snippet of code:
   answers and summaries pass `unshareable` (`@grenier/core/policy`) on both sides, and usage goes up as numbers.
 - The vault key never leaves the user's devices: `seal`/`open` (`@grenier/core/vault`) run locally; the server stores
@@ -50,9 +68,11 @@ code.
   `dist/server` for `grenier team deploy`. `apps/desktop` is the Tauri app (React UI in `src`, Rust shell in
   `src-tauri`), talking to the daemon's admin API (`packages/gateway/src/admin.ts`). The UI is styled with Tailwind
   utilities; its theme (colours, light and dark, type scale, breakpoints) and the few element defaults are
-  `src/styles.css`, and the shared pieces (`Button`, `Field`, `Table`…) are in `src/ui.tsx`. The Rust shell is
-  formatted at 120 columns (`src-tauri/rustfmt.toml`), and `tauri-build` needs the web UI and the sidecar in place
-  before it compiles: `pnpm build`, `pnpm --filter @grenier/desktop build` and `pnpm --filter @grenier/desktop sidecar`.
+  `src/styles.css`, and the shared pieces (`Button`, `Field`, `Table`…) are in `src/ui.tsx`. Its screens are listed in
+  `src/usage/screens.ts` and again in `src-tauri/src/usage.rs`, which `tests/unit/desktop/usage-screens.test.ts` keeps
+  equal. The Rust shell is formatted at 120 columns (`src-tauri/rustfmt.toml`), and `tauri-build` needs the web UI
+  and the sidecar in place before it compiles: `pnpm build`, `pnpm --filter @grenier/desktop build` and
+  `pnpm --filter @grenier/desktop sidecar`.
 - The desktop app bundle: `pnpm build`, `pnpm --filter @grenier/desktop sidecar [--target <triple>]` (downloads Node's
   official build, checked against the SHA-256 pinned in `scripts/prepare-sidecar.mjs`), then
   `pnpm --filter @grenier/desktop tauri build`. CI builds its web UI and sidecar and tests the shell; releases build

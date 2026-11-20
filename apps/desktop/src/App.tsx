@@ -1,12 +1,15 @@
-import { useState } from "react";
-import { api, type Overview } from "./api.ts";
+import { type ComponentType, useState } from "react";
+import { api, type Overview, sendPageView } from "./api.ts";
 import { useLoad } from "./ui.tsx";
+import { SCREENS, type ViewName } from "./usage/screens.ts";
+import { useUsage } from "./usage/use-usage.ts";
 import { Audit } from "./views/Audit.tsx";
 import { Budgets } from "./views/Budgets.tsx";
 import { Cache } from "./views/Cache.tsx";
 import { Clients } from "./views/Clients.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
 import { Review } from "./views/Review.tsx";
+import { Settings } from "./views/Settings.tsx";
 import { Sources } from "./views/Sources.tsx";
 import { Traces } from "./views/Traces.tsx";
 
@@ -18,18 +21,19 @@ export interface ViewProps {
   changed: () => void;
 }
 
-const VIEWS = {
-  dashboard: { label: "Dashboard", view: Dashboard },
-  traces: { label: "Traces", view: Traces },
-  cache: { label: "Exploration cache", view: Cache },
-  budgets: { label: "Budgets", view: Budgets },
-  sources: { label: "Sources", view: Sources },
-  clients: { label: "Clients and scopes", view: Clients },
-  audit: { label: "Audit log", view: Audit },
-  review: { label: "Review queue", view: Review },
-} as const;
+export type { ViewName };
 
-export type ViewName = keyof typeof VIEWS;
+const VIEWS: Record<ViewName, ComponentType<ViewProps>> = {
+  dashboard: Dashboard,
+  traces: Traces,
+  cache: Cache,
+  budgets: Budgets,
+  sources: Sources,
+  clients: Clients,
+  audit: Audit,
+  review: Review,
+  settings: Settings,
+};
 
 const loadOverview = () => api<Overview>("/overview");
 
@@ -42,7 +46,8 @@ export function App() {
     setFocus(next);
     overview.reload();
   };
-  const View = VIEWS[current].view;
+  useUsage(SCREENS[current].url, sendPageView);
+  const View = VIEWS[current];
   const pending = overview.error ? 0 : (overview.data?.pendingReview ?? 0);
 
   return (
@@ -52,7 +57,7 @@ export function App() {
         aria-label="Sections"
       >
         <p className="mx-2.5 mb-4.5 font-serif text-2xl font-semibold">Grenier</p>
-        {(Object.keys(VIEWS) as ViewName[]).map((name) => (
+        {(Object.keys(SCREENS) as ViewName[]).map((name) => (
           <button
             type="button"
             key={name}
@@ -60,7 +65,7 @@ export function App() {
             aria-current={current === name ? "page" : undefined}
             onClick={() => go(name)}
           >
-            {VIEWS[name].label}
+            {SCREENS[name].title}
             {name === "review" && pending > 0 && (
               <span
                 className="min-w-5 rounded-xl bg-accent px-1.5 text-center text-2xs leading-5 font-semibold text-accent-fg"

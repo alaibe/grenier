@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { ScreenUrl } from "./usage/screens.ts";
 
 interface Connection {
   url: string;
@@ -55,6 +56,23 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`);
   return body;
+}
+
+/** Counts a page view of a screen, with the display's size. The shell alone decides whether it is sent. */
+export function sendPageView(screen: ScreenUrl): void {
+  if (!isTauri()) return;
+  invoke("usage_page_view", { screen, width: window.screen.width, height: window.screen.height }).catch(() => {});
+}
+
+const OUTSIDE_THE_APP = "Settings are kept by the desktop app: open this page in Grenier.";
+
+/** Whether usage statistics are on, as the shell keeps it. */
+export function usageEnabled(): Promise<boolean> {
+  return isTauri() ? invoke<boolean>("usage_enabled") : Promise.reject(new ApiError(OUTSIDE_THE_APP));
+}
+
+export function setUsageEnabled(enabled: boolean): Promise<void> {
+  return isTauri() ? invoke<void>("usage_set_enabled", { enabled }) : Promise.reject(new ApiError(OUTSIDE_THE_APP));
 }
 
 export interface ReportRow {

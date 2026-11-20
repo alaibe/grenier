@@ -105,9 +105,11 @@ pnpm build && pnpm --filter @grenier/bench bench --budget 4
 
 ## Security
 
-The daemon only listens on 127.0.0.1; API keys pass through and are never stored; nothing leaves your machine unless
-you share a repository or put a source in the vault, which is end-to-end encrypted. The ten rules and how they are enforced are
-in the guide's [security page](https://grenier.laibe.cc/guide/security).
+The daemon only listens on 127.0.0.1; API keys pass through and are never stored; nothing of yours leaves your machine
+unless you share a repository or put a source in the vault, which is end-to-end encrypted. The desktop app sends
+anonymous usage statistics until you turn them off in its Settings: which screens you open, its version and your
+system, never your projects, sessions, spending or sources. The rules and how they are enforced are in the guide's
+[security page](https://grenier.laibe.cc/guide/security).
 
 ## Development
 
