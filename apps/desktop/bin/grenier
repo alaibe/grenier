@@ -5,11 +5,11 @@
 set -e
 self=$0
 while [ -L "$self" ]; do
-  target=$(readlink "$self")
-  case $target in
-    /*) self=$target ;;
-    *) self=$(dirname "$self")/$target ;;
-  esac
+    target=$(readlink "$self")
+    case $target in
+        /*) self=$target ;;
+        *) self=$(dirname "$self")/$target ;;
+    esac
 done
 contents=$(cd "$(dirname "$self")/../../.." && pwd -P)
 exec "$contents/MacOS/grenier-node" "$contents/Resources/grenier/dist/grenier.js" "$@"

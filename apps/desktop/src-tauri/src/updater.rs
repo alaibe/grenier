@@ -47,7 +47,13 @@ fn check(app: &AppHandle, asked: bool) {
     CHECKING.store(false, Ordering::SeqCst);
     if let Err(error) = installed {
         let message = format!("The update could not be installed: {error}");
-        ask(app, MessageDialogKind::Error, "Grenier could not update", &message, None);
+        ask(
+            app,
+            MessageDialogKind::Error,
+            "Grenier could not update",
+            &message,
+            None,
+        );
     }
 }
 
@@ -66,7 +72,13 @@ fn check_and_install(app: &AppHandle, asked: bool) -> Result<(), String> {
         }
         Err(error) if asked => {
             let message = format!("The check for a new version failed: {error}");
-            ask(app, MessageDialogKind::Error, "Grenier could not check for updates", &message, None);
+            ask(
+                app,
+                MessageDialogKind::Error,
+                "Grenier could not check for updates",
+                &message,
+                None,
+            );
             return Ok(());
         }
         _ => return Ok(()),
@@ -76,7 +88,13 @@ fn check_and_install(app: &AppHandle, asked: bool) -> Result<(), String> {
         "You have {}. Installing it stops Grenier's daemon for a moment and restarts the app.",
         update.current_version
     );
-    if !ask(app, MessageDialogKind::Info, &title, &message, Some(("Install and Restart", "Later"))) {
+    if !ask(
+        app,
+        MessageDialogKind::Info,
+        &title,
+        &message,
+        Some(("Install and Restart", "Later")),
+    ) {
         return Ok(());
     }
     let bytes = block_on(update.download(|_, _| {}, || {})).map_err(|error| error.to_string())?;

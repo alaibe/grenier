@@ -50,7 +50,10 @@ fn configured_port(config: &str) -> u16 {
         if line.starts_with('[') {
             in_proxy = line == "[proxy]";
         } else if in_proxy {
-            if let Some(value) = line.strip_prefix("port").and_then(|rest| rest.trim_start().strip_prefix('=')) {
+            if let Some(value) = line
+                .strip_prefix("port")
+                .and_then(|rest| rest.trim_start().strip_prefix('='))
+            {
                 if let Ok(port) = value.trim().parse() {
                     return port;
                 }
@@ -133,7 +136,11 @@ fn start_daemon(app: &AppHandle, home: &PathBuf) -> Result<u16, String> {
         if exited.load(Ordering::SeqCst) || gave_up {
             *sidecar = None;
             let lines = said.lock().map(|lines| lines.join("\n")).unwrap_or_default();
-            let why = if lines.trim().is_empty() { "it said nothing".to_string() } else { lines };
+            let why = if lines.trim().is_empty() {
+                "it said nothing".to_string()
+            } else {
+                lines
+            };
             return Err(if gave_up {
                 format!("the Grenier daemon did not answer on 127.0.0.1:{port} within 15 seconds:\n{why}")
             } else {
@@ -218,7 +225,10 @@ mod tests {
     #[test]
     fn reads_the_port_with_comments() {
         assert_eq!(configured_port("[proxy]\nport = 7790  # where it listens\n"), 7790);
-        assert_eq!(configured_port("[budgets]\nport = 1\n[proxy]\nupstream = \"x\"\n"), 7788);
+        assert_eq!(
+            configured_port("[budgets]\nport = 1\n[proxy]\nupstream = \"x\"\n"),
+            7788
+        );
         assert_eq!(configured_port(""), 7788);
     }
 }
