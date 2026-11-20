@@ -34,8 +34,10 @@ jobs:
     outputs:
       due: ${{ steps.due.outputs.due }}
     steps:
+      # main as it is now: a scheduled run's own commit can be an older one, and its version commit would not push.
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: main
           fetch-depth: 0
 
       - id: due
@@ -62,6 +64,7 @@ jobs:
       # actions/checkout adds a safe.directory to the global git config: a throwaway one, not Anthony's ~/.gitconfig.
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: main
           fetch-depth: 0
         env:
           GIT_CONFIG_GLOBAL: ${{ runner.temp }}/gitconfig
