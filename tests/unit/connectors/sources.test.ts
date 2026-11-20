@@ -43,7 +43,8 @@ afterEach(() => {
 });
 
 describe("markdown", () => {
-  it("reports a note it cannot read and reads the others", async () => {
+  // Root reads a file whatever its mode, as in CI's container.
+  it.skipIf(process.getuid?.() === 0)("reports a note it cannot read and reads the others", async () => {
     writeFileSync(join(dir, "fine.md"), "# Fine\n");
     writeFileSync(join(dir, "locked.md"), "# Locked\n");
     chmodSync(join(dir, "locked.md"), 0o000);
