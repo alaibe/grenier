@@ -19,12 +19,18 @@ const FIRST_LINE: usize = 1;
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let today = MenuItem::with_id(app, "today", "Today", false, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Grenier", true, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", "Check for Updates…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Grenier", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&today, &PredefinedMenuItem::separator(app)?, &open, &quit])?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&today, &separator, &open, &update, &quit])?;
     let mut builder = TrayIconBuilder::with_id("today")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_window(app),
+            "update" => {
+                let app = app.clone();
+                std::thread::spawn(move || crate::updater::check_now(&app));
+            }
             "quit" => app.exit(0),
             _ => {}
         });
