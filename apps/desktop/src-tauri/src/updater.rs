@@ -32,6 +32,7 @@ pub fn schedule(app: &AppHandle) {
 
 /// Checks now, as asked from the menu: unlike the daily check, it also says when Grenier is up to date or the check
 /// failed. It waits for the person's answer, so it must not run on the main thread.
+#[cfg(target_os = "macos")]
 pub fn check_now(app: &AppHandle) {
     check(app, true);
 }

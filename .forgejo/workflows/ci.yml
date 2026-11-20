@@ -1,7 +1,15 @@
-# Checks Grenier on each push: the dependency audit, formatting and lint, types, the unit tests, then the CLI built and
-# run as a binary (tests/e2e), and the desktop app's web UI built. It runs on git.laibe.cc's runner on the home server (`home-linux`: forgejo-runner in the
-# homeserver repository), in an Ubuntu container with nothing cached. Node is the version in .node-version, pnpm the one
-# in package.json's packageManager. Actions are pinned to a commit, with their tag beside it.
+# Checks every push to Grenier against the shared code standard (homeserver's AGENTS.md › Code standards), on
+# git.laibe.cc's home runner (`home-linux`: forgejo-runner in the homeserver repository), in an Ubuntu container with
+# nothing cached, so each run builds from scratch:
+#
+# - the shell scripts (shfmt, shellcheck, bash -n);
+# - formatting (Biome, rustfmt) and lint (Biome, Clippy, the dependency audit, the version files);
+# - types (tsc) and the tests (Vitest, then the desktop shell's `cargo test`);
+# - the CLI built and run as a binary (tests/e2e).
+#
+# The runner takes one job at a time, so everything shares one job and installs its toolchains once. Node is the
+# version in .node-version, pnpm the one in package.json's packageManager, Rust the one in rust-toolchain.toml. Actions
+# are pinned to a commit, with their tag beside it. Nothing is bundled or signed here: release.yml builds the app.
 
 name: CI
 
@@ -14,16 +22,49 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  SHELLCHECK_VERSION: 0.11.0
+  SHFMT_VERSION: 3.14.1
+
 jobs:
   check:
-    name: Linux
     runs-on: home-linux
-    timeout-minutes: 20
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
     steps:
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Tauri's Linux prerequisites for the desktop shell, as release.yml's linux job installs them.
+      - name: Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config file curl wget \
+            libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev libjavascriptcoregtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf xdg-utils
+
+      # The Rust in rust-toolchain.toml, with its components (rustfmt, Clippy) and targets. The Linux image has no
+      # rustup: a minimal one goes in first, without a default toolchain, and on the PATH for the next steps.
+      - name: Rust
+        run: |
+          if ! command -v rustup > /dev/null; then
+            curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup show active-toolchain || rustup toolchain install
+
+      # shellcheck and shfmt at the versions in env, on the PATH from the next step on.
+      - name: Tools
+        uses: https://github.com/taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: shellcheck@${{ env.SHELLCHECK_VERSION }},shfmt@${{ env.SHFMT_VERSION }}
 
       - uses: https://github.com/pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -31,28 +72,50 @@ jobs:
         with:
           node-version-file: .node-version
 
-      - name: Install
+      - name: JavaScript packages
         run: pnpm install --frozen-lockfile
 
-      - name: Dependency audit
-        run: pnpm audit --audit-level moderate
+      # tauri-build checks the web UI (frontendDist) and the sidecar (externalBin) before the shell compiles.
+      - name: Desktop UI and sidecar
+        run: |
+          pnpm build
+          pnpm --filter @grenier/desktop build
+          pnpm --filter @grenier/desktop sidecar
 
-      - name: Formatting and lint (biome.json)
-        run: pnpm lint
+      # Every tracked file with a bash or sh shebang: apps/desktop/bin/grenier, bin/grenier-linux and
+      # scripts/sign-macos.sh today.
+      - name: Shell scripts
+        run: |
+          git ls-files -z | while IFS= read -r -d '' file; do
+            if [ -f "$file" ] && head -c 40 "$file" | grep -qE '^#!.*(bash|/sh)'; then printf '%s\0' "$file"; fi
+          done > "$RUNNER_TEMP/shell"
+          tr '\0' '\n' < "$RUNNER_TEMP/shell"
+
+      # Biome (biome.json) and rustfmt (apps/desktop/src-tauri/rustfmt.toml), then shfmt.
+      - name: Format
+        run: |
+          pnpm format:check
+          xargs -0 -r shfmt -d -i 4 -ci -bn < "$RUNNER_TEMP/shell"
+
+      # Biome, Clippy, shellcheck and bash's own parse, then the dependency audit and the version files (both run as
+      # release.yml and nightly.yml run them).
+      - name: Lint
+        run: |
+          pnpm lint
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+          xargs -0 -r shellcheck -S warning < "$RUNNER_TEMP/shell"
+          xargs -0 -r -n 1 bash -n < "$RUNNER_TEMP/shell"
+          pnpm audit --audit-level moderate
+          node scripts/version.ts check
 
       - name: Types
         run: pnpm typecheck
 
-      # Run as release.yml and nightly.yml run it.
-      - name: Version files agree
-        run: node scripts/version.ts check
+      # Vitest, then the desktop shell.
+      - name: Tests
+        run: |
+          pnpm test
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
-      - name: Unit tests
-        run: pnpm test
-
-      - name: Build the CLI and run it (tests/e2e)
+      - name: E2e
         run: pnpm test:e2e
-
-      # The desktop app's web UI only: its Tauri shell needs WebKitGTK on Linux and is built on a Mac (apps/desktop).
-      - name: Build the desktop UI
-        run: pnpm --filter @grenier/desktop build

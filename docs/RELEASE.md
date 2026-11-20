@@ -4,10 +4,11 @@ A release is a `v*` tag. The rest happens on git.laibe.cc's runners and on GitHu
 
 1. **Tag.** Every night at 05:30 in Paris, all year, `.forgejo/workflows/nightly.yml` looks for commits on main since
    the last `v*` tag that change what ships: anything outside `.forgejo`, `docs`, `tests`, `bench` and the top-level
-   notes. With some, the Mac runs `pnpm test`, moves a version that's already tagged to its next patch
-   (`node scripts/version.ts bump`) and commits it, then tags `v<version>` and pushes both over SSH as Anthony: a tag
-   pushed with a job's own token starts no workflow. A version not tagged yet is tagged as it is, so the first release
-   is the files' 0.1.0. Its "Run workflow" button on git.laibe.cc does the same at once.
+   notes. With some, the Mac runs Types and Tests (`pnpm test`, then the desktop shell's `cargo test`), moves a
+   version that's already tagged to its next patch (`node scripts/version.ts bump`) and commits it, then tags
+   `v<version>` and pushes both over SSH as Anthony: a tag pushed with a job's own token starts no workflow. A version
+   not tagged yet is tagged as it is, so the first release is the files' 0.1.0. Its "Run workflow" button on
+   git.laibe.cc does the same at once.
 2. **Build.** The tag starts `.forgejo/workflows/release.yml`. It waits for the push mirror to bring the tag to
    `github.com/alaibe/grenier` at the same commit, drafts a release there with the commits since the last one, and
    builds the three systems on our own runners.

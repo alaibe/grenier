@@ -27,7 +27,10 @@ Hard rules: a failing test is never a reason to relax one.
 pnpm format && pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e
 ```
 
-Biome formats and lints (`biome.json`); `tsc` only typechecks; `pnpm test:e2e` builds the CLI and runs the built file.
+Biome formats and lints (`biome.json`), and `pnpm format` runs rustfmt too; `tsc` only typechecks; `pnpm test:e2e`
+builds the CLI and runs the built file. When `apps/desktop/src-tauri` changes, also run
+`cargo clippy --all-targets --locked -- -D warnings` and `cargo test --locked` there, after the desktop UI and sidecar
+are built (below).
 `pnpm test:agents` runs Claude Code itself through the daemon against a stand-in API, plain and with the benchmark's
 own command; run it by hand when the proxy, the MCP tools or `bench/` change (CI has no Claude Code).
 
@@ -47,16 +50,21 @@ code.
   `dist/server` for `grenier team deploy`. `apps/desktop` is the Tauri app (React UI in `src`, Rust shell in
   `src-tauri`), talking to the daemon's admin API (`packages/gateway/src/admin.ts`). The UI is styled with Tailwind
   utilities; its theme (colours, light and dark, type scale, breakpoints) and the few element defaults are
-  `src/styles.css`, and the shared pieces (`Button`, `Field`, `Table`…) are in `src/ui.tsx`.
+  `src/styles.css`, and the shared pieces (`Button`, `Field`, `Table`…) are in `src/ui.tsx`. The Rust shell is
+  formatted at 120 columns (`src-tauri/rustfmt.toml`), and `tauri-build` needs the web UI and the sidecar in place
+  before it compiles: `pnpm build`, `pnpm --filter @grenier/desktop build` and `pnpm --filter @grenier/desktop sidecar`.
 - The desktop app bundle: `pnpm build`, `pnpm --filter @grenier/desktop sidecar [--target <triple>]` (downloads Node's
   official build, checked against the SHA-256 pinned in `scripts/prepare-sidecar.mjs`), then
-  `pnpm --filter @grenier/desktop tauri build`. CI builds only its web UI; releases build it for macOS, Linux and
-  Windows (`docs/RELEASE.md`).
+  `pnpm --filter @grenier/desktop tauri build`. CI builds its web UI and sidecar and tests the shell; releases build
+  it for macOS, Linux and Windows (`docs/RELEASE.md`).
 - Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `agents` with real agents,
   `fixtures` for recorded data, `support` for shared helpers.
   Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`).
-- CI is `.forgejo/workflows/ci.yml`, on git.laibe.cc. `nightly.yml` tags a release when main has changed and
-  `release.yml` builds and publishes it on `github.com/alaibe/grenier` (`docs/RELEASE.md`).
+- CI is `.forgejo/workflows/ci.yml`, on git.laibe.cc: one `check` job on every push, as in Kestrel and Statim. It
+  installs Tauri's Linux packages, Rust and the shell tools, builds the desktop UI and sidecar, then runs Format
+  (Biome, rustfmt, shfmt), Lint (Biome, Clippy, shellcheck, the audit, the version files), Types, Tests (Vitest, then
+  `cargo test`) and E2e. `nightly.yml` runs Types and Tests on the Mac before it tags a release when main has changed,
+  and `release.yml` builds and publishes it on `github.com/alaibe/grenier` (`docs/RELEASE.md`).
 - `priv/` is gitignored except its `.gitkeep`: the maintainer's own material (launch posts, the demo script, Product
   Hunt's images) lives there, and new material of that kind goes there too. Its README lists what is in it. A worktree
   has no `priv/`; use the main checkout's.

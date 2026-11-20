@@ -11,8 +11,9 @@
   },
   "scripts": {
     "build": "pnpm --filter @grenier/server build && pnpm --filter @grenier/cli build",
-    "lint": "biome check .",
-    "format": "biome check --write .",
+    "lint": "biome lint --error-on-warnings .",
+    "format": "biome check --write . && cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml",
+    "format:check": "biome check --linter-enabled=false . && cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check",
     "typecheck": "tsc && tsc -p apps/server && tsc -p apps/desktop",
     "test": "vitest run",
     "test:e2e": "pnpm build && vitest run --config vitest.e2e.config.ts",

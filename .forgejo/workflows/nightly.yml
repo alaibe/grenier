@@ -2,9 +2,10 @@
 #
 # On the home runner, `due` counts the commits since the last `v*` tag that change what ships (not only the workflows,
 # docs/, tests/, bench/ or the top-level notes); with none, the run ends there, and with no tag yet the first release is
-# due. Otherwise the Mac runs the tests, moves a version that's already tagged to its next patch in every version file
-# (scripts/version.ts) and commits it, then tags `v<version>` and pushes both over SSH, as Anthony. A tag pushed with
-# the job's own token starts no workflow; this one starts release.yml. Its "Run workflow" button does the same at once.
+# due. Otherwise the Mac runs Types and Tests (Vitest, then the desktop shell's `cargo test`), moves a version that's
+# already tagged to its next patch in every version file (scripts/version.ts) and commits it, then tags `v<version>` and
+# pushes both over SSH, as Anthony. A tag pushed with the job's own token starts no workflow; this one starts
+# release.yml. Its "Run workflow" button does the same at once.
 #
 # 05:30 in Paris all year (the TZ= prefix: Forgejo reads a bare cron as UTC), after the home server's 04:30 deploys and
 # an hour before Kestrel's nightly; Statim's follows at 07:30.
@@ -69,6 +70,12 @@ jobs:
         env:
           GIT_CONFIG_GLOBAL: ${{ runner.temp }}/gitconfig
 
+      # The Rust in rust-toolchain.toml through the Mac's own rustup, as release.yml installs it.
+      - name: Rust
+        run: |
+          rustup install --no-self-update
+          cargo --version
+
       - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
@@ -76,8 +83,22 @@ jobs:
       - name: JavaScript packages
         run: pnpm install --frozen-lockfile
 
+      # tauri-build checks the web UI (frontendDist) and the sidecar (externalBin) before the shell compiles.
+      - name: Desktop UI and sidecar
+        run: |
+          pnpm build
+          pnpm --filter @grenier/desktop build
+          pnpm --filter @grenier/desktop sidecar
+
+      # Here too, because nothing checks that CI passed on the commit this tags.
+      - name: Types
+        run: pnpm typecheck
+
+      # Vitest, then the desktop shell.
       - name: Tests
-        run: pnpm test
+        run: |
+          pnpm test
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       - name: Version, commit and tag
         run: |

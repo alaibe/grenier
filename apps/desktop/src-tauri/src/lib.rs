@@ -1,5 +1,5 @@
 use std::net::{SocketAddr, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -35,7 +35,7 @@ fn grenier_home() -> Result<PathBuf, String> {
 }
 
 /// GRENIER_CONFIG, else config.toml in the home: the same file the CLI reads.
-fn config_file(home: &PathBuf) -> PathBuf {
+fn config_file(home: &Path) -> PathBuf {
     std::env::var_os("GRENIER_CONFIG")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -64,7 +64,7 @@ fn configured_port(config: &str) -> u16 {
 }
 
 /// Where the daemon listens: what the running one wrote in daemon.json, else the configured port.
-fn daemon_port(home: &PathBuf) -> u16 {
+fn daemon_port(home: &Path) -> u16 {
     let recorded = std::fs::read_to_string(home.join("daemon.json"))
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
@@ -94,7 +94,7 @@ fn grenier(app: &AppHandle, args: &[&str]) -> Result<Command, String> {
 
 /// The daemon's port, after starting the bundled daemon when none answers there. One start at a time: calls made
 /// while it starts wait for it instead of starting another.
-fn start_daemon(app: &AppHandle, home: &PathBuf) -> Result<u16, String> {
+fn start_daemon(app: &AppHandle, home: &Path) -> Result<u16, String> {
     let state = app.state::<Sidecar>();
     let mut sidecar = state.0.lock().map_err(|error| error.to_string())?;
     let port = daemon_port(home);
