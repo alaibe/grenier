@@ -526,7 +526,12 @@ export class TeamStore extends DurableObject<Env> {
       const next = nextDue(String(routine.fields.schedule ?? ""), now);
       if (next === null) continue;
       scheduled.add(routine.id);
-      this.#sql("INSERT OR IGNORE INTO schedules (routine_id, next_at) VALUES (?, ?)", routine.id, next);
+      // A changed schedule that falls sooner takes effect now; a later one, after the run already due.
+      this.#sql(
+        "INSERT INTO schedules (routine_id, next_at) VALUES (?, ?) ON CONFLICT (routine_id) DO UPDATE SET next_at = min(next_at, excluded.next_at)",
+        routine.id,
+        next,
+      );
     }
     for (const row of this.#sql("SELECT routine_id FROM schedules")) {
       if (!scheduled.has(row.routine_id as string))

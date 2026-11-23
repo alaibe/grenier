@@ -290,6 +290,18 @@ describe("requests", () => {
     expect((await json<{ offer: unknown }>(await call("/api/work/claim", bob, { method: "POST" }))).offer).toBeNull();
   });
 
+  it("takes a routine's schedule, and a change to it", async () => {
+    const routine = (schedule: string) => ({
+      id: "nightly",
+      space: "team",
+      type: "Routine",
+      title: "Nightly digest",
+      fields: { versions: [{ version: 1, prompt: "Digest", status: "production" }], trigger: "schedule", schedule },
+    });
+    expect((await push(ADA, routine("mon 09:00"))).applied).toHaveLength(1);
+    expect((await push(ADA, routine("hourly"), 1)).applied).toHaveLength(1);
+  });
+
   it("offers a request in a space only to the machines of its members", async () => {
     const bob = await join("bob");
     await call("/api/spaces", ADA, { body: { name: "leads", members: ["ada"] } });
