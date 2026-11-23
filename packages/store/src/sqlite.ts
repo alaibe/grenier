@@ -1,6 +1,6 @@
 import { closeSync, openSync } from "node:fs";
 import Database from "better-sqlite3";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, lt, sql, sum } from "drizzle-orm";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { migrations as allMigrations, type Migration, StoreError } from "./index.ts";
 import * as schema from "./schema.ts";
@@ -176,8 +176,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           )
           .orderBy(asc(usage.ts), asc(usage.id))
           .all(),
-      after: async (id, limit) =>
-        db.select().from(usage).where(gt(usage.id, id)).orderBy(asc(usage.id)).limit(limit).all(),
       prune: async (before) => db.delete(usage).where(lt(usage.ts, before)).run().changes,
     },
 
@@ -237,9 +235,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       get: async (key) => db.select().from(state).where(eq(state.key, key)).get()?.value,
       set: async (key, value) => {
         db.insert(state).values({ key, value }).onConflictDoUpdate({ target: state.key, set: { value } }).run();
-      },
-      remove: async (key) => {
-        db.delete(state).where(eq(state.key, key)).run();
       },
     },
 
@@ -352,9 +347,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       setVersion: async (id, version) => {
         db.update(records).set({ version }).where(eq(records.id, id)).run();
       },
-      remove: async (id) => {
-        db.delete(records).where(eq(records.id, id)).run();
-      },
       stats: async () =>
         db
           .select({
@@ -438,7 +430,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       update: async (id, change) => {
         db.update(runs).set(change).where(eq(runs.id, id)).run();
       },
-      get: async (id) => db.select().from(runs).where(eq(runs.id, id)).get(),
       list: async (filter = {}) =>
         db
           .select()

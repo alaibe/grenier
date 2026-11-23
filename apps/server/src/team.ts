@@ -1339,12 +1339,6 @@ export class TeamStore extends DurableObject<Env> {
       }
     }
   }
-
-  /** For the remote MCP endpoint: who holds this token, and the records they may read. */
-  async reader(token: string): Promise<{ member: Member; spaces: string[] } | null> {
-    const who = await this.#authenticate(new Request("https://x", { headers: { authorization: `Bearer ${token}` } }));
-    return who ? { member: who.member, spaces: this.#spacesOf(who.member) } : null;
-  }
 }
 
 interface JsonRpc {

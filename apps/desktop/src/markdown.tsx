@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
  * links. A link to `record:<id>` opens that record; other links only when they are http or https.
  */
 export function Markdown({ text, open }: { text: string; open: (id: string) => void }) {
-  return <div className="markdown flex flex-col gap-2.5">{blocks(text, open)}</div>;
+  return <div className="flex flex-col gap-2.5">{blocks(text, open)}</div>;
 }
 
 function blocks(text: string, open: (id: string) => void): ReactNode[] {

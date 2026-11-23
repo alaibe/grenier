@@ -21,7 +21,11 @@ export interface CacheRow {
 /** Per session, how much of the input was written to the prompt cache and how much read from it. Observe only. */
 export function cacheReport(rows: readonly UsageWithSession[]): CacheRow[] {
   const sessions = new Map<string, UsageWithSession[]>();
-  for (const row of rows) sessions.set(row.sessionId, [...(sessions.get(row.sessionId) ?? []), row]);
+  for (const row of rows) {
+    const requests = sessions.get(row.sessionId);
+    if (requests) requests.push(row);
+    else sessions.set(row.sessionId, [row]);
+  }
 
   return [...sessions.entries()].map(([sessionId, requests]) => {
     let input = 0;

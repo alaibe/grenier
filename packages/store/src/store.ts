@@ -64,8 +64,6 @@ export interface UsageStore {
   add(row: NewUsage): Promise<void>;
   /** Rows with their session's repository, oldest first. */
   list(filter?: { since?: number; sessionId?: string }): Promise<UsageWithSession[]>;
-  /** Rows with an id above `id`, in order, at most `limit`. */
-  after(id: number, limit: number): Promise<Usage[]>;
   /** Removes the rows older than `before`; returns how many. */
   prune(before: number): Promise<number>;
 }
@@ -104,7 +102,6 @@ export interface StepStore {
 export interface StateStore {
   get(key: string): Promise<string | undefined>;
   set(key: string, value: string): Promise<void>;
-  remove(key: string): Promise<void>;
 }
 
 export interface SpaceStore {
@@ -156,8 +153,6 @@ export interface RecordStore {
   hit(id: string): Promise<void>;
   /** The number the team store gave the record, once it took it. */
   setVersion(id: string, version: number): Promise<void>;
-  /** Removes it here, for good: a record that never reached the team store, or one its space no longer has. */
-  remove(id: string): Promise<void>;
   /** Records and reuses, by space and type, without the retired ones. */
   stats(): Promise<{ space: string; type: string; records: number; hits: number }[]>;
 }
@@ -189,7 +184,6 @@ export interface ApprovalStore {
 export interface RunStore {
   add(run: Run): Promise<void>;
   update(id: string, change: Partial<Omit<Run, "id">>): Promise<void>;
-  get(id: string): Promise<Run | undefined>;
   /** Newest first. */
   list(filter?: { routineId?: string; since?: number; limit?: number }): Promise<Run[]>;
 }

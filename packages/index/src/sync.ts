@@ -1,5 +1,5 @@
 import { open, seal, VaultError } from "@grenier/core";
-import type { FullRecord, OutboxEntry, RecordInput, Store, Usage } from "@grenier/store";
+import type { FullRecord, OutboxEntry, RecordInput, Store } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
 
 /** The team store's address and this device's token. */
@@ -15,7 +15,6 @@ export class TeamError extends Error {
     message: string,
     readonly status: number,
     readonly detail: string,
-    readonly body: unknown,
   ) {
     super(message);
   }
@@ -40,7 +39,7 @@ export async function teamApi<T>(
   }
   if (!response.ok) {
     const message = (body as { error?: string } | undefined)?.error ?? `HTTP ${response.status}`;
-    throw new TeamError(`the team store answered: ${message}`, response.status, message, body);
+    throw new TeamError(`the team store answered: ${message}`, response.status, message);
   }
   return body as T;
 }
@@ -106,8 +105,6 @@ export interface SyncDeps {
   embedder: Embedder | null;
   /** The person's own key for the `me` space; without it, `me` records stay here. */
   personalKey: string | null;
-  /** What prompt-cache reads saved on a request, in USD. */
-  savedOf?: (row: Usage) => number;
   now?: () => number;
 }
 

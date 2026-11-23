@@ -75,7 +75,7 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
     open.add(`${finding.target.id}:${finding.reason}`);
     await write(deps, {
       id: newId(),
-      space: finding.target.space === "me" ? "me" : finding.target.space,
+      space: finding.target.space,
       type: "Suggestion",
       kind: null,
       title: `${finding.target.title}: ${finding.reason.split(":")[0]}`.slice(0, 300),

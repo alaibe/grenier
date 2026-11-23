@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { sha256 } from "@grenier/core";
@@ -207,8 +207,4 @@ export async function checkWorkflow(store: Store, github: GitHub, env: NodeJS.Pr
   const hash = await workflowHash(text);
   const approved = (await store.approvals.list("workflow")).some((approval) => approval.hash === hash);
   return approved ? null : `${match[3]} is not a workflow approved on this machine (grenier routines workflow)`;
-}
-
-export function readText(path: string): string {
-  return readFileSync(path, "utf8");
 }
