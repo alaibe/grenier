@@ -47,18 +47,12 @@ describe("OpenAI-compatible endpoints", () => {
     ]);
   });
 
-  it("records a Chat Completions answer's usage", async () => {
+  it("records a Chat Completions answer's usage, a model with no price as unpriced, not free", async () => {
     gateway = testGateway(fakeUpstream(() => new Response(CHAT, { headers: { "content-type": "application/json" } })));
     await (await gateway.request("/openai/v1/chat/completions", openaiRequest({ model: "gpt-5.1" }))).arrayBuffer();
     expect(await gateway.store.usage.list()).toMatchObject([
-      { sessionId: "untagged", model: "gpt-5.1", inputTokens: 288, cacheReadTokens: 512, outputTokens: 40 },
+      { sessionId: "untagged", model: "gpt-5.1", inputTokens: 288, cacheReadTokens: 512, outputTokens: 40, cost: null },
     ]);
-  });
-
-  it("counts a model with no price as unpriced, not free", async () => {
-    gateway = testGateway(fakeUpstream(() => new Response(CHAT, { headers: { "content-type": "application/json" } })));
-    await (await gateway.request("/openai/v1/chat/completions", openaiRequest({ model: "gpt-5.1" }))).arrayBuffer();
-    expect((await gateway.store.usage.list())[0]?.cost).toBeNull();
   });
 
   it("refuses a ChatGPT sign-in bound for OpenAI's API with a message saying what to do, without forwarding it", async () => {

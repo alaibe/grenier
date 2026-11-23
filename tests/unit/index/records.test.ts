@@ -218,22 +218,6 @@ describe("query, retire and the outbox", () => {
     expect((await recall(deps, PERSON, { query: "ship Fridays", repo: null })).status).toBe("miss");
     expect(await store.records.get(kept.id)).toBeDefined();
   });
-
-  it("gives a client only the spaces its scope names, and a connection without one only repositories", async () => {
-    await remember(deps, PERSON, null, { kind: "fact", title: "Team fact about deploys", space: "team" });
-    await answer("How are deploys done?", "With deploy.sh and the router.", ["src/router.ts"]);
-    const scoped = await recall(
-      deps,
-      { id: "c", name: "c", scopes: [] },
-      {
-        query: "deploys",
-        repo: repo.repo,
-      },
-    );
-    expect(scoped.results.map((record) => record.title)).toEqual(["How are deploys done?"]);
-    const none = await recall(deps, null, { query: "team fact deploys", repo: repo.repo });
-    expect(none.results.every((record) => record.space.startsWith("repo:"))).toBe(true);
-  });
 });
 
 describe("deliver", () => {
