@@ -105,6 +105,7 @@ mirror's password) and the `APPLE_*` ones, whose list is at the top of `release.
 The Rust is `rust-toolchain.toml`'s. Without notarizing or uploading anything:
 
 ```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
 pnpm build
 pnpm --filter @grenier/desktop sidecar --target universal-apple-darwin
 pnpm --filter @grenier/desktop tauri build --target universal-apple-darwin --bundles app --no-sign -- --locked
