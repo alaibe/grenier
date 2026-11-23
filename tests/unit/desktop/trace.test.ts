@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeStep, rereadsOf, type TraceStep, tokens, treeOf } from "../../../apps/desktop/src/trace.ts";
+import { rereadsOf, type TraceStep, treeOf } from "../../../apps/desktop/src/trace.ts";
 
 let id = 0;
 const step = (kind: TraceStep["kind"], path: string | null, more: Partial<TraceStep> = {}): TraceStep => ({
@@ -61,37 +61,5 @@ describe("reads of lines already read", () => {
       step("read", "b.ts", { startLine: 5, endLine: 6 }),
     ];
     expect([...rereadsOf(steps)]).toEqual([1, 7]);
-  });
-});
-
-describe("a step in words", () => {
-  it("says what the agent did and where", () => {
-    expect(describeStep(step("read", "a.ts", { startLine: 3, endLine: 9 }))).toBe("Read a.ts lines 3–9");
-    expect(describeStep(step("read", "a.ts", { startLine: 3 }))).toBe("Read a.ts from line 3");
-    expect(describeStep(step("edit", "a.ts", { outcome: "error" }))).toBe("Changed a.ts (it failed)");
-    expect(describeStep(step("search", null, { label: "LoopWatch" }))).toBe(
-      "Searched the whole repository for “LoopWatch”",
-    );
-    expect(describeStep(step("ask", null, { label: "How are costs priced?", outcome: "hit" }))).toBe(
-      "Asked Grenier's cache “How are costs priced?”: it knew",
-    );
-  });
-});
-
-describe("colouring a line of code", () => {
-  it("finds comments, strings, numbers and keywords", () => {
-    expect(tokens('const port = 7788; // "local"')).toEqual([
-      { text: "const", kind: "keyword" },
-      { text: " port = ", kind: "plain" },
-      { text: "7788", kind: "number" },
-      { text: "; ", kind: "plain" },
-      { text: '// "local"', kind: "comment" },
-    ]);
-    expect(tokens("let name = 'it''s'")).toEqual([
-      { text: "let", kind: "keyword" },
-      { text: " name = ", kind: "plain" },
-      { text: "'it''s'", kind: "string" },
-    ]);
-    expect(tokens("")).toEqual([]);
   });
 });

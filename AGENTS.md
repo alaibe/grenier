@@ -84,7 +84,8 @@ code.
   installs Tauri's Linux packages, Rust and the shell tools, builds the desktop UI and sidecar, then runs Format
   (Biome, rustfmt, shfmt), Lint (Biome, Clippy, shellcheck, the audit, the version files), Types, Tests (Vitest, then
   `cargo test`) and E2e. `nightly.yml` runs Types and Tests on the Mac before it tags a release when main has changed,
-  and `release.yml` builds and publishes it on `github.com/alaibe/grenier` (`docs/RELEASE.md`).
+  and `release.yml` builds and publishes it on `github.com/alaibe/grenier` (`docs/RELEASE.md`). Tests run the same on
+  every system: no test is skipped, or expects something else, by platform; one that can't is rewritten or deleted.
 - `priv/` is gitignored except its `.gitkeep`: the maintainer's own material (launch posts, the demo script, Product
   Hunt's images) lives there, and new material of that kind goes there too. Its README lists what is in it. A worktree
   has no `priv/`; use the main checkout's.

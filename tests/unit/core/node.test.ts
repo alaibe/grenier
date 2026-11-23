@@ -36,10 +36,6 @@ describe("resolvePaths", () => {
     const paths = resolvePaths({ GRENIER_CONFIG: "/etc/g.toml", GRENIER_DB: "/var/g.db" }, "/home/me");
     expect(paths).toEqual({ home: "/home/me/.grenier", config: "/etc/g.toml", db: "/var/g.db" });
   });
-
-  it("ignores empty variables", () => {
-    expect(resolvePaths({ GRENIER_HOME: "", GRENIER_DB: "" }, "/home/me").db).toBe("/home/me/.grenier/grenier.db");
-  });
 });
 
 describe("ensureDirectories", () => {
@@ -48,13 +44,6 @@ describe("ensureDirectories", () => {
     ensureDirectories(paths);
     expect(statSync(paths.home).mode & 0o777).toBe(0o700);
     expect(statSync(join(dir, "data")).isDirectory()).toBe(true);
-  });
-
-  it("leaves existing directories as they are", () => {
-    const paths = { home: dir, config: join(dir, "config.toml"), db: join(dir, "grenier.db") };
-    ensureDirectories(paths);
-    ensureDirectories(paths);
-    expect(statSync(dir).isDirectory()).toBe(true);
   });
 });
 

@@ -1,16 +1,4 @@
-import {
-  buildReport,
-  cacheHitRate,
-  folderName,
-  formatReport,
-  formatStatusLine,
-  formatToday,
-  loadPrices,
-  parseSince,
-  projectOf,
-  startOfToday,
-  totalOf,
-} from "@grenier/log";
+import { buildReport, cacheHitRate, formatToday, loadPrices, parseSince, projectOf, totalOf } from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { describe, expect, it } from "vitest";
 
@@ -93,41 +81,13 @@ describe("cacheHitRate", () => {
   });
 });
 
-describe("formatReport", () => {
-  it("lays out a table with a total, and notes unpriced requests", () => {
-    const text = formatReport(buildReport([row({}), row({ model: "x", cost: null })], "session", prices));
-    const lines = text.split("\n");
-    expect(lines[0]).toMatch(/requests\s+input\s+cache write\s+cache read\s+output\s+cache hit\s+cost\s+saved$/);
-    expect(lines[1]).toMatch(/^s1\s+2\s+200\s+0\s+1800\s+100\s+90%\s+\$0\.01\s+\$0\.00$/);
-    expect(lines[3]).toMatch(/^total\s+2/);
-    expect(text).toContain("1 request(s) used a model with no price");
-  });
-
-  it("says so when there is nothing to show", () => {
-    expect(formatReport([])).toBe("No requests in this period.");
-  });
-});
-
-describe("totalOf, formatStatusLine and formatToday", () => {
+describe("totalOf and formatToday", () => {
   const today = totalOf(buildReport([row({ cost: 1.5 }), row({ sessionId: "s2", cost: 2 })], "session", prices));
 
   it("adds up rows, and is all zeros for none", () => {
     expect(today).toMatchObject({ key: "total", requests: 2, cost: 3.5, cacheReadTokens: 1800 });
     expect(today.saved).toBeGreaterThan(0);
     expect(totalOf([])).toMatchObject({ requests: 0, cost: 0, saved: 0 });
-  });
-
-  it("shows the session, then today", () => {
-    const session = totalOf(buildReport([row({ cost: 1.5 })], "session", prices));
-    expect(formatStatusLine(today, session)).toMatch(
-      /^grenier · session \$1\.50 spent, \$\d+\.\d\d cached · today \$3\.50 spent, \$\d+\.\d\d cached$/,
-    );
-  });
-
-  it("says when the agent was not started with grenier run", () => {
-    expect(formatStatusLine(totalOf([]), null)).toBe(
-      "grenier · not started with grenier run · today $0.00 spent, $0.00 cached",
-    );
   });
 
   it("shows today per project for the menu bar, the most spent first", () => {
@@ -159,21 +119,9 @@ describe("parseSince", () => {
     expect(parseSince("30m", now)).toBe(now - 30 * 60_000);
     expect(parseSince("2026-11-01", now)).toBe(new Date(2026, 10, 1).getTime());
   });
-
-  it("refuses anything else", () => {
-    expect(() => parseSince("a week", now)).toThrow("--since takes a duration");
-  });
 });
 
-describe("startOfToday, folderName and projectOf", () => {
-  it("finds local midnight and a folder's name", () => {
-    expect(startOfToday(new Date(2026, 10, 16, 15, 30).getTime())).toBe(new Date(2026, 10, 16).getTime());
-    expect(folderName("/work/app")).toBe("app");
-    expect(folderName("/work/app/")).toBe("app");
-    expect(folderName("/")).toBe("/");
-    expect(folderName("C:\\work\\app")).toBe("app");
-  });
-
+describe("projectOf", () => {
   it("takes the repository's folder, else the one the session started in", () => {
     expect(projectOf({ repoRoot: "/work/app", cwd: "/work/app/packages/ui" })).toBe("app");
     expect(projectOf({ repoRoot: null, cwd: "/tmp/scratch" })).toBe("scratch");

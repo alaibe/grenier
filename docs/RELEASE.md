@@ -25,9 +25,8 @@ tag's own run later finds the draft and replaces its files.
 
 The version is in six files: the `package.json` of `apps/cli` (what `grenier --version` prints), `apps/server` and
 `apps/desktop`, and the desktop app's `tauri.conf.json`, `Cargo.toml` and `Cargo.lock`. `node scripts/version.ts check`
-prints it and fails when two files disagree; CI runs it, and a unit test checks the files too. The nightly only moves
-the patch. For a minor or major version, change all six in one commit (or run `bump` and edit its result); the next
-nightly tags it as it is.
+prints it and fails when two files disagree; CI and the nightly run it. The nightly only moves the patch. For a minor
+or major version, change all six in one commit (or run `bump` and edit its result); the next nightly tags it as it is.
 
 ## What each system gets
 

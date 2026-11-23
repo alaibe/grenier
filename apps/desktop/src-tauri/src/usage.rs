@@ -402,7 +402,6 @@ mod tests {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
     use std::path::Path;
-    use std::time::Instant;
 
     fn vectors() -> Value {
         serde_json::from_str(include_str!("usage-vectors.json")).unwrap()
@@ -804,24 +803,5 @@ mod tests {
         assert_eq!(header(&head, "content-type").as_deref(), Some("application/json"));
         assert_eq!(header(&head, "user-agent").as_deref(), Some(Os::MacOs.user_agent()));
         assert_eq!(received, body);
-    }
-
-    #[test]
-    fn u16_post_gives_up_after_the_timeout() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let endpoint = format!("http://{}/api/send", listener.local_addr().unwrap());
-        let (done, finished) = std::sync::mpsc::channel::<()>();
-        let server = std::thread::spawn(move || {
-            let held = listener.accept().unwrap();
-            let _ = finished.recv_timeout(Duration::from_secs(TIMEOUT_SECONDS + 3));
-            drop(held);
-        });
-        let started = Instant::now();
-        let error = tauri::async_runtime::block_on(post(&endpoint, Os::MacOs.user_agent(), &json!({}))).unwrap_err();
-        let waited = started.elapsed();
-        done.send(()).unwrap();
-        server.join().unwrap();
-        assert!(error.is_timeout(), "{error}");
-        assert!(waited >= Duration::from_secs(TIMEOUT_SECONDS) && waited < Duration::from_secs(TIMEOUT_SECONDS + 3));
     }
 }

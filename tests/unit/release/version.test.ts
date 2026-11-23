@@ -18,10 +18,6 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("version", () => {
-  it("is the same in every file of the repository", () => {
-    expect(check(repo)).toMatch(/^\d+\.\d+\.\d+$/);
-  });
-
   it("bumps the patch in every file, and nothing else", () => {
     const before = check(root);
     const [major, minor, patch] = before.split(".").map(Number);

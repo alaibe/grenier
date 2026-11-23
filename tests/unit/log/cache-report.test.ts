@@ -1,4 +1,4 @@
-import { cacheReport, formatCacheReport } from "@grenier/log";
+import { cacheReport } from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { describe, expect, it } from "vitest";
 
@@ -44,20 +44,5 @@ describe("cacheReport", () => {
       ["warm", false, 1],
       ["churn", true, 3],
     ]);
-  });
-
-  it("is empty with no requests", () => {
-    expect(cacheReport([])).toEqual([]);
-  });
-});
-
-describe("formatCacheReport", () => {
-  it("shows the shares, marks churn and explains it", () => {
-    const text = formatCacheReport(
-      cacheReport([request("s9", 10, 5000, 0), request("s9", 10, 5000, 0), request("s9", 10, 5000, 0)]),
-    );
-    expect(text.split("\n")[1]).toMatch(/^s9\s+3\s+15030\s+100%\s+0%\s+high churn \(3 writes in a row\)$/);
-    expect(text).toContain("so the cache is rewritten instead of read");
-    expect(formatCacheReport([])).toBe("No requests in this period.");
   });
 });

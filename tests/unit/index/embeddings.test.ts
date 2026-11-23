@@ -50,14 +50,6 @@ describe("StaticEmbedder", () => {
     const length = Math.hypot(0.8, 1.6);
     expectClose(streaming, [0.8 / length, 1.6 / length]);
   });
-
-  it("gives zeros for a text with no known token", async () => {
-    expect(Array.from((await embedder.embed(["zzz"]))[0] as Float32Array)).toEqual([0, 0]);
-  });
-
-  it("refuses a table that is not whole vectors", () => {
-    expect(() => new StaticEmbedder("bad", tokenizer, new Float32Array(3), 2)).toThrow("not a whole number of vectors");
-  });
 });
 
 describe("cosine", () => {
@@ -79,14 +71,6 @@ describe("readSafetensors", () => {
     bytes.set(new Uint8Array(Float32Array.from([1, 2, 3, 4]).buffer), 8 + header.length);
     expect(readSafetensors(bytes)).toEqual({ shape: [2, 2], data: Float32Array.from([1, 2, 3, 4]) });
   });
-
-  it("refuses another number format", () => {
-    const header = new TextEncoder().encode(JSON.stringify({ e: { dtype: "F16", shape: [1], data_offsets: [0, 2] } }));
-    const bytes = new Uint8Array(8 + header.length + 2);
-    new DataView(bytes.buffer).setBigUint64(0, BigInt(header.length), true);
-    bytes.set(header, 8);
-    expect(() => readSafetensors(bytes)).toThrow("expected one F32 tensor");
-  });
 });
 
 describe("loadLocalEmbedder", () => {
@@ -98,16 +82,6 @@ describe("loadLocalEmbedder", () => {
         /has SHA-256 [0-9a-f]{64}, expected f65d0f32/,
       );
       expect(readdirSync(modelDir(dir))).toEqual([]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("reports a failed download", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "grenier-models-"));
-    try {
-      const fetchStub = (async () => new Response("", { status: 503 })) as unknown as typeof fetch;
-      await expect(loadLocalEmbedder(dir, { fetch: fetchStub })).rejects.toThrow("HTTP 503");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

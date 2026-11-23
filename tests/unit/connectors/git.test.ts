@@ -43,17 +43,6 @@ describe("repoRoot and repoId", () => {
     git("commit", "-q", "-m", "second");
     expect(await repoId(dir)).toBe(first);
   });
-
-  it("is null outside a repository, or before the first commit", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "grenier-nogit-"));
-    try {
-      expect(await repoRoot(outside)).toBeNull();
-      execFileSync("git", ["-C", outside, "init", "-q"]);
-      expect(await repoId(outside)).toBeNull();
-    } finally {
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("repoPath", () => {

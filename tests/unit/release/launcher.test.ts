@@ -39,7 +39,7 @@ function install(launcher: string, file: string) {
   chmodSync(file, 0o755);
 }
 
-describe.skipIf(process.platform === "win32")("the grenier command in the Mac app", () => {
+describe("the grenier command in the Mac app", () => {
   let contents: string;
   let command: string;
 
@@ -80,7 +80,7 @@ describe.skipIf(process.platform === "win32")("the grenier command in the Mac ap
   });
 });
 
-describe.skipIf(process.platform === "win32")("the grenier command in the deb and the rpm", () => {
+describe("the grenier command in the deb and the rpm", () => {
   let bin: string;
   let command: string;
 

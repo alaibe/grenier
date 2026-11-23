@@ -1,13 +1,4 @@
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  unlinkSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -43,20 +34,6 @@ afterEach(() => {
 });
 
 describe("markdown", () => {
-  // Root reads a file whatever its mode, as in CI's container.
-  it.skipIf(process.getuid?.() === 0)("reports a note it cannot read and reads the others", async () => {
-    writeFileSync(join(dir, "fine.md"), "# Fine\n");
-    writeFileSync(join(dir, "locked.md"), "# Locked\n");
-    chmodSync(join(dir, "locked.md"), 0o000);
-    try {
-      const pull = await pullMarkdown({ path: dir }, {});
-      expect(pull.items.map((item) => item.key)).toEqual(["fine.md"]);
-      expect(pull.failed).toEqual([{ key: "locked.md", reason: expect.stringContaining("EACCES") }]);
-    } finally {
-      chmodSync(join(dir, "locked.md"), 0o600);
-    }
-  });
-
   it("reads notes with their front matter, title and date", async () => {
     writeFileSync(
       join(dir, "a.md"),
