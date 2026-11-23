@@ -160,7 +160,6 @@ export function createAdmin(options: AdminOptions): Hono {
       hits: stats.reduce((total, row) => total + row.hits, 0),
       waiting: team ? (await store.outbox.list()).length : 0,
       team: team ? { url: team.url, lastSync: Number((await store.state.get("last_sync")) ?? 0) || null } : null,
-      clients: (await store.clients.list()).filter((client) => client.revokedAt === null).length,
       paused: (await store.sessions.paused()).length,
     });
   });

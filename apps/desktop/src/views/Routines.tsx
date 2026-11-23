@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type Run } from "../api.ts";
 import { ago, Button, Empty, Loading, Notice, Page, Select, useAction, useLoad } from "../ui.tsx";
@@ -77,14 +77,11 @@ export function Routines(_: ViewProps) {
     return () => window.clearInterval(timer);
   }, [going, runs.reload, teamRuns.reload]);
 
-  const call = useCallback(
-    (key: string, path: string, body: unknown, done: string, method = "POST") =>
-      void action.run(key, async () => {
-        await api(path, { method, body });
-        return { text: done };
-      }),
-    [action],
-  );
+  const call = (key: string, path: string, body: unknown, done: string, method = "POST") =>
+    void action.run(key, async () => {
+      await api(path, { method, body });
+      return { text: done };
+    });
 
   return (
     <Page

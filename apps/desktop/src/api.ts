@@ -119,7 +119,6 @@ export interface Overview {
   /** Changes made here that the team store has not taken yet. */
   waiting: number;
   team: { url: string; lastSync: number | null } | null;
-  clients: number;
   /** Sessions the loop guard paused, waiting to be resumed. */
   paused: number;
 }
