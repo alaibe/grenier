@@ -15,7 +15,7 @@ await build({
   target: "node22",
   external: ["better-sqlite3"],
   loader: { ".sql": "text", ".toml": "text" },
-  // CommonJS dependencies (the mail and CalDAV libraries) call require(), which an ES module has to be given.
+  // CommonJS dependencies call require(), which an ES module has to be given.
   banner: {
     js: '#!/usr/bin/env node\nimport { createRequire as __createRequire } from "node:module";\nconst require = __createRequire(import.meta.url);',
   },

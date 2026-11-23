@@ -433,10 +433,6 @@ export function stepsOf(
 const lineOf = (text: string, index: number) => text.slice(0, index).split("\n").length;
 
 /**
- * Puts each edit whose result showed no line numbers (Claude Code's Edit says only that the file was updated) on the
- * lines its new text holds in the file now. An edit whose text is not found keeps no lines.
- */
-/**
  * A short hash of each line worth tracking in a text: trimmed, without lines too plain to tell apart ("}", "") so
  * that a common line elsewhere does not count as landed.
  */
@@ -457,6 +453,10 @@ export function lineHashes(text: string): string[] {
   return out;
 }
 
+/**
+ * Puts each edit whose result showed no line numbers (Claude Code's Edit says only that the file was updated) on the
+ * lines its new text holds in the file now. An edit whose text is not found keeps no lines.
+ */
 export async function placeEdits(
   root: string,
   rows: NewStep[],

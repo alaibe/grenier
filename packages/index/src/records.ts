@@ -361,7 +361,10 @@ export interface RememberInput {
   title: string;
   body?: string;
   fields?: Record<string, unknown>;
-  /** Where it goes: a space id; by default the repository's space for what is about its code, else `team`. */
+  /**
+   * Where it goes: a space id; by default the repository's space for what is about its code, else `team` when the
+   * client may write there, `me` otherwise.
+   */
   space?: string;
   /** Every file it was worked out from, in the repository the agent is in. */
   files?: readonly string[];
@@ -384,7 +387,7 @@ export type AskConsent = (record: {
   space: string;
 }) => Promise<Consent | null>;
 
-/** Records written with no person to ask: answers and summaries about code are checked by their files instead. */
+/** Whether the person is asked first: always, except for answers and summaries about code, checked by their files. */
 export function needsConsent(record: { type: string; kind?: string | null; anchors: FullRecord["anchors"] }): boolean {
   const aboutCode =
     record.type === "Memory" &&

@@ -37,7 +37,7 @@ export const usage = sqliteTable(
   (table) => [index("usage_session_ts").on(table.sessionId, table.ts), index("usage_ts").on(table.ts)],
 );
 
-/** Loop detected, pause, resume, a tool cut off. */
+/** Loop detected, pause, resume, a model with no price, a request body the proxy changed. */
 export const events = sqliteTable(
   "events",
   {
@@ -79,7 +79,7 @@ export const steps = sqliteTable(
   (table) => [uniqueIndex("steps_call").on(table.sessionId, table.callId, table.part)],
 );
 
-/** Small values this machine keeps: the team cursor, its device name, the personal key's id. */
+/** Small values this machine keeps: team cursor, last sync, member, `me` space, auto-install, eval scores. */
 export const state = sqliteTable("state", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

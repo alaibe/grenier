@@ -68,8 +68,8 @@ export function pickVersion(routine: RoutineShape, asked?: number): RoutineVersi
 }
 
 /**
- * What a machine's person approves: every version's prompt, the tools, the repo and the agent. Any change to them
- * waits for their approval again.
+ * What a machine's person approves: every version's prompt, the tools, the repo, the agent, and for a collector its
+ * owner. Any change to them waits for their approval again.
  */
 export async function routineHash(routine: RoutineShape): Promise<string> {
   const { fields } = routine;
