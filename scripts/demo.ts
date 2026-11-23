@@ -1,0 +1,590 @@
+// The desktop app with a team's worth of made-up data, in a browser at http://localhost:1420: a team store in
+// Miniflare, a daemon in a throwaway GRENIER_HOME, and the app's UI built against it. For the site's screenshots
+// (laibe's grenier:screenshots); nothing here touches ~/.grenier or ~/.claude. Run it with: pnpm demo
+import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { blobHashes, repoId, repoPath, repoText, trackedFiles } from "@grenier/connectors/git";
+import { joinCode, newVaultKey, routineHash, sha256 } from "@grenier/core";
+import { lineHashes } from "@grenier/gateway";
+import { newId, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
+import type { RecordInput, Store } from "@grenier/store";
+import { openSqliteStore } from "@grenier/store/sqlite";
+import { convertV4MiniflareOptions, Miniflare } from "miniflare";
+import { sharedHash } from "../apps/cli/src/installs.ts";
+
+// Run from the repository's root by `pnpm demo`, after `pnpm build`.
+const ROOT = process.cwd();
+const SETUP_TOKEN = `gt_demo_setup_${"0".repeat(40)}`;
+const hash = (token: string) => createHash("sha256").update(token).digest("hex");
+const DAY = 86_400_000;
+const now = Date.now();
+
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return typeof address === "object" && address ? address.port : 0;
+}
+
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "grenier-demo-")));
+const home = join(dir, "grenier");
+const userHome = join(dir, "home");
+const repo = join(dir, "checkout");
+mkdirSync(home);
+mkdirSync(userHome);
+mkdirSync(join(repo, "src"), { recursive: true });
+
+const git = (...args: string[]) =>
+  execFileSync("git", ["-C", repo, ...args], {
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Marie",
+      GIT_AUTHOR_EMAIL: "marie@example.com",
+      GIT_COMMITTER_NAME: "Marie",
+      GIT_COMMITTER_EMAIL: "marie@example.com",
+    },
+  });
+const files: Record<string, string> = {
+  "src/router.ts": "export function route(path: string) {\n  return routes.find((entry) => entry.matches(path));\n}\n",
+  "src/payments/retry.ts":
+    "export async function retry(payment: Payment) {\n  await queue.push({ id: payment.id, attempt: payment.attempt + 1 });\n}\n",
+  "src/money.ts": "export const cents = (amount: number) => Math.round(amount * 100);\n",
+  "README.md": "# checkout\n",
+};
+git("init", "-q", "-b", "main");
+for (const [path, text] of Object.entries(files)) {
+  mkdirSync(join(repo, path, ".."), { recursive: true });
+  writeFileSync(join(repo, path), text);
+}
+git("add", ".");
+git("commit", "-q", "-m", "First version of checkout");
+const repoIdentity = (await repoId(repo)) as string;
+
+const mf = new Miniflare(
+  convertV4MiniflareOptions({
+    modules: true,
+    scriptPath: join(ROOT, "apps/server/dist/server.js"),
+    compatibilityDate: "2026-11-01",
+    durableObjects: { TEAM: { className: "TeamStore", useSQLite: true } },
+    bindings: { SETUP_HASH: hash(SETUP_TOKEN) },
+    host: "127.0.0.1",
+    port: await freePort(),
+  }),
+);
+const teamUrl = (await mf.ready).origin;
+const teamFetch = fetch;
+const marie: TeamClient = { url: teamUrl, token: SETUP_TOKEN, fetch: teamFetch };
+await teamApi(marie, "/api/setup", { body: { member: "marie", device: "marie-mbp" } });
+
+async function joinTeam(name: string, device: string, role = "member"): Promise<TeamClient> {
+  const invite = await teamApi<{ id: string; secret: string }>(marie, "/api/invites", { body: { name, role } });
+  const token = `gt_demo_${device}_${newId()}${newId()}`;
+  const nonce = newId().padEnd(32, "0");
+  await fetch(`${teamUrl}/api/join`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ invite: invite.id, secret: invite.secret, device, tokenHash: hash(token), nonce }),
+  });
+  await teamApi(marie, "/api/invites/confirm", { body: { code: await joinCode(await sha256(invite.secret), nonce) } });
+  return { url: teamUrl, token, fetch: teamFetch };
+}
+const sam = await joinTeam("sam", "sam-thinkpad");
+const lea = await joinTeam("lea", "lea-pc", "admin");
+const anthony = await joinTeam("anthony", "anthony-mbp");
+await teamApi(marie, "/api/invites", { body: { name: "noor" } });
+
+const store: Store = openSqliteStore(join(home, "grenier.db"));
+await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
+await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+await store.spaces.put({
+  id: `repo:${repoIdentity}`,
+  name: "checkout",
+  kind: "repo",
+  repoId: repoIdentity,
+  root: repo,
+});
+const me = await teamApi<{ me: string }>(marie, "/api/me");
+await store.state.set("team_member", "marie");
+await store.state.set("team_me_space", me.me);
+const personalKey = newVaultKey();
+writeFileSync(join(home, "personal.key"), `${personalKey}\n`, { mode: 0o600 });
+const deps: StoreDeps = {
+  store,
+  files: { hashes: blobHashes, tracked: trackedFiles, relative: repoPath, text: repoText },
+  embedder: null,
+  me: { member: "marie", device: "marie-mbp" },
+};
+
+const teammates: Record<string, TeamClient> = { sam, lea, anthony };
+
+/**
+ * A record by marie, written on this machine, or by a teammate, sent to the team store with their own token: the
+ * store names whoever sent a change as its author.
+ */
+async function record(input: Partial<RecordInput> & Pick<RecordInput, "type" | "title">): Promise<string> {
+  const id = input.id ?? newId();
+  const full: RecordInput = {
+    id,
+    space: "team",
+    kind: null,
+    body: "",
+    fields: {},
+    author: "marie",
+    device: "marie-mbp",
+    sessionId: null,
+    createdAt: now,
+    updatedAt: now,
+    retiredAt: null,
+    version: 0,
+    anchors: [],
+    links: [],
+    ...input,
+  };
+  const teammate = teammates[full.author];
+  if (!teammate) {
+    await write(deps, full);
+    return id;
+  }
+  const changed = ["space", "type", "kind", "title", "body", "fields", "anchors", "links"];
+  await teamApi(teammate, "/api/changes", {
+    body: { changes: [{ id: newId(), recordId: id, baseVersion: 0, changed, record: full }] },
+  });
+  return id;
+}
+async function anchored(paths: string[]) {
+  const hashes = await blobHashes(repo, paths);
+  return paths.map((path) => ({
+    kind: "git" as const,
+    repoId: repoIdentity,
+    ref: path,
+    version: hashes.get(path) as string,
+  }));
+}
+const link = (id: string) => ({ kind: "record" as const, ref: id });
+
+const project = await record({
+  id: "5c3f0a1e9b2d4c6e8a7f1b3d",
+  type: "Project",
+  title: "Checkout",
+  fields: { owner: "marie", status: "active", repos: [repoIdentity] },
+  body: "The new checkout: one page, retries that never charge twice, and Apple Pay by January.\n\n## Goals\n\n- Fewer abandoned carts\n- No double charge, ever\n- Apple Pay before the sales",
+});
+const decision = await record({
+  type: "Decision",
+  title: "Retry failed payments from a queue",
+  fields: { owner: "marie", date: "2026-11-18", reason: "A retry in the request doubled a charge twice last month." },
+  body: "Failed payments go to the payments queue and are retried there, with the attempt number as the idempotency key.",
+  links: [link(project)],
+});
+await record({
+  id: "8e2b6d4f1a3c5e7b9d0f2a4c",
+  type: "Meeting",
+  title: "Checkout weekly",
+  author: "sam",
+  device: "sam-thinkpad",
+  fields: { date: "2026-11-18", people: ["marie", "sam", "lea", "anthony"] },
+  body: `Marie, Sam, Léa and Anthony.\n\n- Payments retried in the request doubled two charges: [Retry failed payments from a queue](record:${decision}).\n- Léa takes Apple Pay; Sam moves the retries.\n- Anthony keeps the dependencies up to date with the routine.`,
+  links: [link(project), link(decision)],
+});
+await record({
+  type: "Task",
+  title: "Move payment retries to the queue",
+  author: "sam",
+  device: "sam-thinkpad",
+  fields: { status: "doing", owner: "sam" },
+  links: [link(project), link(decision)],
+});
+await record({
+  type: "Task",
+  title: "Add Apple Pay",
+  author: "lea",
+  device: "lea-pc",
+  fields: { status: "to-do", owner: "lea" },
+  links: [link(project)],
+});
+await record({
+  type: "Task",
+  title: "One-page checkout",
+  fields: { status: "done", owner: "marie" },
+  links: [link(project)],
+});
+await record({
+  type: "Doc",
+  title: "How to run checkout locally",
+  body: "## Setup\n\n1. `pnpm install`\n2. Copy `.env.example` to `.env`\n3. `pnpm dev`, then open http://localhost:3000\n\nPayments use the test keys of the sandbox; **never** a live key.",
+  links: [link(project)],
+});
+await record({
+  type: "Doc",
+  title: "Template: Postmortem",
+  body: "## What happened\n\n## Why\n\n## What we change",
+});
+const retryAnswer = await record({
+  space: `repo:${repoIdentity}`,
+  type: "Memory",
+  kind: "answer",
+  title: "Where are failed payments retried?",
+  author: "sam",
+  device: "sam-thinkpad",
+  fields: { kind: "answer" },
+  body: "In `src/payments/retry.ts`: `retry()` pushes the payment back on the queue with the next attempt number.",
+  anchors: await anchored(["src/payments/retry.ts"]),
+  links: [{ kind: "repo", ref: repoIdentity }, link(decision)],
+});
+const routing = await record({
+  space: `repo:${repoIdentity}`,
+  type: "Memory",
+  kind: "answer",
+  title: "How are requests routed?",
+  author: "lea",
+  device: "lea-pc",
+  fields: { kind: "answer" },
+  body: "`route()` in `src/router.ts` returns the first route that matches the path.",
+  anchors: await anchored(["src/router.ts"]),
+  links: [{ kind: "repo", ref: repoIdentity }],
+});
+const cents = await record({
+  type: "Memory",
+  kind: "convention",
+  title: "Money is always in cents",
+  fields: { kind: "convention" },
+  body: "Amounts are integers in cents everywhere; `cents()` in src/money.ts converts at the edges.",
+});
+await record({
+  space: "me",
+  type: "Memory",
+  kind: "fact",
+  title: "Review Léa's Apple Pay PR before Friday",
+  fields: { kind: "fact" },
+});
+const skill = await record({
+  type: "Skill",
+  title: "release-notes",
+  author: "lea",
+  device: "lea-pc",
+  fields: {
+    recommended: "yes",
+    files: {
+      "SKILL.md":
+        "---\nname: release-notes\ndescription: Writes release notes from the pull requests merged since the last tag.\n---\nRead the merged pull requests, group them by area, write one line each.\n",
+    },
+  },
+});
+await record({
+  type: "McpServer",
+  title: "sentry",
+  author: "anthony",
+  device: "anthony-mbp",
+  fields: {
+    config: { command: "npx", args: ["-y", "@sentry/mcp-server@0.24.0"] },
+    credentials: ["SENTRY_ACCESS_TOKEN"],
+  },
+  body: "Sentry's issues and events, read-only for agents.",
+});
+const update = await record({
+  type: "Routine",
+  title: "Update dependencies",
+  author: "anthony",
+  device: "anthony-mbp",
+  fields: {
+    trigger: "request",
+    repo: repoIdentity,
+    tools: ["Edit", "Bash(pnpm install:*)", "Bash(pnpm test:*)"],
+    versions: [
+      {
+        version: 1,
+        prompt: "Update the dependencies the request names, run the tests, and explain what changed.",
+        status: "production",
+      },
+      {
+        version: 2,
+        prompt:
+          "Update the dependencies the request names to their newest release older than 7 days, run the tests, and write the upgrade plan.",
+        status: "testing",
+      },
+    ],
+    evals: [
+      { input: "Bump hono", expect: "hono", judge: "code" },
+      { input: "Bump zod to 4", expect: "Explains the breaking changes", judge: "model" },
+      { input: "Update everything", expect: "A plan a person can review", judge: "person" },
+    ],
+  },
+  body: "Keeps checkout's dependencies current, one request at a time.",
+});
+await record({
+  type: "Routine",
+  title: "Librarian",
+  fields: {
+    trigger: "schedule",
+    schedule: "daily 05:00",
+    builtin: "librarian",
+    versions: [{ version: 1, prompt: "Built in: suggests fixes to the store.", status: "production" }],
+  },
+});
+await record({
+  type: "Routine",
+  title: "My meetings",
+  fields: {
+    trigger: "schedule",
+    schedule: "weekdays 18:00",
+    collector: "yes",
+    tools: ["mcp__granola__list_meetings", "mcp__granola__get_transcript"],
+    versions: [
+      {
+        version: 1,
+        prompt: "Gather today's meeting transcripts as Meeting records, linked to their project.",
+        status: "production",
+      },
+    ],
+  },
+});
+const request = await record({
+  type: "Task",
+  title: "Bump hono to 4.12",
+  author: "marie",
+  fields: {
+    status: "done",
+    routine: update,
+    machine: "anthony-mbp",
+    result: "Bumped hono from 4.11.2 to 4.12.0. The tests pass. Nothing in checkout used the removed `c.env` getter.",
+  },
+  links: [link(update)],
+});
+writeFileSync(
+  join(repo, "src/payments/retry.ts"),
+  `${files["src/payments/retry.ts"]}\nexport const MAX_ATTEMPTS = 5;\n`,
+);
+git("commit", "-q", "-am", "PAY-112 cap retries at five attempts");
+await record({
+  type: "Suggestion",
+  title: "Where are failed payments retried?: Its files changed since it was written",
+  author: "marie",
+  fields: {
+    target: retryAnswer,
+    change: { retire: true },
+    reason: "Its files changed since it was written (src/payments/retry.ts): check it again, or retire it.",
+  },
+  links: [link(retryAnswer)],
+});
+await syncOnce({ store, team: marie, embedder: null, personalKey });
+for (const [id, times] of [
+  [retryAnswer, 7],
+  [routing, 4],
+  [cents, 9],
+] as const) {
+  for (let n = 0; n < times; n++) await store.records.hit(id);
+}
+
+await store.approvals.put({
+  recordId: update,
+  kind: "routine",
+  hash: await routineHash(
+    (await store.records.get(update)) as NonNullable<Awaited<ReturnType<Store["records"]["get"]>>>,
+  ),
+  approvedAt: now,
+  settings: { mode: "read-only", limit: 10 },
+  installedPath: null,
+  previousHash: null,
+});
+await store.approvals.put({
+  recordId: skill,
+  kind: "skill",
+  hash: await sharedHash((await store.records.get(skill)) as NonNullable<Awaited<ReturnType<Store["records"]["get"]>>>),
+  approvedAt: now,
+  settings: { auto: true, name: "release-notes" },
+  installedPath: join(userHome, ".claude", "skills", "grenier-release-notes"),
+  previousHash: null,
+});
+
+// Teammates' machines say their state again before the team store counts them as offline.
+const tellStates = async () => {
+  for (const [client, state, room] of [
+    [lea, "available", 0.7],
+    [sam, "away", 0.2],
+    [anthony, "busy", 0.4],
+  ] as const) {
+    await teamApi(client, "/api/machines/me", {
+      method: "PUT",
+      body: { state, room, repos: [repoIdentity], agents: ["claude"] },
+    }).catch(() => undefined);
+  }
+};
+await tellStates();
+const stateTimer = setInterval(() => void tellStates(), 60_000);
+const day = (ago: number) => new Date(now - ago * DAY).toISOString().slice(0, 10);
+for (const [client, scale] of [
+  [marie, 1.4],
+  [sam, 2.1],
+  [lea, 1.1],
+  [anthony, 0.8],
+] as const) {
+  const rows = Array.from({ length: 14 }, (_, ago) => ({
+    day: day(ago),
+    repo: "checkout",
+    requests: Math.round(40 * scale + ((ago * 7) % 11)),
+    inputTokens: 200_000,
+    cacheWriteTokens: 40_000,
+    cacheReadTokens: 900_000,
+    outputTokens: 30_000,
+    cost: Number((scale * (2.2 + ((ago * 13) % 7) / 3)).toFixed(2)),
+    routineMinutes: client === anthony ? 12 + (ago % 3) * 6 : 0,
+  }));
+  await teamApi(client, "/api/usage", { method: "PUT", body: { rows } });
+}
+const runs = [
+  { version: 1, kind: "eval", status: "done", score: 1, ago: 6 },
+  { version: 1, kind: "eval", status: "done", score: 0, ago: 6 },
+  { version: 2, kind: "eval", status: "done", score: 1, ago: 1 },
+  { version: 2, kind: "eval", status: "done", score: 1, ago: 1 },
+  { version: 1, kind: "run", status: "done", score: null, ago: 0.2, taskId: request },
+];
+for (const run of runs) {
+  const id = newId();
+  await teamApi(anthony, "/api/runs", {
+    body: {
+      id,
+      routineId: update,
+      version: run.version,
+      kind: run.kind,
+      status: run.status,
+      startedAt: now - run.ago * DAY,
+      endedAt: now - run.ago * DAY + 6 * 60_000,
+      actions: run.kind === "run" ? 0 : 0,
+      cost: 0.41,
+      ...(run.score === null ? {} : { score: run.score }),
+      ...(run.taskId ? { taskId: run.taskId } : {}),
+    },
+  });
+  if (run.kind === "run") await teamApi(marie, `/api/runs/${id}/thumbs`, { body: { up: true } });
+}
+
+const sessions = [
+  { client: "claude", ago: 0.1, cost: 1.84, hits: 3 },
+  { client: "claude", ago: 0.9, cost: 0.62, hits: 1 },
+  { client: "codex", ago: 2, cost: 2.4, hits: 0 },
+  { client: "claude", ago: 3.5, cost: 0.97, hits: 2 },
+  { client: "claude", ago: 5, cost: 3.1, hits: 4 },
+  { client: "claude", ago: 16, cost: 4.2, hits: 2, landed: [38, 31], keys: ["PAY-112"] },
+  { client: "claude", ago: 19, cost: 2.6, hits: 1, landed: [20, 9], keys: ["PAY-98"] },
+  { client: "codex", ago: 24, cost: 1.3, hits: 0, landed: [12, 12], keys: ["CHK-7"] },
+];
+for (const [index, session] of sessions.entries()) {
+  const id = `demo${index}`;
+  const at = now - session.ago * DAY;
+  await store.sessions.create({
+    id,
+    client: session.client,
+    cwd: repo,
+    repoRoot: repo,
+    repoId: repoIdentity,
+    startedAt: at,
+  });
+  await store.sessions.end(id, at + 25 * 60_000);
+  for (let n = 0; n < 6; n++) {
+    await store.usage.add({
+      sessionId: id,
+      ts: at + n * 60_000,
+      model: session.client === "codex" ? "gpt-5.5" : "claude-opus-5-5",
+      inputTokens: 12_000,
+      cacheWriteTokens: 3_000,
+      cacheReadTokens: 60_000,
+      outputTokens: 2_000,
+      cost: session.cost / 6,
+      status: 200,
+    });
+  }
+  const steps = [
+    {
+      tool: "mcp__grenier__recall",
+      kind: "ask" as const,
+      label: "Where are failed payments retried?",
+      outcome: session.hits > 0 ? "hit" : "miss",
+    },
+    { tool: "Read", kind: "read" as const, path: "src/payments/retry.ts" },
+    { tool: "Grep", kind: "search" as const, label: "MAX_ATTEMPTS" },
+    { tool: "Read", kind: "read" as const, path: "src/money.ts" },
+    { tool: "Edit", kind: "edit" as const, path: "src/payments/retry.ts", startLine: 4, endLine: 5 },
+    { tool: "mcp__grenier__remember", kind: "ask" as const, label: "How many times is a payment retried?" },
+  ];
+  await store.steps.add(
+    steps.map((step, n) => ({
+      sessionId: id,
+      callId: `${id}-${n}`,
+      ts: at + n * 90_000,
+      ...step,
+      ...(step.kind === "edit" ? { lineHashes: lineHashes("export const MAX_ATTEMPTS = 5;") } : {}),
+    })),
+  );
+  if (session.landed) {
+    await store.outcomes.put({
+      sessionId: id,
+      writtenLines: session.landed[0] as number,
+      landedLines: session.landed[1] as number,
+      rediscovery: session.cost * 0.12,
+      issueKeys: session.keys ?? [],
+      computedAt: now,
+    });
+  }
+}
+await store.close();
+
+const port = await freePort();
+const adminToken = `ga_demo_${newId()}${newId()}`;
+writeFileSync(join(home, "admin-token"), `${adminToken}\n`, { mode: 0o600 });
+writeFileSync(join(home, "team-token"), `${SETUP_TOKEN}\n`, { mode: 0o600 });
+writeFileSync(
+  join(home, "config.toml"),
+  `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n\n[team]\nurl = "${teamUrl}"\n\n[machine]\nname = "marie-mbp"\nroutines = true\nidle_minutes = 0\nhours = "0-24"\n`,
+);
+const environment = { ...process.env, GRENIER_HOME: home, HOME: userHome };
+const daemon = spawn(process.execPath, [join(ROOT, "apps/cli/dist/grenier.js"), "daemon"], {
+  env: environment,
+  stdio: ["ignore", "ignore", "inherit"],
+});
+for (let tries = 0; tries < 50; tries++) {
+  const up = await fetch(`http://127.0.0.1:${port}/admin/health`, {
+    headers: { authorization: `Bearer ${adminToken}` },
+  })
+    .then((response) => response.ok)
+    .catch(() => false);
+  if (up) break;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+}
+
+const vite = join(ROOT, "apps/desktop/node_modules/vite/bin/vite.js");
+const ui = join(dir, "ui");
+execFileSync(process.execPath, [vite, "build", "--outDir", ui, "--emptyOutDir", "--logLevel", "warn"], {
+  cwd: join(ROOT, "apps/desktop"),
+  env: { ...process.env, VITE_GRENIER_URL: `http://127.0.0.1:${port}`, VITE_GRENIER_TOKEN: adminToken },
+  stdio: "inherit",
+});
+const preview = spawn(
+  process.execPath,
+  [vite, "preview", "--outDir", ui, "--port", "1420", "--strictPort", "--host", "localhost"],
+  {
+    cwd: join(ROOT, "apps/desktop"),
+    stdio: ["ignore", "ignore", "inherit"],
+  },
+);
+
+process.on("exit", () => {
+  preview.kill();
+  daemon.kill();
+});
+process.stdout.write(
+  `Grenier's demo: http://localhost:1420/demo#dashboard (or #store, #store/${project}, #team, #routines, #skills, #machine). Ctrl-C stops it.\n`,
+);
+await new Promise<void>((resolve) => {
+  process.once("SIGINT", () => resolve());
+  process.once("SIGTERM", () => resolve());
+});
+clearInterval(stateTimer);
+preview.kill();
+daemon.kill();
+await mf.dispose();
+rmSync(dir, { recursive: true, force: true });

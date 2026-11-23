@@ -92,6 +92,9 @@ code.
   equal. The Rust shell is formatted at 120 columns (`src-tauri/rustfmt.toml`), and `tauri-build` needs the web UI
   and the sidecar in place before it compiles: `pnpm build`, `pnpm --filter @grenier/desktop build` and
   `pnpm --filter @grenier/desktop sidecar`.
+- `pnpm demo` serves the desktop UI at http://localhost:1420 against a throwaway daemon and team store filled with
+  made-up data (`scripts/demo.ts`); laibe's `grenier:screenshots` captures the site's screenshots from it. A screen is
+  picked by the URL's hash, as `#store` or `#store/<record id>`.
 - The desktop app bundle: `pnpm build`, `pnpm --filter @grenier/desktop sidecar [--target <triple>]` (downloads Node's
   official build, checked against the SHA-256 pinned in `scripts/prepare-sidecar.mjs`), then
   `pnpm --filter @grenier/desktop tauri build`. CI builds its web UI and sidecar and tests the shell; releases build
