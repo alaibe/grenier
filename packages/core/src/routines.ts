@@ -39,7 +39,6 @@ export function isAction(tool: string): boolean {
 }
 
 export interface RoutineShape {
-  title: string;
   fields: Record<string, unknown>;
 }
 

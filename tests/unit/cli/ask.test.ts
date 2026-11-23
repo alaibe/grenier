@@ -12,7 +12,6 @@ import type { Io } from "../../../apps/cli/src/io.ts";
 
 class TableEmbedder implements Embedder {
   readonly model = "table";
-  readonly dimensions = 2;
   constructor(readonly table: Record<string, [number, number]>) {}
   async embed(texts: readonly string[]) {
     return texts.map((text) => {

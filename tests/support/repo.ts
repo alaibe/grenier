@@ -11,7 +11,6 @@ export const gitFiles: RepoFiles = { hashes: blobHashes, tracked: trackedFiles, 
 /** Gives each listed text a fixed direction, so a test decides which texts are alike. Others get zeros. */
 export class TableEmbedder implements Embedder {
   readonly model = "table";
-  readonly dimensions = 3;
   constructor(readonly table: Record<string, [number, number, number]>) {}
   async embed(texts: readonly string[]) {
     return texts.map((text) => {

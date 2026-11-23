@@ -16,15 +16,13 @@ export const DEFAULT_MODEL = {
   },
 } as const;
 
-export type ModelFiles = typeof DEFAULT_MODEL;
-
 function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
 /** The model's folder under `modelsDir`, named after its repository and revision. */
-export function modelDir(modelsDir: string, model: ModelFiles = DEFAULT_MODEL): string {
-  return join(modelsDir, `${model.repository.replace("/", "--")}@${model.revision.slice(0, 7)}`);
+export function modelDir(modelsDir: string): string {
+  return join(modelsDir, `${DEFAULT_MODEL.repository.replace("/", "--")}@${DEFAULT_MODEL.revision.slice(0, 7)}`);
 }
 
 /**
@@ -33,11 +31,11 @@ export function modelDir(modelsDir: string, model: ModelFiles = DEFAULT_MODEL): 
  */
 export async function loadLocalEmbedder(
   modelsDir: string,
-  options: { fetch?: typeof fetch; model?: ModelFiles; offline?: boolean } = {},
+  options: { fetch?: typeof fetch; offline?: boolean } = {},
 ): Promise<Embedder> {
-  const model = options.model ?? DEFAULT_MODEL;
+  const model = DEFAULT_MODEL;
   const fetchFile = options.fetch ?? fetch;
-  const dir = modelDir(modelsDir, model);
+  const dir = modelDir(modelsDir);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
 
   const files: Record<string, Uint8Array> = {};

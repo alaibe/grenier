@@ -357,7 +357,7 @@ export class Runner {
     prompt?: string;
     /** A checkout to run in, as a GitHub job's; otherwise a clean one is made from the repository here. */
     checkout?: string;
-    trigger: "request" | "manual" | "eval" | "schedule" | "github";
+    trigger: "request" | "manual" | "eval" | "github";
     mode: RoutineMode;
   }): Promise<RunOutcome> {
     if (this.#current) throw new Error("a run is going on this machine already");

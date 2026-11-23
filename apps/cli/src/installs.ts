@@ -150,7 +150,7 @@ export async function install(
   store: Store,
   home: string,
   record: FullRecord,
-  options: { auto?: boolean; files?: Record<string, unknown>; hash?: string } = {},
+  options: { auto?: boolean; hash?: string } = {},
 ): Promise<Approval> {
   const kind = KIND[record.type as Shared];
   if (!kind) throw new CommandError(`${record.title} is a ${record.type}, not a skill or an MCP server`);
@@ -162,7 +162,7 @@ export async function install(
     if (existsSync(installedPath) && !before) {
       throw new CommandError(`${installedPath} exists and is not one Grenier installed; move it aside first`);
     }
-    writeSkill(installedPath, (options.files ?? record.fields.files ?? {}) as Record<string, string>);
+    writeSkill(installedPath, (record.fields.files ?? {}) as Record<string, string>);
   } else {
     installedPath = claudeConfig(home);
     const config = readJson(installedPath);

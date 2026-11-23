@@ -4,7 +4,6 @@ import { Tokenizer } from "@huggingface/tokenizers";
 export interface Embedder {
   /** Names the model, so vectors from different models are never compared. */
   readonly model: string;
-  readonly dimensions: number;
   embed(texts: readonly string[]): Promise<Float32Array[]>;
 }
 
