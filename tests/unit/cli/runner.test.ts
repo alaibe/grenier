@@ -232,6 +232,20 @@ describe("a machine that takes the team's routine runs", () => {
     expect(seen).toEqual([false, false, false]);
   });
 
+  it("lists a run whose repository is not on this machine, as failed", async () => {
+    const routine = await addRoutine(deps, {
+      title: "Elsewhere",
+      prompt: "Do it.",
+      fields: { trigger: "request" },
+      repo: "not-on-this-machine",
+      space: "team",
+    });
+    const record = (await store.records.get(routine.id)) as FullRecord;
+    const version = pickVersion(record) as NonNullable<ReturnType<typeof pickVersion>>;
+    await newRunner().run({ routine: record, version, trigger: "manual", mode: "read-only" });
+    expect((await store.runs.list({ routineId: routine.id }))[0]?.status).toBe("failed");
+  });
+
   it("runs the librarian here, which suggests fixes instead of starting an agent", async () => {
     const routine = await addRoutine(deps, {
       title: "Librarian",

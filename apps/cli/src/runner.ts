@@ -386,6 +386,20 @@ export class Runner {
           }).catch(() => undefined)
         : Promise.resolve(undefined);
 
+    // The run is listed before anything can fail, so whoever waits for it sees it end.
+    await store.runs.add({
+      id: runId,
+      routineId: routine.id,
+      taskId: task?.id ?? null,
+      version: version.version,
+      sessionId,
+      trigger: input.trigger,
+      status: "running",
+      startedAt,
+      endedAt: null,
+      actions: 0,
+      result: null,
+    });
     if (repoId && !root && !input.checkout) {
       return this.#finish(
         runId,
@@ -425,19 +439,6 @@ export class Runner {
         repoId,
         startedAt,
         runId,
-      });
-      await store.runs.add({
-        id: runId,
-        routineId: routine.id,
-        taskId: task?.id ?? null,
-        version: version.version,
-        sessionId,
-        trigger: input.trigger,
-        status: "running",
-        startedAt,
-        endedAt: null,
-        actions: 0,
-        result: null,
       });
       await report({ status: "running" });
       if (task) await this.#setTask(task, { status: "doing" });

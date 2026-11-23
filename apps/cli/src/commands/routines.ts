@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { repoId, repoRoot } from "@grenier/connectors/git";
-import { ROUTINE_MODES, type RoutineMode, versionsOf } from "@grenier/core";
+import { evalsOf, ROUTINE_MODES, type RoutineMode, versionsOf } from "@grenier/core";
 import { ensureRepoSpace } from "@grenier/index";
 import type { FullRecord, Run, Store } from "@grenier/store";
 import { adminToken, startDaemon } from "../daemon.ts";
@@ -170,6 +170,8 @@ export async function routines(argv: string[], io: Io): Promise<string[]> {
       const [name] = positionals;
       if (!name) throw new UsageError(`routines ${action} takes a routine's id or title`);
       const routine = await withStore(paths, (store) => findRoutine(store, name));
+      const cases = evalsOf(routine).length;
+      if (action === "eval" && cases === 0) throw new CommandError(`${routine.title} has no eval set yet`);
       const since = Date.now();
       await daemonApi(io, `/routines/${routine.id}/${action}`, {
         body: {
@@ -178,7 +180,6 @@ export async function routines(argv: string[], io: Io): Promise<string[]> {
         },
       });
       io.err(`grenier: ${action === "run" ? "running" : "running the evals of"} ${routine.title} on this machine…`);
-      const cases = Array.isArray(routine.fields.evals) ? routine.fields.evals.length : 1;
       const done = await waitForRuns(io, routine.id, since, action === "eval" ? cases : 1);
       if (action === "run") {
         const run = done[0] as Run;
