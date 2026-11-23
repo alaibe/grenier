@@ -1,8 +1,24 @@
 import type { ViewProps } from "../App.tsx";
 import { setUsageEnabled, usageEnabled } from "../api.ts";
-import { Loading, Notice, Page, useAction, useLoad } from "../ui.tsx";
+import { Loading, Notice, Page, Part, useAction, useLoad } from "../ui.tsx";
+import { Clients } from "./Clients.tsx";
+import { Machine } from "./Machine.tsx";
+import { Servers } from "./Skills.tsx";
+import { Team } from "./Team.tsx";
 
-export function Settings(_: ViewProps) {
+export function Settings(props: ViewProps) {
+  return (
+    <Page title="Settings" intro="The team, the MCP servers it shares, the apps that read the store, and this machine.">
+      <Team {...props} />
+      <Servers go={props.go} />
+      <Clients {...props} />
+      <Machine {...props} />
+      <UsageStatistics />
+    </Page>
+  );
+}
+
+function UsageStatistics() {
   const { data: on, error, reload } = useLoad(usageEnabled);
   const action = useAction(reload);
 
@@ -17,7 +33,7 @@ export function Settings(_: ViewProps) {
     });
 
   return (
-    <Page title="Settings" intro="How this app behaves on this computer.">
+    <Part title="Usage statistics">
       <Notice message={error ?? action.message} />
       {on === null && !error && <Loading what="settings" />}
       {on !== null && (
@@ -40,6 +56,6 @@ export function Settings(_: ViewProps) {
           </label>
         </section>
       )}
-    </Page>
+    </Part>
   );
 }

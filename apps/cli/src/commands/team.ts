@@ -125,7 +125,7 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
   ensurePersonalKey(paths);
   return [
     `The team store is at ${url}, in your own Cloudflare account. This machine is ${deviceName(config)}, and you are its admin, ${member}.`,
-    "Invite teammates from the app's Team screen.",
+    "Invite teammates in the app's Settings.",
   ];
 }
 

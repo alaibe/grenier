@@ -49,32 +49,6 @@ export const events = sqliteTable(
   (table) => [index("events_session_ts").on(table.sessionId, table.ts)],
 );
 
-/** One row per file or search a tool call touched: never a command or what a file holds. */
-export const steps = sqliteTable(
-  "steps",
-  {
-    id: integer("id").primaryKey(),
-    sessionId: text("session_id").notNull(),
-    callId: text("call_id").notNull(),
-    /** Which of the call's files this is: a shell command can read several. */
-    part: integer("part").notNull().default(0),
-    ts: integer("ts").notNull(),
-    tool: text("tool").notNull(),
-    kind: text("kind", { enum: ["read", "edit", "search", "list", "ask"] }).notNull(),
-    /** Relative to the repository's root; null for the whole repository. */
-    path: text("path"),
-    startLine: integer("start_line"),
-    endLine: integer("end_line"),
-    /** A search's pattern or a question to the store, shortened, with anything like a key taken out. */
-    label: text("label"),
-    /** "error" for a failed call; recall's hit, stale or miss for an ask. */
-    outcome: text("outcome"),
-    /** For an edit: a hash of each line it wrote, trimmed, to tell later whether they landed. */
-    lineHashes: text("line_hashes", { mode: "json" }).$type<string[]>(),
-  },
-  (table) => [uniqueIndex("steps_call").on(table.sessionId, table.callId, table.part)],
-);
-
 /** Small values this machine keeps: team cursor, last sync, member, `me` space, auto-install, eval scores. */
 export const state = sqliteTable("state", {
   key: text("key").primaryKey(),
@@ -219,17 +193,6 @@ export const runs = sqliteTable(
   (table) => [index("runs_routine").on(table.routineId, table.startedAt)],
 );
 
-/** What a session's spend turned into, worked out once its edits had time to land. */
-export const outcomes = sqliteTable("outcomes", {
-  sessionId: text("session_id").primaryKey(),
-  writtenLines: integer("written_lines").notNull(),
-  landedLines: integer("landed_lines").notNull(),
-  /** Spend on reading what a hit already covered. */
-  rediscovery: real("rediscovery").notNull(),
-  issueKeys: text("issue_keys", { mode: "json" }).$type<string[]>().notNull().default([]),
-  computedAt: integer("computed_at").notNull(),
-});
-
 /** Every read a client made of the store, written before the result is returned. */
 export const audit = sqliteTable(
   "audit",
@@ -261,8 +224,6 @@ export type Usage = typeof usage.$inferSelect;
 export type NewUsage = typeof usage.$inferInsert;
 export type Event = typeof events.$inferSelect;
 export type NewEvent = typeof events.$inferInsert;
-export type Step = typeof steps.$inferSelect;
-export type NewStep = typeof steps.$inferInsert;
 export type Space = typeof spaces.$inferSelect;
 export type RecordRow = typeof records.$inferSelect;
 export type Anchor = typeof anchors.$inferSelect;
@@ -271,6 +232,5 @@ export type HistoryEntry = typeof history.$inferSelect;
 export type OutboxEntry = typeof outbox.$inferSelect;
 export type Approval = typeof approvals.$inferSelect;
 export type Run = typeof runs.$inferSelect;
-export type Outcome = typeof outcomes.$inferSelect;
 export type Client = typeof clients.$inferSelect;
 export type AuditEntry = typeof audit.$inferSelect;

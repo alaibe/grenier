@@ -15,6 +15,13 @@
       "when": 1795353258180,
       "tag": "0001_records_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795465928824,
+      "tag": "0002_no_traces",
+      "breakpoints": true
     }
   ]
 }

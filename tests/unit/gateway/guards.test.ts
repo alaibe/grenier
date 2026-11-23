@@ -182,7 +182,7 @@ describe("loops", () => {
     await vi.waitFor(async () => expect((await gateway.store.sessions.get("s1"))?.paused).toBe(true));
     expect(settled).toBe(false);
     expect(upstream.requests.length).toBe(before);
-    expect(gateway.notifications[0]).toContain("Resume it from Grenier's Dashboard");
+    expect(gateway.notifications[0]).toContain("Resume it on Grenier's Cost screen");
 
     await gateway.store.sessions.setPaused("s1", false);
     expect((await held).status).toBe(200);
@@ -206,11 +206,11 @@ describe("LoopWatch", () => {
     content: [{ type: "tool_use", id, name: "Bash", input: { command: "npm test" } }],
   });
 
-  it("drops a session idle for too long, and neither counts nor returns its history when it comes back", async () => {
+  it("drops a session idle for too long, and does not count its history when it comes back", async () => {
     let now = 0;
     const watch = new LoopWatch(3, 10, () => now, 1_000);
     const messages = [call("a"), call("b")];
-    expect((await watch.observe("s1", { messages }, false)).fresh).toHaveLength(2);
+    expect(await watch.observe("s1", { messages }, false)).toEqual([]);
     expect(watch.size).toBe(1);
 
     now = 120_000;
@@ -218,14 +218,11 @@ describe("LoopWatch", () => {
     expect(watch.size).toBe(1);
 
     messages.push(call("c"));
-    const back = await watch.observe("s1", { messages }, false);
-    expect(back).toEqual({ loops: [], fresh: [] });
+    expect(await watch.observe("s1", { messages }, false)).toEqual([]);
 
     messages.push(call("d"));
-    const next = await watch.observe("s1", { messages }, false);
-    expect(next.fresh.map((use) => use.id)).toEqual(["d"]);
-    expect(next.loops).toHaveLength(0);
+    expect(await watch.observe("s1", { messages }, false)).toEqual([]);
     messages.push(call("e"), call("f"));
-    expect((await watch.observe("s1", { messages }, false)).loops).toHaveLength(1);
+    expect(await watch.observe("s1", { messages }, false)).toHaveLength(1);
   });
 });

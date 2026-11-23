@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
-import { Button, Empty, Input, Loading, Notice, Page, Table, useAction, useLoad } from "../ui.tsx";
+import { Button, Empty, Input, Loading, Notice, Page, Part, Table, useAction, useLoad } from "../ui.tsx";
 
 interface SharedState {
   id: string;
@@ -104,140 +104,168 @@ function FindSkills({ shared }: { shared: () => void }) {
   );
 }
 
-export function Skills({ go }: ViewProps) {
+/** The skills or MCP servers the team shares, and what this machine has of each. */
+function Shared({ type, none, go }: { type: SharedState["type"]; none: string; go: ViewProps["go"] }) {
   const { data, error, reload } = useLoad(load);
   const action = useAction(reload);
-  const call = (key: string, path: string, method: string, body?: unknown, done?: string) =>
+  const call = (key: string, path: string, method: string, done?: string) =>
     void action.run(key, async () => {
-      await api(path, { method, ...(body === undefined ? {} : { body }) });
+      await api(path, { method });
       return done ? { text: done } : undefined;
     });
-
-  const section = (type: SharedState["type"], title: string, none: string) => {
-    const rows = data?.shared.filter((entry) => entry.type === type) ?? [];
-    return (
-      <section className="mb-7">
-        <h2 className="mb-2.5 font-semibold">{title}</h2>
-        {rows.length === 0 ? (
-          <Empty>
-            <code>{none}</code>
-          </Empty>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Shared by</th>
-                <th>Here</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
+  const rows = data?.shared.filter((entry) => entry.type === type) ?? [];
+  return (
+    <section className="mb-7">
+      <Notice message={error ?? action.message} />
+      {!data && !error && <Loading what={type === "Skill" ? "skills" : "MCP servers"} />}
+      {data && rows.length === 0 && (
+        <Empty>
+          <code>{none}</code>
+        </Empty>
+      )}
+      {rows.length > 0 && (
+        <Table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Shared by</th>
+              <th>Here</th>
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((entry) => (
+              <tr key={entry.id}>
+                <td className="whitespace-normal">
+                  <button
+                    type="button"
+                    className="cursor-pointer font-medium hover:underline"
+                    onClick={() => go("knowledge", entry.id)}
+                  >
+                    {entry.title}
+                  </button>
+                  {entry.recommended && (
+                    <span className="ml-2 rounded-[5px] border border-accent px-1.5 text-xs leading-5 text-accent">
+                      recommended
+                    </span>
+                  )}
+                  {entry.description && <span className="block text-sm text-muted">{entry.description}</span>}
+                  {entry.credentials.length > 0 && (
+                    <span className="block text-sm text-muted">
+                      Reads {entry.credentials.join(", ")} from your environment.
+                    </span>
+                  )}
+                </td>
+                <td>{entry.author}</td>
+                <td>{STATE[entry.state]}</td>
+                <td>
+                  <div className="flex justify-end gap-1.5">
+                    {entry.state !== "installed" && (
+                      <Button
+                        disabled={action.busy !== null}
+                        onClick={() =>
+                          call(
+                            `install:${entry.id}`,
+                            `/installs/${entry.id}`,
+                            "POST",
+                            `Installed ${entry.title}. Restart Claude Code to load it.`,
+                          )
+                        }
+                      >
+                        {entry.state === "update" ? "Approve the update" : "Install"}
+                      </Button>
+                    )}
+                    {entry.canRollBack && (
+                      <Button
+                        quiet
+                        disabled={action.busy !== null}
+                        onClick={() => call(`rollback:${entry.id}`, `/installs/${entry.id}/rollback`, "POST")}
+                      >
+                        Roll back
+                      </Button>
+                    )}
+                    {entry.state !== "available" && (
+                      <Button
+                        quiet
+                        disabled={action.busy !== null}
+                        onClick={() => call(`remove:${entry.id}`, `/installs/${entry.id}`, "DELETE")}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {rows.map((entry) => (
-                <tr key={entry.id}>
-                  <td className="whitespace-normal">
-                    <button
-                      type="button"
-                      className="cursor-pointer font-medium hover:underline"
-                      onClick={() => go("knowledge", entry.id)}
-                    >
-                      {entry.title}
-                    </button>
-                    {entry.recommended && (
-                      <span className="ml-2 rounded-[5px] border border-accent px-1.5 text-xs leading-5 text-accent">
-                        recommended
-                      </span>
-                    )}
-                    {entry.description && <span className="block text-sm text-muted">{entry.description}</span>}
-                    {entry.credentials.length > 0 && (
-                      <span className="block text-sm text-muted">
-                        Reads {entry.credentials.join(", ")} from your environment.
-                      </span>
-                    )}
-                  </td>
-                  <td>{entry.author}</td>
-                  <td>{STATE[entry.state]}</td>
-                  <td>
-                    <div className="flex justify-end gap-1.5">
-                      {entry.state !== "installed" && (
-                        <Button
-                          disabled={action.busy !== null}
-                          onClick={() =>
-                            call(
-                              `install:${entry.id}`,
-                              `/installs/${entry.id}`,
-                              "POST",
-                              undefined,
-                              `Installed ${entry.title}. Restart Claude Code to load it.`,
-                            )
-                          }
-                        >
-                          {entry.state === "update" ? "Approve the update" : "Install"}
-                        </Button>
-                      )}
-                      {entry.canRollBack && (
-                        <Button
-                          quiet
-                          disabled={action.busy !== null}
-                          onClick={() => call(`rollback:${entry.id}`, `/installs/${entry.id}/rollback`, "POST")}
-                        >
-                          Roll back
-                        </Button>
-                      )}
-                      {entry.state !== "available" && (
-                        <Button
-                          quiet
-                          disabled={action.busy !== null}
-                          onClick={() => call(`remove:${entry.id}`, `/installs/${entry.id}`, "DELETE")}
-                        >
-                          Remove
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </section>
-    );
-  };
+            ))}
+          </tbody>
+        </Table>
+      )}
+    </section>
+  );
+}
 
+/** Whether what an admin recommends installs and updates here without asking: skills and MCP servers alike. */
+function AutoInstall({ changed }: { changed: () => void }) {
+  const { data, reload } = useLoad(load);
+  const action = useAction(() => {
+    reload();
+    changed();
+  });
+  if (!data) return null;
+  return (
+    <section className="mb-7 rounded-xl border border-line bg-panel px-5 py-4">
+      <Notice message={action.message} />
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          className="mt-1 accent-accent"
+          checked={data.auto}
+          disabled={action.busy !== null}
+          onChange={(event) => {
+            const on = event.currentTarget.checked;
+            void action.run("auto", async () => {
+              await api("/installs/auto", { method: "PUT", body: { on } });
+              return undefined;
+            });
+          }}
+        />
+        <span>
+          <span className="font-medium">Install recommended ones by themselves</span>
+          <span className="mt-0.5 block text-md text-muted">
+            The skills and MCP servers an admin recommends install and update on this machine without asking. Each
+            update can be rolled back.
+          </span>
+        </span>
+      </label>
+    </section>
+  );
+}
+
+export function Skills({ go }: ViewProps) {
+  const [round, setRound] = useState(0);
+  const again = () => setRound((n) => n + 1);
   return (
     <Page
-      title="Skills and servers"
+      title="Skills"
       intro="What the team shares for its agents. Installing one approves it as it is now: a later change waits for your approval, unless an admin recommends it and you let recommended ones update by themselves."
     >
-      <Notice message={error ?? action.message} />
-      {!data && !error && <Loading what="skills" />}
-      {data && (
-        <>
-          <section className="mb-7 rounded-xl border border-line bg-panel px-5 py-4">
-            <label className="flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                className="mt-1 accent-accent"
-                checked={data.auto}
-                disabled={action.busy !== null}
-                onChange={(event) => call("auto", "/installs/auto", "PUT", { on: event.currentTarget.checked })}
-              />
-              <span>
-                <span className="font-medium">Install recommended ones by themselves</span>
-                <span className="mt-0.5 block text-md text-muted">
-                  The skills and servers an admin recommends install and update on this machine without asking. Each
-                  update can be rolled back.
-                </span>
-              </span>
-            </label>
-          </section>
-          {section("Skill", "Skills", "grenier skills share <folder>")}
-          <FindSkills shared={reload} />
-          {section("McpServer", "MCP servers", "grenier mcp share <name>")}
-        </>
-      )}
+      <AutoInstall changed={again} />
+      <Shared key={round} type="Skill" none="grenier skills share <folder>" go={go} />
+      <FindSkills shared={again} />
     </Page>
+  );
+}
+
+/** For Settings: the MCP servers the team shares, without their credentials. */
+export function Servers({ go }: Pick<ViewProps, "go">) {
+  return (
+    <Part
+      title="MCP servers"
+      intro="The MCP servers the team shares for Claude Code, without their credentials. Installing one approves it as it is now."
+    >
+      <Shared type="McpServer" none="grenier mcp share <name>" go={go} />
+    </Part>
   );
 }

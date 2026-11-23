@@ -32,27 +32,20 @@ export interface AdminOptions {
   token: string;
   version: string;
   host: AdminHost;
-  readFile: (root: string, path: string) => Promise<string | null>;
   /** Who the daemon is, so a client can tell it from another program that reused its pid. */
   identity?: { pid: number; port: number };
 }
 
-/** Questions to the store are null outside a repository, where no step is traced. */
-async function sessionReport(store: Store, rows: readonly UsageWithSession[], prices: Prices, since: number) {
-  const traced = new Map((await store.steps.sessions(since)).map((summary) => [summary.sessionId, summary]));
+function sessionReport(rows: readonly UsageWithSession[], prices: Prices) {
   const sessions = new Map(rows.map((row) => [row.sessionId, row]));
   return buildReport(rows, "session", prices)
     .map((report) => {
       const session = sessions.get(report.key);
-      const steps = session?.repoRoot ? (traced.get(report.key) ?? { asks: 0, hits: 0 }) : null;
       return {
         ...report,
         client: session?.client ?? null,
         project: session ? projectOf(session) : null,
         startedAt: session?.startedAt ?? null,
-        asks: steps?.asks ?? null,
-        hits: steps?.hits ?? null,
-        traced: traced.has(report.key),
       };
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
@@ -124,7 +117,6 @@ export function createAdmin(options: AdminOptions): Hono {
   app.onError((error) => {
     if (error instanceof StoreUseError) return problem(400, error.message);
     if (error instanceof TeamError) return problem(error.status >= 500 ? 502 : error.status, error.detail);
-    if (error instanceof Error && /--since takes/.test(error.message)) return problem(400, error.message);
     throw error;
   });
 
@@ -138,61 +130,17 @@ export function createAdmin(options: AdminOptions): Hono {
   app.get("/overview", async (c) => {
     const since = parseSince("7d", Date.now());
     const rows = await store.usage.list({ since });
-    const stats = await store.records.stats();
     const team = host.team() ?? null;
     return c.json({
       version: options.version,
       me: (await host.storeDeps()).me.member,
       days: buildReport(rows, "day", prices),
       projects: mostSpentFirst(buildReport(rows, "repo", prices)),
-      sessions: await sessionReport(store, rows, prices, since),
-      records: stats.reduce((total, row) => total + row.records, 0),
-      hits: stats.reduce((total, row) => total + row.hits, 0),
-      waiting: team ? (await store.outbox.list()).length : 0,
+      sessions: sessionReport(rows, prices),
+      waiting: team ? new Set((await store.outbox.list()).map((entry) => entry.recordId)).size : 0,
       team: team ? { url: team.url, lastSync: Number((await store.state.get("last_sync")) ?? 0) || null } : null,
       paused: (await store.sessions.paused()).length,
     });
-  });
-
-  app.get("/traces", async (c) => {
-    const summaries = await store.steps.sessions(parseSince(c.req.query("since") ?? "30d", Date.now()));
-    const traces: Record<string, unknown>[] = [];
-    for (const summary of summaries) {
-      const session = await store.sessions.get(summary.sessionId);
-      if (!session?.repoRoot) continue;
-      const { steps, files, last, asks, hits, readsBeforeAsk } = summary;
-      const { id, client, startedAt, endedAt } = session;
-      const repo = projectOf(session);
-      traces.push({ id, client, repo, startedAt, endedAt, steps, files, last, asks, hits, readsBeforeAsk });
-    }
-    return c.json({ traces });
-  });
-
-  app.get("/traces/:id", async (c) => {
-    const session = await store.sessions.get(c.req.param("id"));
-    if (!session?.repoRoot) return problem(404, `no trace for session ${c.req.param("id")}`);
-    const usage = await store.usage.list({ sessionId: session.id });
-    return c.json({
-      id: session.id,
-      client: session.client,
-      repo: projectOf(session),
-      startedAt: session.startedAt,
-      endedAt: session.endedAt,
-      steps: (await store.steps.list(session.id)).map(({ sessionId: _session, lineHashes: _hashes, ...step }) => step),
-      requests: usage.map((row) => ({ ts: row.ts, cost: row.cost ?? 0 })),
-    });
-  });
-
-  // Only a file the session itself touched, read where the session's repository is now.
-  app.get("/traces/:id/file", async (c) => {
-    const path = c.req.query("path") ?? "";
-    const session = await store.sessions.get(c.req.param("id"));
-    const touched = session?.repoRoot && (await store.steps.list(session.id)).some((step) => step.path === path);
-    const text = touched ? await options.readFile(session.repoRoot as string, path) : null;
-    if (typeof text !== "string") {
-      return problem(404, `${path} cannot be shown: it is not a text file this session touched, or it is gone`);
-    }
-    return c.json({ path, text });
   });
 
   app.get("/spaces", async (c) => {

@@ -8,15 +8,12 @@ import type {
   Link,
   NewEvent,
   NewSession,
-  NewStep,
   NewUsage,
   OutboxEntry,
-  Outcome,
   RecordRow,
   Run,
   Session,
   Space,
-  Step,
   Usage,
 } from "./schema.ts";
 
@@ -26,7 +23,6 @@ export interface Store {
   sessions: SessionStore;
   usage: UsageStore;
   events: EventStore;
-  steps: StepStore;
   state: StateStore;
   spaces: SpaceStore;
   records: RecordStore;
@@ -34,7 +30,6 @@ export interface Store {
   outbox: OutboxStore;
   approvals: ApprovalStore;
   runs: RunStore;
-  outcomes: OutcomeStore;
   clients: ClientStore;
   audit: AuditStore;
 }
@@ -68,29 +63,6 @@ export interface UsageStore {
 export interface EventStore {
   add(event: NewEvent): Promise<void>;
   list(filter?: { kind?: string }): Promise<Event[]>;
-  prune(before: number): Promise<number>;
-}
-
-export interface StepSummary {
-  sessionId: string;
-  steps: number;
-  files: number;
-  first: number;
-  last: number;
-  /** Questions to the store, and how many it answered with a hit. */
-  asks: number;
-  hits: number;
-  /** Reads before the session's first question to the store: all of its reads when it never asked. */
-  readsBeforeAsk: number;
-}
-
-export interface StepStore {
-  /** Adds steps; one already recorded for the same call and part is left as it is. */
-  add(rows: readonly NewStep[]): Promise<void>;
-  /** A session's steps in the order they were taken. */
-  list(sessionId: string): Promise<Step[]>;
-  /** The sessions with steps since `since`, newest first, with how many steps and distinct files each has. */
-  sessions(since: number): Promise<StepSummary[]>;
   prune(before: number): Promise<number>;
 }
 
@@ -175,11 +147,6 @@ export interface RunStore {
   update(id: string, change: Partial<Omit<Run, "id">>): Promise<void>;
   /** Newest first. */
   list(filter?: { routineId?: string; since?: number; limit?: number }): Promise<Run[]>;
-}
-
-export interface OutcomeStore {
-  put(outcome: Outcome): Promise<void>;
-  list(): Promise<Outcome[]>;
 }
 
 export interface ClientStore {

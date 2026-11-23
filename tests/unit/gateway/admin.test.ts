@@ -1,7 +1,6 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { repoText } from "@grenier/connectors/git";
 import { defaultConfig } from "@grenier/core";
 import { createGateway } from "@grenier/gateway";
 import type { TeamClient } from "@grenier/index";
@@ -34,7 +33,6 @@ beforeEach(async () => {
     admin: {
       token: TOKEN,
       version: "test",
-      readFile: repoText,
       host: {
         storeDeps: () => storeDeps(store),
         team: () => team,
@@ -123,8 +121,8 @@ describe("the admin API", () => {
       }),
     });
     expect(made.status).toBe(201);
-    const { id, waiting, team } = (await made.json()) as { id: string; waiting: boolean; team: boolean };
-    expect({ waiting, team }).toEqual({ waiting: true, team: false });
+    const { id, ...saved } = (await made.json()) as { id: string; waiting: boolean; team: boolean };
+    expect(saved).toMatchObject({ waiting: true, team: false });
     expect(((await (await call("/overview")).json()) as { waiting: number }).waiting).toBe(0);
     const refused = await call("/records", {
       method: "POST",
@@ -148,6 +146,8 @@ describe("the admin API", () => {
     expect((await call(`/records/${id}`, { method: "DELETE" })).status).toBe(200);
     expect(((await (await call("/records?type=Decision")).json()) as { records: unknown[] }).records).toEqual([]);
     expect((await store.outbox.list()).length).toBe(3);
+    team = { url: "https://team.test", token: "gt_x" };
+    expect(((await (await call("/overview")).json()) as { waiting: number }).waiting).toBe(1);
   });
 
   it("saves straight to the team store, and hands back a teammate's version when they changed the same field", async () => {
@@ -204,11 +204,6 @@ describe("the admin API", () => {
     });
     await store.sessions.create({ id: "s2", client: "codex", startedAt: now });
     await store.sessions.create({ id: "untagged", startedAt: now - 5000 });
-    const ask = { tool: "mcp__grenier__recall", kind: "ask" as const, ts: now, sessionId: "s1" };
-    await store.steps.add([
-      { ...ask, callId: "c1", outcome: "hit" },
-      { ...ask, callId: "c2", outcome: "miss" },
-    ]);
     for (const [sessionId, cost] of [
       ["s1", 0.125],
       ["s2", 0.5],
@@ -226,8 +221,6 @@ describe("the admin API", () => {
         client: string | null;
         project: string | null;
         startedAt: number | null;
-        asks: number | null;
-        hits: number | null;
       }[];
     };
     expect(overview.version).toBe("test");
@@ -237,75 +230,12 @@ describe("the admin API", () => {
       ["app", 0.125],
     ]);
     expect(
-      overview.sessions.map(({ key, client, project, startedAt, asks, hits }) => ({
-        key,
-        client,
-        project,
-        startedAt,
-        asks,
-        hits,
-      })),
+      overview.sessions.map(({ key, client, project, startedAt }) => ({ key, client, project, startedAt })),
     ).toEqual([
-      { key: "s2", client: "codex", project: null, startedAt: now, asks: null, hits: null },
-      { key: "s1", client: "claude", project: "app", startedAt: now - 1000, asks: 2, hits: 1 },
-      { key: "untagged", client: null, project: null, startedAt: now - 5000, asks: null, hits: null },
+      { key: "s2", client: "codex", project: null, startedAt: now },
+      { key: "s1", client: "claude", project: "app", startedAt: now - 1000 },
+      { key: "untagged", client: null, project: null, startedAt: now - 5000 },
     ]);
-    expect((overview.sessions as { key: string; traced?: boolean }[]).map(({ key, traced }) => [key, traced])).toEqual([
-      ["s2", false],
-      ["s1", true],
-      ["untagged", false],
-    ]);
-    expect((await call("/traces?since=forever")).status).toBe(400);
-  });
-
-  it("lists traces, gives one with its requests' cost, and shows only the files it touched", async () => {
-    const repo = realpathSync(mkdtempSync(join(dir, "repo-")));
-    mkdirSync(join(repo, "src"));
-    writeFileSync(join(repo, "src/a.ts"), "export const a = 1;\n");
-    writeFileSync(join(repo, "src/untouched.ts"), "export const b = 2;\n");
-    writeFileSync(join(dir, "outside.txt"), "not in the repository\n");
-    symlinkSync(join(dir, "outside.txt"), join(repo, "link.txt"));
-    const now = Date.now();
-    await store.sessions.create({ id: "s1", client: "claude", repoRoot: repo, cwd: repo, startedAt: now - 1000 });
-    await store.sessions.create({ id: "loose", startedAt: now });
-    const step = { sessionId: "s1", tool: "Read", kind: "read" as const, ts: now };
-    await store.steps.add([
-      { ...step, callId: "c1", path: "src/a.ts", startLine: 1, endLine: 1 },
-      { ...step, callId: "c2", path: "link.txt" },
-      { ...step, callId: "c3", tool: "Grep", kind: "search", path: null, label: "needle" },
-    ]);
-    await store.steps.add([{ ...step, sessionId: "loose", callId: "c1", path: "x.ts" }]);
-    await store.usage.add({ sessionId: "s1", ts: now, model: "claude-opus-5-5", cost: 0.25 });
-
-    const list = (await (await call("/traces")).json()) as { traces: { id: string; steps: number; files: number }[] };
-    expect(list.traces).toEqual([
-      expect.objectContaining({
-        id: "s1",
-        client: "claude",
-        repo: repo.split("/").at(-1),
-        steps: 3,
-        files: 2,
-        asks: 0,
-        hits: 0,
-        readsBeforeAsk: 2,
-      }),
-    ]);
-
-    const trace = (await (await call("/traces/s1")).json()) as {
-      steps: Record<string, unknown>[];
-      requests: { cost: number }[];
-    };
-    expect(trace.steps.map((entry) => entry.path)).toEqual(["src/a.ts", "link.txt", null]);
-    expect(trace.steps[0]).not.toHaveProperty("sessionId");
-    expect(trace.requests).toEqual([{ ts: now, cost: 0.25 }]);
-    expect((await call("/traces/loose")).status).toBe(404);
-    expect((await call("/traces/nobody")).status).toBe(404);
-
-    const file = (await (await call("/traces/s1/file?path=src/a.ts")).json()) as { text: string };
-    expect(file.text).toBe("export const a = 1;\n");
-    for (const path of ["src/untouched.ts", "link.txt", "../outside.txt", "", "src"]) {
-      expect((await call(`/traces/s1/file?path=${encodeURIComponent(path)}`)).status).toBe(404);
-    }
   });
 
   it("lists the paused sessions and resumes one", async () => {

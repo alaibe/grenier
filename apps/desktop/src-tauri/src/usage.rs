@@ -53,15 +53,10 @@ macro_rules! screens {
 
 // The app's views, as `src/usage/screens.ts` lists them.
 screens! {
-    Dashboard => "/dashboard", "Dashboard";
+    Cost => "/cost", "Cost";
     Knowledge => "/knowledge", "Knowledge";
-    Requests => "/requests", "Requests";
-    Team => "/team", "Team";
     Routines => "/routines", "Routines";
-    Skills => "/skills", "Skills and servers";
-    Machine => "/machine", "This machine";
-    Traces => "/traces", "Traces";
-    Clients => "/clients", "Clients and spaces";
+    Skills => "/skills", "Skills";
     Settings => "/settings", "Settings";
 }
 
@@ -593,7 +588,7 @@ mod tests {
         assert_eq!(text(&file).unwrap(), id_text(&id, at));
         assert_eq!(body["payload"]["id"], visitor_id(&id, at));
 
-        let again = first.page_view(Screen::Dashboard, width, height, at + 60).unwrap();
+        let again = first.page_view(Screen::Cost, width, height, at + 60).unwrap();
         assert_eq!(again["payload"]["id"], body["payload"]["id"]);
         let relaunched = usage(&file, true)
             .page_view(Screen::Settings, width, height, at + 120)

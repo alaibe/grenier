@@ -83,7 +83,7 @@ export interface Availability {
   state: "available" | "busy" | "away";
   /** How much this machine could take on, from 0 to 1: the team store offers work to the one with the most. */
   room: number;
-  /** Why it is not available, in the words the app's Machine screen shows. */
+  /** Why it is not available, in the words the app shows. */
   reasons: string[];
 }
 

@@ -48,7 +48,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     sessions,
     usage,
     events,
-    steps,
     state,
     spaces,
     records,
@@ -59,7 +58,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     outbox,
     approvals,
     runs,
-    outcomes,
     clients,
     audit,
   } = schema;
@@ -181,38 +179,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .orderBy(asc(events.ts), asc(events.id))
           .all(),
       prune: async (before) => db.delete(events).where(lt(events.ts, before)).run().changes,
-    },
-
-    steps: {
-      add: async (rows) => {
-        // A daemon restarted under a long session sees its whole history at once: stay below SQLite's variable limit.
-        for (let at = 0; at < rows.length; at += 500) {
-          db.insert(steps)
-            .values(rows.slice(at, at + 500))
-            .onConflictDoNothing()
-            .run();
-        }
-      },
-      list: async (sessionId) =>
-        db.select().from(steps).where(eq(steps.sessionId, sessionId)).orderBy(asc(steps.ts), asc(steps.id)).all(),
-      sessions: async (since) =>
-        db
-          .select({
-            sessionId: steps.sessionId,
-            steps: count(),
-            files: sql<number>`count(distinct ${steps.path})`,
-            first: sql<number>`min(${steps.ts})`,
-            last: sql<number>`max(${steps.ts})`,
-            asks: sql<number>`coalesce(sum(${steps.kind} = 'ask'), 0)`,
-            hits: sql<number>`coalesce(sum(${steps.kind} = 'ask' AND ${steps.outcome} = 'hit'), 0)`,
-            readsBeforeAsk: sql<number>`coalesce(sum(${steps.kind} = 'read' AND ${steps.ts} < coalesce((SELECT min(asked.ts) FROM steps AS asked WHERE asked.session_id = ${steps.sessionId} AND asked.kind = 'ask'), ${Number.MAX_SAFE_INTEGER})), 0)`,
-          })
-          .from(steps)
-          .where(gte(steps.ts, since))
-          .groupBy(steps.sessionId)
-          .orderBy(desc(sql`max(${steps.ts})`))
-          .all(),
-      prune: async (before) => db.delete(steps).where(lt(steps.ts, before)).run().changes,
     },
 
     state: {
@@ -438,13 +404,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .orderBy(desc(runs.startedAt))
           .limit(filter.limit ?? 200)
           .all(),
-    },
-
-    outcomes: {
-      put: async (outcome) => {
-        db.insert(outcomes).values(outcome).onConflictDoUpdate({ target: outcomes.sessionId, set: outcome }).run();
-      },
-      list: async () => db.select().from(outcomes).orderBy(asc(outcomes.computedAt)).all(),
     },
 
     clients: {

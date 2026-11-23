@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ['v*']
   workflow_dispatch:
 
 # One release at a time per tag, never cancelled halfway through an upload.
@@ -142,6 +142,7 @@ jobs:
             [ -n "${!name}" ] || { echo "The $name secret is not set." >&2; exit 1; }
           done
 
+      # `rustup install` with no toolchain named installs rust-toolchain.toml's.
       - name: The Mac's tools
         run: |
           WORK=$(mktemp -d)
@@ -204,6 +205,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          # A repository variable, off until Apple's new developer agreement is accepted.
           NOTARIZE: ${{ vars.NOTARIZE }}
         run: |
           STAGE="$WORK/dmg"
@@ -223,7 +225,7 @@ jobs:
           xcrun stapler staple "$DMG"
           spctl --assess --type open --context context:primary-signature --verbose "$DMG"
 
-      # What the updater unpacks over an installed Grenier, without macOS's ._ files.
+      # Packed without macOS's ._ files, which Tauri's updater would unpack over the app.
       - name: Update bundle
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -233,7 +235,7 @@ jobs:
           COPYFILE_DISABLE=1 tar -czf "$UPDATE" -C "$(dirname "$APP")" "$(basename "$APP")"
           pnpm --filter @grenier/desktop tauri signer sign --app-version "$VERSION" "$UPDATE"
           [ -s "$UPDATE.sig" ] || { echo "no signature beside $UPDATE" >&2; exit 1; }
-          # It must be signed with the key whose public half the app carries, or that copy never updates.
+          # A copy signed with a key other than the one it carries never updates.
           key_id() { base64 -d | sed -n 2p | base64 -d | head -c 10 | tail -c 8 | xxd -p; }
           signed=$(key_id < "$UPDATE.sig")
           trusted=$(node -p 'require("./apps/desktop/src-tauri/tauri.conf.json").plugins.updater.pubkey' | key_id)
@@ -263,12 +265,13 @@ jobs:
     steps:
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # flock: apt's own lock on the shared cache fails at once instead of waiting.
       - name: Linux packages and gh
         run: |
-          # archive and security.ubuntu.com crawl from the home server; the French mirror carries both.
+          # archive.ubuntu.com crawls from the home server and security.ubuntu.com doesn't answer: Ubuntu's French mirror.
           sudo sed -i -E 's#https?://(archive|security)\.ubuntu\.com/ubuntu#http://fr.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-          sudo apt-get update
           sudo mkdir -p /cache/apt/archives/partial
+          sudo apt-get update
           sudo flock /cache/apt/lock apt-get install -y --no-install-recommends \
             -o Dir::Cache::Archives=/cache/apt/archives \
             build-essential pkg-config file curl wget \
@@ -278,7 +281,7 @@ jobs:
           echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
           sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
 
-      # The image has no rustup; rust-toolchain.toml picks the toolchain.
+      # The image has no rustup; `rustup install` with no toolchain named installs rust-toolchain.toml's.
       - name: Rust
         run: |
           if ! command -v rustup > /dev/null; then
@@ -290,6 +293,7 @@ jobs:
           cargo --version
 
       - uses: https://github.com/pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
       - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
@@ -313,6 +317,7 @@ jobs:
           pnpm build
           pnpm --filter @grenier/desktop sidecar --target x86_64-unknown-linux-gnu
 
+      # Not tauri-action: the runner gives JavaScript actions git.laibe.cc's GITHUB_TOKEN, which GitHub refuses.
       - name: Build the deb, rpm and AppImage
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -374,13 +379,14 @@ jobs:
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # unzip opens Node's Windows build, which GNU tar can't.
+      # flock: apt's own lock on the shared cache fails at once instead of waiting.
       - name: NSIS, LLVM, unzip and gh
         run: |
-          # archive and security.ubuntu.com crawl from the home server; the French mirror carries both.
+          # archive.ubuntu.com crawls from the home server and security.ubuntu.com doesn't answer: Ubuntu's French mirror.
           sudo sed -i -E 's#https?://(archive|security)\.ubuntu\.com/ubuntu#http://fr.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo mkdir -p /cache/apt/archives/partial
           sudo apt-get update
           # tauri-cli wants Linux's tray library even for a Windows build: the Mac's menu bar turns on tray-icon.
-          sudo mkdir -p /cache/apt/archives/partial
           sudo flock /cache/apt/lock apt-get install -y --no-install-recommends \
             -o Dir::Cache::Archives=/cache/apt/archives \
             nsis lld llvm clang pkg-config unzip libayatana-appindicator3-dev
@@ -388,6 +394,7 @@ jobs:
           echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
           sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
 
+      # The image has no rustup; `rustup install` with no toolchain named installs rust-toolchain.toml's.
       - name: Rust
         run: |
           if ! command -v rustup > /dev/null; then
@@ -398,10 +405,13 @@ jobs:
           rustup install --no-self-update
           rustup target add x86_64-pc-windows-msvc
           cargo --version
-      - uses: https://github.com/taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+
+      - uses: https://github.com/taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-xwin@0.23.1
+
       - uses: https://github.com/pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
       - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
@@ -487,7 +497,7 @@ jobs:
           find . -maxdepth 1 -type f ! -name '*.sig' -printf '%f\n' | sort | xargs sha256sum -- > "$RUNNER_TEMP/SHA256SUMS"
           cat "$RUNNER_TEMP/SHA256SUMS"
 
-      # An installed copy looks up its own installer's key first, then the bare one.
+      # FEED: each updater key, an installer's own before the bare one, and its file ({v} is the version).
       - name: latest.json
         working-directory: files
         env:
@@ -536,7 +546,7 @@ jobs:
       run:
         shell: bash
     steps:
-      # The cask is written whole from here, so the tap gets one only once a published DMG exists.
+      # Written whole: a change made in the tap alone is lost at the next release.
       - name: Move the cask to this release
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}

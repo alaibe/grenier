@@ -3,14 +3,12 @@ import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { repoText } from "@grenier/connectors/git";
 import { createGateway } from "@grenier/gateway";
 import type { TeamClient } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { serve } from "@hono/node-server";
 import { version } from "../package.json";
-import { computeOutcomes, effectiveness } from "./effectiveness.ts";
 import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
 import { ghToken } from "./github.ts";
 import { anchorDiffs, installs, joining, routes } from "./host.ts";
@@ -177,10 +175,6 @@ export async function runDaemon(io: Io): Promise<number> {
     }),
     anchorDiffs(store),
     installs(store, home, { deps: () => storeDeps(store, config, embedder) }),
-    async (method, path) =>
-      method === "GET" && path.startsWith("/effectiveness")
-        ? { status: 200, body: await effectiveness(store, Date.now() - 30 * DAY) }
-        : null,
     routineRoutes({
       store,
       paths,
@@ -205,7 +199,6 @@ export async function runDaemon(io: Io): Promise<number> {
     admin: {
       token: adminToken(paths.home),
       version,
-      readFile: repoText,
       identity: { pid: process.pid, port },
       host: {
         storeDeps: () => storeDeps(store, config, embedder),
@@ -239,20 +232,15 @@ export async function runDaemon(io: Io): Promise<number> {
   if (team) runner.start();
 
   const prune = async () => {
-    const { steps_days, usage_days } = config.retention;
-    const before = (days: number) => Date.now() - days * DAY;
+    const { usage_days } = config.retention;
+    if (usage_days <= 0) return;
+    const before = Date.now() - usage_days * DAY;
     try {
-      if (steps_days > 0) await store.steps.prune(before(steps_days));
-      if (usage_days > 0) {
-        await store.usage.prune(before(usage_days));
-        await store.events.prune(before(usage_days));
-      }
+      await store.usage.prune(before);
+      await store.events.prune(before);
     } catch (error) {
-      io.err(`grenier: could not remove old traces and usage: ${(error as Error).message}`);
+      io.err(`grenier: could not remove old usage: ${(error as Error).message}`);
     }
-    await computeOutcomes(store).catch((error: Error) =>
-      io.err(`grenier: could not work out what sessions' edits became: ${error.message}`),
-    );
   };
   const pruneTimer = setInterval(() => void prune(), PRUNE_EVERY);
   void prune();

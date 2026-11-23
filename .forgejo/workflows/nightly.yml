@@ -3,7 +3,7 @@ name: Nightly release
 on:
   schedule:
     # Forgejo reads a bare cron as UTC.
-    - cron: "TZ=Europe/Paris 30 5 * * *"
+    - cron: 'TZ=Europe/Paris 30 5 * * *'
   workflow_dispatch:
 
 # One run at a time, never cancelled: a cancelled one could stop between its version commit and its tag.
@@ -41,16 +41,21 @@ jobs:
             exit 0
           fi
           COUNT=$(git rev-list --count "$LAST..HEAD")
+          # Commits that only touch the workflows, tests, benchmarks or the markdown make no release.
           APP=$(git rev-list --count "$LAST..HEAD" -- . ':(exclude).forgejo' ':(exclude)tests' \
             ':(exclude)bench' ':(exclude,glob)*.md')
-          echo "$COUNT commits since $LAST, $APP of them changing what ships"
-          if [ "$APP" -gt 0 ]; then echo "due=true" >> "$GITHUB_OUTPUT"; else echo "due=false" >> "$GITHUB_OUTPUT"; fi
+          echo "$COUNT commits since $LAST, $APP of them changing the app"
+          [ "$APP" -eq 0 ] || echo "due=true" >> "$GITHUB_OUTPUT"
 
   tag:
     needs: due
     if: needs.due.outputs.due == 'true'
     runs-on: mac
     timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
     steps:
       # actions/checkout adds a safe.directory to the global git config: a throwaway one, not Anthony's ~/.gitconfig.
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -60,6 +65,7 @@ jobs:
         env:
           GIT_CONFIG_GLOBAL: ${{ runner.temp }}/gitconfig
 
+      # `rustup install` with no toolchain named installs rust-toolchain.toml's.
       - name: Rust
         run: |
           rustup install --no-self-update

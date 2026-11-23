@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
-import { Button, Field, Input, Loading, Notice, Page, Select, useAction, useLoad } from "../ui.tsx";
+import { Button, Field, Input, Loading, Notice, Part, Select, useAction, useLoad } from "../ui.tsx";
 
 interface Rules {
   name?: string;
@@ -66,7 +66,7 @@ export function Machine(_: ViewProps) {
 
   const [from, to] = (data?.rules.hours ?? "0-24").split("-");
   return (
-    <Page
+    <Part
       title="This machine"
       intro="Routines run here only while every rule holds, at the lowest priority. When you come back, a run waits for you to leave again, or goes to another machine."
     >
@@ -168,6 +168,6 @@ export function Machine(_: ViewProps) {
           </form>
         </>
       )}
-    </Page>
+    </Part>
   );
 }

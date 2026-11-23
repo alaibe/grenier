@@ -62,7 +62,6 @@ describe("openSqliteStore", () => {
         "schema_migrations",
         "sessions",
         "spaces",
-        "steps",
         "usage",
       ]),
     );

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: ['**']
   workflow_dispatch:
 
 concurrency:
@@ -29,19 +29,20 @@ jobs:
     steps:
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # flock: apt's own lock on the shared cache fails at once instead of waiting.
       - name: Linux packages
         run: |
-          # archive and security.ubuntu.com crawl from the home server; the French mirror carries both.
+          # archive.ubuntu.com crawls from the home server and security.ubuntu.com doesn't answer: Ubuntu's French mirror.
           sudo sed -i -E 's#https?://(archive|security)\.ubuntu\.com/ubuntu#http://fr.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-          sudo apt-get update
           sudo mkdir -p /cache/apt/archives/partial
+          sudo apt-get update
           sudo flock /cache/apt/lock apt-get install -y --no-install-recommends \
             -o Dir::Cache::Archives=/cache/apt/archives \
             build-essential pkg-config file curl wget \
             libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev libjavascriptcoregtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf xdg-utils
 
-      # The image has no rustup; rust-toolchain.toml picks the toolchain.
+      # The image has no rustup; `rustup install` with no toolchain named installs rust-toolchain.toml's.
       - name: Rust
         run: |
           if ! command -v rustup > /dev/null; then
@@ -49,10 +50,11 @@ jobs:
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
             PATH="$HOME/.cargo/bin:$PATH"
           fi
-          rustup show active-toolchain || rustup toolchain install
+          rustup install --no-self-update
+          cargo --version
 
       - name: Tools
-        uses: https://github.com/taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        uses: https://github.com/taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: shellcheck@${{ env.SHELLCHECK_VERSION }},shfmt@${{ env.SHFMT_VERSION }}
 
@@ -62,7 +64,7 @@ jobs:
         with:
           node-version-file: .node-version
 
-      # After the installers, which keep rustup's and the tools' binaries in the job's own ~/.cargo.
+      # CARGO_HOME is set only now, so rustup's and install-action's binaries stay in the job's ~/.cargo.
       - name: Caches
         run: |
           {
@@ -81,6 +83,7 @@ jobs:
           pnpm --filter @grenier/desktop build
           pnpm --filter @grenier/desktop sidecar
 
+      # Every tracked file with a bash or sh shebang.
       - name: Shell scripts
         run: |
           git ls-files -z | while IFS= read -r -d '' file; do
@@ -90,15 +93,15 @@ jobs:
 
       - name: Format
         run: |
-          pnpm format:check
           xargs -0 -r shfmt -d -i 4 -ci -bn < "$RUNNER_TEMP/shell"
+          pnpm format:check
 
       - name: Lint
         run: |
-          pnpm lint
-          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
           xargs -0 -r shellcheck -S warning < "$RUNNER_TEMP/shell"
           xargs -0 -r -n 1 bash -n < "$RUNNER_TEMP/shell"
+          pnpm lint
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
           pnpm audit --audit-level moderate
           node scripts/version.ts check
 

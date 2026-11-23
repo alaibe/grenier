@@ -119,6 +119,32 @@ export function Page({
   );
 }
 
+/** One part of a screen under its own heading, as Settings holds several. */
+export function Part({
+  title,
+  intro,
+  action,
+  children,
+}: {
+  title: string;
+  intro?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mb-12">
+      <header className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-serif text-2xl leading-[1.2] font-semibold">{title}</h2>
+          {intro && <p className="mt-1 max-w-[60ch] text-muted">{intro}</p>}
+        </div>
+        {action}
+      </header>
+      {children}
+    </section>
+  );
+}
+
 export function Notice({ message }: { message: Message | string | null }) {
   if (!message) return null;
   const { text, problem } = typeof message === "string" ? { text: message, problem: true } : message;

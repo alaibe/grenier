@@ -6,13 +6,6 @@ export interface ToolCall {
   hash: string;
 }
 
-export interface ToolUse {
-  id: string;
-  tool: string;
-  input: unknown;
-  result?: { error: boolean; text: string };
-}
-
 interface Block {
   type?: string;
   id?: string;
@@ -97,8 +90,8 @@ function steadyText(text: string): string {
 export async function toolCalls(
   body: MessagesBody,
   seen: ReadonlySet<string> = new Set(),
-): Promise<{ key: string; call: ToolCall; use?: ToolUse }[]> {
-  const calls: { key: string; call: ToolCall; use?: ToolUse }[] = [];
+): Promise<{ key: string; call: ToolCall }[]> {
+  const calls: { key: string; call: ToolCall }[] = [];
   const results = resultsOf(body);
   const use = async (id: string | undefined, name: string | undefined, input: unknown) => {
     if (!id || seen.has(`use:${id}`)) return;
@@ -108,7 +101,6 @@ export async function toolCalls(
     calls.push({
       key: `use:${id}`,
       call: { tool, hash: await sha256(`${tool}\0${canonicalJson(input)}\0${returned}`) },
-      use: { id, tool, input, ...(result ? { result } : {}) },
     });
   };
   for (const message of body.messages ?? []) {
@@ -168,35 +160,27 @@ export class LoopWatch {
     readonly idle = IDLE_SESSION,
   ) {}
 
-  /** The calls in this request that complete a loop, and every call this process had not seen yet. */
-  async observe(
-    sessionId: string,
-    body: MessagesBody,
-    startedBeforeUs: boolean,
-  ): Promise<{ loops: ToolCall[]; fresh: ToolUse[] }> {
+  /** The calls in this request that complete a loop. */
+  async observe(sessionId: string, body: MessagesBody, startedBeforeUs: boolean): Promise<ToolCall[]> {
     const now = this.now();
     this.#sweep(now);
     const conversation = `${sessionId}\0${await conversationOf(body)}`;
     let state = this.#sessions.get(conversation);
     let counting = true;
-    let recording = true;
     if (!state) {
       const returning = this.#dropped.delete(conversation);
       state = { seen: new Set(), detector: new LoopDetector(this.threshold, this.window), at: now };
       this.#sessions.set(conversation, state);
       counting = !startedBeforeUs && !returning;
-      recording = !returning;
     }
     state.at = now;
     const loops: ToolCall[] = [];
-    const fresh: ToolUse[] = [];
-    for (const { key, call, use } of await toolCalls(body, state.seen)) {
+    for (const { key, call } of await toolCalls(body, state.seen)) {
       if (state.seen.has(key)) continue;
       state.seen.add(key);
-      if (use && recording) fresh.push(use);
       if (counting && state.detector.observe(call.hash)) loops.push(call);
     }
-    return { loops, fresh };
+    return loops;
   }
 
   get size(): number {

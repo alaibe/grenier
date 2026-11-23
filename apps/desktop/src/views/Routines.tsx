@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type Run } from "../api.ts";
 import { ago, Button, Empty, Loading, Notice, Page, Select, useAction, useLoad } from "../ui.tsx";
+import { Requests } from "./Requests.tsx";
 
 type Mode = "read-only" | "shadow" | "limited" | "on";
 const MODES: Mode[] = ["read-only", "shadow", "limited", "on"];
@@ -56,7 +57,7 @@ function scores(runs: Run[], routine: string): Map<number, number> {
   return new Map([...sums].map(([version, list]) => [version, list.reduce((a, b) => a + b, 0) / list.length]));
 }
 
-export function Routines(_: ViewProps) {
+export function Routines({ go }: ViewProps) {
   const routines = useLoad(load);
   const runs = useLoad(loadRuns);
   const teamRuns = useLoad(loadTeamRuns);
@@ -239,6 +240,7 @@ export function Routines(_: ViewProps) {
           </section>
         );
       })}
+      <Requests go={go} />
     </Page>
   );
 }

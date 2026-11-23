@@ -15,11 +15,8 @@
   --color-accent-soft: #f7ede0;
   --color-problem: #b42318;
   --color-problem-soft: #fdf1ef;
-  /* What an agent did, in traces: reading takes the accent, changing and asking the cache one colour each. */
+  /* Added lines in a diff, and an available machine. */
   --color-edit: #2f6b48;
-  --color-ask: #3c6688;
-  --color-look: #8d8576;
-  --color-tok-string: #5f6f1f;
 }
 
 @theme {
@@ -108,9 +105,6 @@
       --color-problem: #f97066;
       --color-problem-soft: #2c1815;
       --color-edit: #7cc49a;
-      --color-ask: #8fb5d6;
-      --color-look: #8a8475;
-      --color-tok-string: #b8c77e;
       --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a8a193' stroke-width='1.5'/%3E%3C/svg%3E");
     }
   }

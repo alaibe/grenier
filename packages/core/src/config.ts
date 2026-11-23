@@ -104,8 +104,6 @@ const configSchema = z.strictObject({
     .prefault({}),
   retention: z
     .strictObject({
-      /** Days the steps behind the desktop app's traces are kept; 0 keeps them for good. */
-      steps_days: z.int().min(0).default(90),
       /** Days each request's usage and the guards' events are kept; 0 keeps them for good. */
       usage_days: z.int().min(0).default(0),
     })

@@ -1,9 +1,8 @@
 import type { Config } from "@grenier/core";
 import { costOf, type Prices, priceOf } from "@grenier/log";
 import type { Session, Store } from "@grenier/store";
-import { LoopWatch, type ToolCall, type ToolUse } from "./loops.ts";
+import { LoopWatch, type ToolCall } from "./loops.ts";
 import { OpenAIUsageReader } from "./openai.ts";
-import { placeEdits, stepsOf } from "./trace.ts";
 import { UsageReader } from "./usage.ts";
 
 /** Which API a request is for: Anthropic's Messages API, or OpenAI's (under /openai/ on the proxy). */
@@ -139,23 +138,10 @@ export function createProxy(options: ProxyOptions) {
       if (config.guards.on_loop === "pause" && session.id !== UNTAGGED) {
         await store.sessions.setPaused(session.id, true);
         await store.events.add({ sessionId: session.id, ts: now(), kind: "pause", detail: JSON.stringify(detail) });
-        notify("Grenier paused a session", `${repeated}. Resume it from Grenier's Dashboard.`);
+        notify("Grenier paused a session", `${repeated}. Resume it on Grenier's Cost screen.`);
       } else {
         notify("Grenier: possible loop", `${repeated} (session ${session.id}).`);
       }
-    }
-  }
-
-  /** For the desktop app's traces: the request does not wait for it, and it never fails one. */
-  async function recordSteps(session: Session, uses: ToolUse[]): Promise<void> {
-    if (!session.repoRoot || uses.length === 0) return;
-    try {
-      const rows = stepsOf({ id: session.id, repoRoot: session.repoRoot, cwd: session.cwd }, uses, now());
-      if (rows.length === 0) return;
-      await placeEdits(session.repoRoot, rows, uses);
-      await store.steps.add(rows);
-    } catch (error) {
-      log(`grenier: could not record the steps of session ${session.id}: ${(error as Error).message}`);
     }
   }
 
@@ -205,16 +191,14 @@ export function createProxy(options: ProxyOptions) {
     const parsed = inference && body ? parseJson(body) : undefined;
 
     if (parsed) {
-      const { loops: found, fresh } = await loops.observe(session.id, parsed, session.startedAt < startedAt);
-      void recordSteps(session, fresh);
-      await onLoops(session, found);
+      await onLoops(session, await loops.observe(session.id, parsed, session.startedAt < startedAt));
     }
 
     if (!(await waitWhilePaused(session.id, request.signal))) {
       return errorResponse(
         429,
         "rate_limit_error",
-        `Grenier paused this session after a possible loop. To let it continue, resume it from Grenier's Dashboard.`,
+        `Grenier paused this session after a possible loop. To let it continue, resume it on Grenier's Cost screen.`,
       );
     }
 

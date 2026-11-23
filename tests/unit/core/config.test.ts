@@ -56,7 +56,7 @@ describe("defaultConfig", () => {
         hours: "0-24",
         agent: "claude",
       },
-      retention: { steps_days: 90, usage_days: 0 },
+      retention: { usage_days: 0 },
       prices: {},
     });
   });

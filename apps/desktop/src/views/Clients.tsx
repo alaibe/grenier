@@ -9,7 +9,7 @@ import {
   Input,
   Loading,
   Notice,
-  Page,
+  Part,
   Table,
   useAction,
   useLoad,
@@ -55,8 +55,8 @@ export function Clients(_: ViewProps) {
   };
 
   return (
-    <Page
-      title="Clients and spaces"
+    <Part
+      title="Clients"
       intro={
         <>
           Each app that reads the store through Grenier has its own token. It reads the space of every repository on
@@ -77,7 +77,7 @@ export function Clients(_: ViewProps) {
 
       {created && (
         <div className="mb-6 rounded-xl border border-accent bg-panel px-5 py-4.5" role="status">
-          <h2 className="font-semibold">Token for {created.name}</h2>
+          <h3 className="font-semibold">Token for {created.name}</h3>
           <p className="mt-1.5">
             Copy it now: it is shown only once. Give it to the app as <code>GRENIER_CLIENT_TOKEN</code> (stdio) or as{" "}
             <code>Authorization: Bearer</code> (HTTP).
@@ -107,7 +107,7 @@ export function Clients(_: ViewProps) {
           className="mb-6 flex max-w-150 flex-col gap-3.5 rounded-xl border border-line bg-panel px-5 py-4.5"
           onSubmit={add}
         >
-          <h2 className="font-semibold">New client</h2>
+          <h3 className="font-semibold">New client</h3>
           <p className="text-sm font-normal text-muted">
             You get a token to give the app yourself. It is not installed anywhere.
           </p>
@@ -214,6 +214,6 @@ export function Clients(_: ViewProps) {
           <code>--scope</code>: its old token is revoked.
         </p>
       )}
-    </Page>
+    </Part>
   );
 }

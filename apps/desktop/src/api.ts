@@ -93,11 +93,6 @@ export interface SessionRow extends ReportRow {
   /** Null for requests of an agent not started with `grenier run`. */
   project: string | null;
   startedAt: number | null;
-  /** Questions to the exploration cache and its hits; null outside a repository, where no step is traced. */
-  asks: number | null;
-  hits: number | null;
-  /** Whether it took steps in its repository, so the Traces page can replay it. */
-  traced?: boolean;
 }
 
 export interface Overview {
@@ -109,9 +104,7 @@ export interface Overview {
   projects: ReportRow[];
   /** The newest first. */
   sessions: SessionRow[];
-  records: number;
-  hits: number;
-  /** Changes made here that the team store has not taken yet. */
+  /** Records changed here that the team store has not taken yet. */
   waiting: number;
   team: { url: string; lastSync: number | null } | null;
   /** Sessions the loop guard paused, waiting to be resumed. */

@@ -70,7 +70,7 @@ export async function trackedFiles(root: string): Promise<{ path: string; blob: 
     });
 }
 
-/** The most a file shown in the desktop app's traces may weigh. */
+/** The most a file Grenier reads from a work tree may weigh. */
 export const MAX_TEXT_BYTES = 1_000_000;
 
 /** A work-tree text file, or null when missing, binary, too large, or outside the root once links are followed. */

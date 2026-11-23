@@ -7,7 +7,7 @@ Before you finish: `pnpm format && pnpm lint && pnpm typecheck && pnpm test && p
 - The daemon binds to `127.0.0.1` only, and its endpoints need a client token, except the proxy path `grenier run` uses.
 - API keys and auth headers are forwarded, never stored, logged or sent to the team store.
 - Nothing leaves the machine by default: the team store is opt-in. The one exception is the desktop app's usage statistics (`usage.rs`), which send a screen's url from the fixed list and the display's size, nothing else.
-- The team store never holds file contents, prompts or keys: every record passes `recordProblem` on both sides, `me` records are sealed before they leave, and effectiveness data never leaves.
+- The team store never holds file contents, prompts or keys: every record passes `recordProblem` on both sides, and `me` records are sealed before they leave.
 - An agent's record leaves the machine only once its person approved it through MCP elicitation (`remember` in `packages/index/src/records.ts`).
 - Records reach an MCP client only through `deliver`; a new read path's test goes in `tests/unit/personal/scopes.test.ts`, against every scope.
 - A shared skill, MCP server or routine installs or runs only once this machine's person approved its hash. A routine's read-only mode is enforced twice, by `--tools` and by the proxy's `RunGuard`.

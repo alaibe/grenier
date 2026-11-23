@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { blobHashes, repoId, repoPath, repoText, trackedFiles } from "@grenier/connectors/git";
 import { joinCode, newVaultKey, routineHash, sha256 } from "@grenier/core";
-import { lineHashes } from "@grenier/gateway";
 import { newId, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
 import type { RecordInput, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
@@ -459,14 +458,11 @@ for (const run of runs) {
 }
 
 const sessions = [
-  { client: "claude", ago: 0.1, cost: 1.84, hits: 3 },
-  { client: "claude", ago: 0.9, cost: 0.62, hits: 1 },
-  { client: "codex", ago: 2, cost: 2.4, hits: 0 },
-  { client: "claude", ago: 3.5, cost: 0.97, hits: 2 },
-  { client: "claude", ago: 5, cost: 3.1, hits: 4 },
-  { client: "claude", ago: 16, cost: 4.2, hits: 2, landed: [38, 31], keys: ["PAY-112"] },
-  { client: "claude", ago: 19, cost: 2.6, hits: 1, landed: [20, 9], keys: ["PAY-98"] },
-  { client: "codex", ago: 24, cost: 1.3, hits: 0, landed: [12, 12], keys: ["CHK-7"] },
+  { client: "claude", ago: 0.1, cost: 1.84 },
+  { client: "claude", ago: 0.9, cost: 0.62 },
+  { client: "codex", ago: 2, cost: 2.4 },
+  { client: "claude", ago: 3.5, cost: 0.97 },
+  { client: "claude", ago: 5, cost: 3.1 },
 ];
 for (const [index, session] of sessions.entries()) {
   const id = `demo${index}`;
@@ -491,38 +487,6 @@ for (const [index, session] of sessions.entries()) {
       outputTokens: 2_000,
       cost: session.cost / 6,
       status: 200,
-    });
-  }
-  const steps = [
-    {
-      tool: "mcp__grenier__recall",
-      kind: "ask" as const,
-      label: "Where are failed payments retried?",
-      outcome: session.hits > 0 ? "hit" : "miss",
-    },
-    { tool: "Read", kind: "read" as const, path: "src/payments/retry.ts" },
-    { tool: "Grep", kind: "search" as const, label: "MAX_ATTEMPTS" },
-    { tool: "Read", kind: "read" as const, path: "src/money.ts" },
-    { tool: "Edit", kind: "edit" as const, path: "src/payments/retry.ts", startLine: 4, endLine: 5 },
-    { tool: "mcp__grenier__remember", kind: "ask" as const, label: "How many times is a payment retried?" },
-  ];
-  await store.steps.add(
-    steps.map((step, n) => ({
-      sessionId: id,
-      callId: `${id}-${n}`,
-      ts: at + n * 90_000,
-      ...step,
-      ...(step.kind === "edit" ? { lineHashes: lineHashes("export const MAX_ATTEMPTS = 5;") } : {}),
-    })),
-  );
-  if (session.landed) {
-    await store.outcomes.put({
-      sessionId: id,
-      writtenLines: session.landed[0] as number,
-      landedLines: session.landed[1] as number,
-      rediscovery: session.cost * 0.12,
-      issueKeys: session.keys ?? [],
-      computedAt: now,
     });
   }
 }
@@ -572,7 +536,7 @@ process.on("exit", () => {
   daemon.kill();
 });
 process.stdout.write(
-  `Grenier's demo: http://localhost:1420/demo#dashboard (or #knowledge, #knowledge/${project}, #team, #routines, #skills, #machine). Ctrl-C stops it.\n`,
+  `Grenier's demo: http://localhost:1420/demo#cost (or #knowledge, #knowledge/${project}, #routines, #skills, #settings). Ctrl-C stops it.\n`,
 );
 await new Promise<void>((resolve) => {
   process.once("SIGINT", () => resolve());

@@ -10,7 +10,7 @@ import {
   Loading,
   money,
   Notice,
-  Page,
+  Part,
   Select,
   Table,
   useAction,
@@ -30,7 +30,8 @@ const loadRuns = () =>
     .then((answer) => answer.runs.filter((run) => run.kind === "run"))
     .catch(() => [] as Run[]);
 
-export function Requests({ go }: ViewProps) {
+/** For Routines: asking a routine for work, and what came of it. */
+export function Requests({ go }: Pick<ViewProps, "go">) {
   const routines = useLoad(loadRoutines);
   const tasks = useLoad(loadTasks);
   const runs = useLoad(loadRuns);
@@ -68,18 +69,13 @@ export function Requests({ go }: ViewProps) {
       return undefined;
     });
 
+  if (routines.data?.length === 0) return null;
   return (
-    <Page
+    <Part
       title="Requests"
       intro="Ask a routine for work. Its task goes to the team's store, and an idle machine that allows the routine runs it, read-only until the routine is trusted."
     >
       <Notice message={routines.error ?? tasks.error ?? action.message} />
-      {routines.data?.length === 0 && (
-        <Empty>
-          <p>No routine takes requests yet. Write one as a record of type Routine, or:</p>
-          <code>grenier routines add &lt;file.md&gt;</code>
-        </Empty>
-      )}
       {routines.data && routines.data.length > 0 && (
         <form
           className="mb-7 grid grid-cols-[200px_1fr] gap-3 rounded-xl border border-line bg-panel px-5 py-4"
@@ -113,7 +109,7 @@ export function Requests({ go }: ViewProps) {
         </form>
       )}
 
-      <h2 className="mb-2.5 font-semibold">Requests</h2>
+      <h3 className="mb-2.5 font-semibold">Filed</h3>
       {!tasks.data && !tasks.error && <Loading what="requests" />}
       {tasks.data?.length === 0 && <Empty>No request yet.</Empty>}
       {tasks.data && tasks.data.length > 0 && (
@@ -153,7 +149,7 @@ export function Requests({ go }: ViewProps) {
 
       {runs.data && runs.data.length > 0 && (
         <>
-          <h2 className="mb-2.5 font-semibold">Runs</h2>
+          <h3 className="mb-2.5 font-semibold">Runs</h3>
           <Table>
             <thead>
               <tr>
@@ -203,6 +199,6 @@ export function Requests({ go }: ViewProps) {
           </Table>
         </>
       )}
-    </Page>
+    </Part>
   );
 }

@@ -62,68 +62,13 @@ describe("usage", () => {
   });
 });
 
-describe("steps", () => {
-  const step = (sessionId: string, callId: string, ts: number, path: string | null, part = 0) => ({
-    sessionId,
-    callId,
-    part,
-    ts,
-    tool: "Read",
-    kind: "read" as const,
-    path,
-  });
-
-  it("keeps the first copy of a call's step and lists a session's steps in order", async () => {
-    await store.steps.add([step("s1", "c2", 20, "b.ts"), step("s1", "c1", 10, "a.ts")]);
-    await store.steps.add([{ ...step("s1", "c1", 30, "other.ts") }, step("s1", "c1", 30, "c.ts", 1)]);
-    expect((await store.steps.list("s1")).map((row) => [row.callId, row.part, row.path])).toEqual([
-      ["c1", 0, "a.ts"],
-      ["c2", 0, "b.ts"],
-      ["c1", 1, "c.ts"],
-    ]);
-    expect(await store.steps.list("s2")).toEqual([]);
-  });
-
-  it("sums up the sessions with steps, newest first", async () => {
-    await store.steps.add([
-      step("s1", "c1", 10, "a.ts"),
-      step("s1", "c2", 20, "a.ts"),
-      step("s1", "c3", 30, null),
-      step("s2", "c1", 50, "b.ts"),
-      step("s3", "c1", 1, "old.ts"),
-    ]);
-    expect(await store.steps.sessions(5)).toEqual([
-      { sessionId: "s2", steps: 1, files: 1, first: 50, last: 50, asks: 0, hits: 0, readsBeforeAsk: 1 },
-      { sessionId: "s1", steps: 3, files: 1, first: 10, last: 30, asks: 0, hits: 0, readsBeforeAsk: 3 },
-    ]);
-  });
-
-  it("counts a session's questions to the cache, its hits, and the reads before its first question", async () => {
-    const ask = (callId: string, ts: number, outcome: string) => ({
-      ...step("s1", callId, ts, null),
-      tool: "mcp__grenier__recall",
-      kind: "ask" as const,
-      outcome,
-    });
-    await store.steps.add([
-      step("s1", "c1", 10, "a.ts"),
-      step("s1", "c2", 20, "b.ts"),
-      ask("c3", 30, "miss"),
-      step("s1", "c4", 40, "c.ts"),
-      ask("c5", 50, "hit"),
-    ]);
-    expect(await store.steps.sessions(0)).toMatchObject([{ sessionId: "s1", asks: 2, hits: 1, readsBeforeAsk: 2 }]);
-  });
-
-  it("prunes steps, usage and events older than a time", async () => {
-    await store.steps.add([step("s1", "c1", 10, "a.ts"), step("s1", "c2", 30, "b.ts")]);
+describe("pruning", () => {
+  it("prunes usage and events older than a time", async () => {
     await store.usage.add({ sessionId: "s1", ts: 10, cost: 1 });
     await store.usage.add({ sessionId: "s1", ts: 30, cost: 2 });
     await store.events.add({ sessionId: "s1", ts: 10, kind: "loop", detail: null });
-    expect(await store.steps.prune(20)).toBe(1);
     expect(await store.usage.prune(20)).toBe(1);
     expect(await store.events.prune(20)).toBe(1);
-    expect((await store.steps.list("s1")).map((row) => row.path)).toEqual(["b.ts"]);
     expect((await store.usage.list()).map((row) => row.cost)).toEqual([2]);
     expect(await store.events.list()).toEqual([]);
   });
