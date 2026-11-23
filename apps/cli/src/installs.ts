@@ -121,10 +121,10 @@ function readJson(path: string): Record<string, unknown> {
   }
 }
 
-/** A path a skill's file may take inside its folder: relative, without `..`. */
+/** A path a skill's file may take inside its folder: relative, without `..`, and `/` its only separator. */
 function safePath(path: string): string {
   const normal = posix.normalize(path);
-  if (isAbsolute(normal) || normal.startsWith("..") || normal.includes("\u0000") || normal === ".") {
+  if (isAbsolute(normal) || normal.startsWith("..") || /[\0\\]/.test(normal) || normal === ".") {
     throw new CommandError(`the skill's file ${path} would land outside its folder`);
   }
   return normal;
