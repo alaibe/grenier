@@ -15,7 +15,7 @@ let bobStore: Store;
 const PERSON = { id: "p", name: "p", scopes: ["*"] };
 const KEY = newVaultKey();
 
-async function device(store: Store, _token: string, member: string, meSpace: string): Promise<StoreDeps> {
+async function device(store: Store, member: string, meSpace: string): Promise<StoreDeps> {
   await store.state.set("team_member", member);
   await store.state.set("team_me_space", meSpace);
   return storeDeps(store, null, { member, device: `${member}-${Math.random().toString(36).slice(2, 6)}` });
@@ -80,7 +80,7 @@ async function meSpace(team: TeamClient): Promise<string> {
 
 describe("sync between machines", () => {
   it("brings a teammate's team record to another machine, and keeps a me record sealed to its person", async () => {
-    const adaDeps = await device(laptop, ada.token, "ada", await meSpace(ada));
+    const adaDeps = await device(laptop, "ada", await meSpace(ada));
     await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
     await remember(adaDeps, PERSON, null, { kind: "convention", title: "Squash merges only", space: "team" });
     await remember(adaDeps, PERSON, null, { kind: "fact", title: "My dentist is on Tuesday", space: "me" });
@@ -88,12 +88,12 @@ describe("sync between machines", () => {
     expect(pushed.pushed).toBe(2);
     expect(await laptop.outbox.list()).toEqual([]);
 
-    const bobDeps = await device(bobStore, bob.token, "bob", await meSpace(bob));
+    const bobDeps = await device(bobStore, "bob", await meSpace(bob));
     const pulled = await syncOnce({ store: bobStore, team: bob, embedder: null, personalKey: null });
     expect(pulled.pulled).toBe(1);
     expect((await recall(bobDeps, PERSON, { query: "squash merges", repo: null })).results[0]?.author).toBe("ada");
 
-    const deskDeps = await device(desktop, adaDesktop.token, "ada", await meSpace(adaDesktop));
+    const deskDeps = await device(desktop, "ada", await meSpace(adaDesktop));
     await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: KEY });
     const mine = await recall(deskDeps, PERSON, { query: "dentist Tuesday", repo: null });
     expect(mine.results[0]).toMatchObject({ space: "me", title: "My dentist is on Tuesday" });
@@ -106,17 +106,17 @@ describe("sync between machines", () => {
   });
 
   it("leaves a me record on the machine without the key, and says so", async () => {
-    const adaDeps = await device(laptop, ada.token, "ada", await meSpace(ada));
+    const adaDeps = await device(laptop, "ada", await meSpace(ada));
     await remember(adaDeps, PERSON, null, { kind: "fact", title: "Private", space: "me" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
-    await device(desktop, adaDesktop.token, "ada", await meSpace(adaDesktop));
+    await device(desktop, "ada", await meSpace(adaDesktop));
     const result = await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: newVaultKey() });
     expect(result.unopened).toBe(1);
     expect(await desktop.records.list({ spaces: ["me"] })).toEqual([]);
   });
 
   it("keeps changes made offline and sends them at the next round", async () => {
-    const adaDeps = await device(laptop, ada.token, "ada", await meSpace(ada));
+    const adaDeps = await device(laptop, "ada", await meSpace(ada));
     await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
     const offline: TeamClient = {
       ...ada,
@@ -133,7 +133,7 @@ describe("sync between machines", () => {
   });
 
   it("keeps a change the team store refuses here, with why, and sends the others", async () => {
-    const adaDeps = await device(laptop, ada.token, "ada", await meSpace(ada));
+    const adaDeps = await device(laptop, "ada", await meSpace(ada));
     await laptop.spaces.put({ id: "space:gone", name: "gone", kind: "custom", repoId: null, root: null });
     await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
     await remember(adaDeps, PERSON, null, { kind: "fact", title: "Nowhere", space: "space:gone" });

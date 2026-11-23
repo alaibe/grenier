@@ -65,9 +65,9 @@ describe("usage", () => {
 describe("events", () => {
   it("lists events by session, kind and time", async () => {
     await store.events.add({ sessionId: "s1", ts: 1, kind: "loop", detail: "{}" });
-    await store.events.add({ sessionId: "s1", ts: 2, kind: "budget", detail: null });
+    await store.events.add({ sessionId: "s1", ts: 2, kind: "pause", detail: null });
     await store.events.add({ sessionId: "s2", ts: 3, kind: "loop", detail: null });
-    expect((await store.events.list({ sessionId: "s1" })).map((e) => e.kind)).toEqual(["loop", "budget"]);
+    expect((await store.events.list({ sessionId: "s1" })).map((e) => e.kind)).toEqual(["loop", "pause"]);
     expect((await store.events.list({ kind: "loop" })).map((e) => e.sessionId)).toEqual(["s1", "s2"]);
     expect((await store.events.list({ since: 2 })).length).toBe(2);
   });
@@ -112,7 +112,7 @@ describe("steps", () => {
   it("counts a session's questions to the cache, its hits, and the reads before its first question", async () => {
     const ask = (callId: string, ts: number, outcome: string) => ({
       ...step("s1", callId, ts, null),
-      tool: "mcp__grenier__ask_codebase",
+      tool: "mcp__grenier__recall",
       kind: "ask" as const,
       outcome,
     });
