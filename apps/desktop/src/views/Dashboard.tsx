@@ -120,7 +120,7 @@ export function Dashboard({ go }: ViewProps) {
       {data && data.records === 0 && (
         <Banner>
           <p>Nothing in the store yet. Give your agents Grenier's MCP server, and what they learn is kept.</p>
-          <Button onClick={() => go("store")}>Open the store</Button>
+          <Button onClick={() => go("knowledge")}>Open Knowledge</Button>
         </Banner>
       )}
       {data && days.length === 0 && (
@@ -150,10 +150,9 @@ export function Dashboard({ go }: ViewProps) {
   );
 }
 
-function Banner({ problem = false, children }: { problem?: boolean; children: ReactNode }) {
-  const look = problem ? "border-problem bg-problem-soft" : "border-accent bg-accent-soft";
+function Banner({ children }: { children: ReactNode }) {
   return (
-    <div className={`mb-5 flex items-center justify-between gap-4 rounded-xl border py-2.5 pr-2.5 pl-4 ${look}`}>
+    <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-accent bg-accent-soft py-2.5 pr-2.5 pl-4">
       {children}
     </div>
   );

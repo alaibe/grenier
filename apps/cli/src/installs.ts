@@ -8,11 +8,41 @@ import { CommandError, writeAtomically } from "./io.ts";
 export type Shared = "Skill" | "McpServer";
 
 const KIND = { Skill: "skill", McpServer: "mcp" } as const;
-const MAX_SKILL_BYTES = 200_000;
-const MAX_SKILL_FILES = 50;
+export const MAX_SKILL_BYTES = 200_000;
+export const MAX_SKILL_FILES = 50;
+const TOO_BIG = `a shared skill holds at most ${MAX_SKILL_FILES} files and 200 KB`;
+
+export interface SkillFiles {
+  name: string;
+  description: string;
+  files: Record<string, string>;
+}
+
+/** A field of SKILL.md's front matter, as `name` or `description`. */
+export function skillField(manifest: string, key: string): string | undefined {
+  const front = /^---\n([\s\S]*?)\n---/.exec(manifest)?.[1] ?? "";
+  return new RegExp(`^${key}:\\s*(.+)$`, "m")
+    .exec(front)?.[1]
+    ?.trim()
+    .replace(/^["']|["']$/g, "");
+}
+
+/** A skill as a record holds it, SKILL.md and the text files beside it, within a shared skill's limits. */
+export function skillFromFiles(files: Record<string, string>, folderName: string): SkillFiles {
+  const manifest = files["SKILL.md"];
+  if (manifest === undefined) throw new CommandError("a skill has a SKILL.md");
+  let bytes = 0;
+  for (const [path, text] of Object.entries(files)) {
+    if (text.includes("\u0000")) throw new CommandError(`${path} is not a text file; a shared skill holds text only`);
+    bytes += Buffer.byteLength(text);
+  }
+  if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) throw new CommandError(TOO_BIG);
+  const name = skillField(manifest, "name") ?? (folderName || "skill");
+  return { name, description: skillField(manifest, "description") ?? "", files };
+}
 
 /** A skill's folder as a record holds it: SKILL.md and the text files beside it. */
-export function readSkill(dir: string): { name: string; description: string; files: Record<string, string> } {
+export function readSkill(dir: string): SkillFiles {
   const manifest = join(dir, "SKILL.md");
   if (!existsSync(manifest)) throw new CommandError(`${dir} has no SKILL.md`);
   const files: Record<string, string> = {};
@@ -27,23 +57,13 @@ export function readSkill(dir: string): { name: string; description: string; fil
       }
       if (!entry.isFile()) continue;
       const text = readFileSync(path, "utf8");
-      if (text.includes("\u0000")) throw new CommandError(`${path} is not a text file; a shared skill holds text only`);
       bytes += Buffer.byteLength(text);
       files[relative(dir, path).split(/[\\/]/).join("/")] = text;
-      if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) {
-        throw new CommandError(`a shared skill holds at most ${MAX_SKILL_FILES} files and 200 KB`);
-      }
+      if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) throw new CommandError(TOO_BIG);
     }
   };
   walk(dir);
-  const front = /^---\n([\s\S]*?)\n---/.exec(files["SKILL.md"] ?? "")?.[1] ?? "";
-  const field = (key: string) =>
-    new RegExp(`^${key}:\\s*(.+)$`, "m")
-      .exec(front)?.[1]
-      ?.trim()
-      .replace(/^["']|["']$/g, "");
-  const name = field("name") ?? dir.split(/[\\/]/).filter(Boolean).at(-1) ?? "skill";
-  return { name, description: field("description") ?? "", files };
+  return skillFromFiles(files, dir.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
 }
 
 /** What an approval pins: the hash of exactly what gets installed. */

@@ -113,13 +113,6 @@ describe("the admin API", () => {
     expect(((await (await call("/clients")).json()) as { clients: unknown[] }).clients).toEqual([]);
   });
 
-  it("shows the audit log", async () => {
-    await store.audit.add({ ts: Date.now(), clientId: "c1", tool: "recall", args: { query: "x" }, recordIds: ["a"] });
-    expect(
-      ((await (await call("/audit")).json()) as { entries: { tool: string }[] }).entries.map((e) => e.tool),
-    ).toEqual(["recall"]);
-  });
-
   it("writes, lists, searches, edits and retires records for the editor", async () => {
     const made = await call("/records", {
       method: "POST",
@@ -130,8 +123,9 @@ describe("the admin API", () => {
       }),
     });
     expect(made.status).toBe(201);
-    const { id, waiting } = (await made.json()) as { id: string; waiting: boolean };
-    expect(waiting).toBe(true);
+    const { id, waiting, team } = (await made.json()) as { id: string; waiting: boolean; team: boolean };
+    expect({ waiting, team }).toEqual({ waiting: true, team: false });
+    expect(((await (await call("/overview")).json()) as { waiting: number }).waiting).toBe(0);
     const refused = await call("/records", {
       method: "POST",
       body: JSON.stringify({ type: "Decision", title: "No date" }),

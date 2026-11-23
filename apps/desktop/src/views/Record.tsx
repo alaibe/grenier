@@ -27,7 +27,7 @@ import {
   useAction,
   useLoad,
 } from "../ui.tsx";
-import { loadSpaces, loadTypes } from "./Store.tsx";
+import { loadSpaces, loadTypes } from "./Knowledge.tsx";
 
 interface Draft {
   space: string;
@@ -115,14 +115,15 @@ export function RecordEditor({ id, open, back }: { id: string; open: (id: string
           open(created.id);
           return { text: "Saved." };
         }
-        const saved = await api<{ waiting?: boolean }>(`/records/${encodeURIComponent(id)}`, {
+        const saved = await api<{ waiting?: boolean; team?: boolean }>(`/records/${encodeURIComponent(id)}`, {
           method: "PUT",
           body: { ...payload, baseVersion: version },
         });
         setConflict(null);
         record.reload();
         setDraft(null);
-        return { text: saved.waiting ? "Saved here; it goes to the team at the next sync." : "Saved and shared." };
+        if (!saved.waiting) return { text: "Saved and shared." };
+        return { text: saved.team ? "Saved here; it goes to the team at the next sync." : "Saved on this machine." };
       } catch (error) {
         if (error instanceof ApiError && error.status === 409 && error.body && typeof error.body === "object") {
           const current = (error.body as { conflict?: RecordFull }).conflict;
@@ -157,7 +158,7 @@ export function RecordEditor({ id, open, back }: { id: string; open: (id: string
       <header className="mb-5 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <button type="button" className="mb-2 cursor-pointer text-sm text-muted hover:underline" onClick={back}>
-            ← Store
+            ← Knowledge
           </button>
           <input
             className="w-full bg-transparent font-serif text-4xl leading-[1.2] font-semibold outline-none placeholder:text-muted"

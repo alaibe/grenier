@@ -1,6 +1,7 @@
+import { type FormEvent, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
-import { Button, Empty, Loading, Notice, Page, Table, useAction, useLoad } from "../ui.tsx";
+import { Button, Empty, Input, Loading, Notice, Page, Table, useAction, useLoad } from "../ui.tsx";
 
 interface SharedState {
   id: string;
@@ -16,7 +17,92 @@ interface SharedState {
 
 const load = () => api<{ shared: SharedState[]; auto: boolean }>("/installs");
 
+interface FoundSkill {
+  id: string;
+  name: string;
+  source: string;
+  installs: number;
+}
+
 const STATE = { installed: "Installed", update: "Update waiting", available: "Not installed" } as const;
+
+/** Skills found on skills.sh, which a click shares with the team from GitHub; each teammate still approves it. */
+function FindSkills({ shared }: { shared: () => void }) {
+  const [found, setFound] = useState<FoundSkill[] | null>(null);
+  const action = useAction(shared);
+
+  const search = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const words = String(new FormData(event.currentTarget).get("q") ?? "").trim();
+    if (!words) return;
+    void action.run("search", async () => {
+      setFound((await api<{ skills: FoundSkill[] }>(`/installs/search?q=${encodeURIComponent(words)}`)).skills);
+      return undefined;
+    });
+  };
+
+  const add = (skill: FoundSkill) =>
+    void action.run(`share:${skill.id}`, async () => {
+      const done = await api<{ title: string; updated: boolean }>("/installs/share", {
+        body: { source: skill.source, name: skill.name },
+      });
+      return {
+        text: `${done.updated ? "Shared a new version of" : "Shared"} ${done.title} with the team. Install it above to use it here.`,
+      };
+    });
+
+  return (
+    <section className="mb-7">
+      <h2 className="mb-1 font-semibold">Find a skill</h2>
+      <p className="mb-2.5 text-md text-muted">
+        Searches skills.sh with the words you type, and nothing else. Share fetches the skill from GitHub into the team,
+        where each teammate reads it before installing it.
+      </p>
+      <form className="mb-3 flex max-w-150 gap-2" onSubmit={search}>
+        <label className="flex-1">
+          <span className="sr-only">Words to search for</span>
+          <Input name="q" type="search" placeholder="release notes, react, testing…" autoComplete="off" />
+        </label>
+        <Button type="submit" disabled={action.busy !== null}>
+          {action.busy === "search" ? "Searching…" : "Search"}
+        </Button>
+      </form>
+      <Notice message={action.message} />
+      {found && found.length === 0 && <Empty>No skill on skills.sh matches those words.</Empty>}
+      {found && found.length > 0 && (
+        <Table>
+          <thead>
+            <tr>
+              <th>Skill</th>
+              <th className="text-right tabular-nums">Installs</th>
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {found.map((skill) => (
+              <tr key={skill.id}>
+                <td className="whitespace-normal">
+                  <span className="font-medium">{skill.name}</span>
+                  <span className="block text-sm text-muted">{skill.source}</span>
+                </td>
+                <td className="text-right tabular-nums">{skill.installs.toLocaleString()}</td>
+                <td>
+                  <div className="flex justify-end">
+                    <Button quiet disabled={action.busy !== null} onClick={() => add(skill)}>
+                      {action.busy === `share:${skill.id}` ? "Sharing…" : "Share with the team"}
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+    </section>
+  );
+}
 
 /** The team's skills and MCP servers: installed into Claude Code on this machine once approved, by their hash. */
 export function Skills({ go }: ViewProps) {
@@ -56,7 +142,7 @@ export function Skills({ go }: ViewProps) {
                     <button
                       type="button"
                       className="cursor-pointer font-medium hover:underline"
-                      onClick={() => go("store", entry.id)}
+                      onClick={() => go("knowledge", entry.id)}
                     >
                       {entry.title}
                     </button>
@@ -149,6 +235,7 @@ export function Skills({ go }: ViewProps) {
             </label>
           </section>
           {section("Skill", "Skills", "grenier skills share <folder>")}
+          <FindSkills shared={reload} />
           {section("McpServer", "MCP servers", "grenier mcp share <name>")}
         </>
       )}

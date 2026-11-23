@@ -209,7 +209,7 @@ export async function runDaemon(io: Io): Promise<number> {
       },
     }),
     anchorDiffs(store),
-    installs(store, home),
+    installs(store, home, { deps: () => storeDeps(store, config, embedder) }),
     async (method, path) =>
       method === "GET" && path.startsWith("/effectiveness")
         ? { status: 200, body: await effectiveness(store, Date.now() - 30 * DAY) }

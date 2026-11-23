@@ -3,20 +3,19 @@ import { api, type Overview, sendPageView } from "./api.ts";
 import { useLoad } from "./ui.tsx";
 import { SCREENS, type ViewName } from "./usage/screens.ts";
 import { useUsage } from "./usage/use-usage.ts";
-import { Audit } from "./views/Audit.tsx";
 import { Clients } from "./views/Clients.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
+import { Knowledge } from "./views/Knowledge.tsx";
 import { Machine } from "./views/Machine.tsx";
 import { Requests } from "./views/Requests.tsx";
 import { Routines } from "./views/Routines.tsx";
 import { Settings } from "./views/Settings.tsx";
 import { Skills } from "./views/Skills.tsx";
-import { Store } from "./views/Store.tsx";
 import { Team } from "./views/Team.tsx";
 import { Traces } from "./views/Traces.tsx";
 
 export interface ViewProps {
-  /** Shows another view; `focus` names what to show first in it: a session in Traces, a record in Store. */
+  /** Shows another view; `focus` names what to show first in it: a session in Traces, a record in Knowledge. */
   go: (view: ViewName, focus?: string) => void;
   focus?: string;
   /** Tells the shell that something it shows (the changes waiting to sync) may have changed. */
@@ -27,7 +26,7 @@ export type { ViewName };
 
 const VIEWS: Record<ViewName, ComponentType<ViewProps>> = {
   dashboard: Dashboard,
-  store: Store,
+  knowledge: Knowledge,
   requests: Requests,
   team: Team,
   routines: Routines,
@@ -35,13 +34,12 @@ const VIEWS: Record<ViewName, ComponentType<ViewProps>> = {
   machine: Machine,
   traces: Traces,
   clients: Clients,
-  audit: Audit,
   settings: Settings,
 };
 
 const loadOverview = () => api<Overview>("/overview");
 
-/** The screen a link names, as #store or #store/<record>, for the app opened in a browser. */
+/** The screen a link names, as #knowledge or #knowledge/<record>, for the app opened in a browser. */
 function linked(): { view: ViewName; focus?: string } {
   const [view = "", focus] = window.location.hash.slice(1).split("/");
   if (!(view in SCREENS)) return { view: "dashboard" };
@@ -86,7 +84,7 @@ export function App() {
             onClick={() => go(name)}
           >
             {SCREENS[name].title}
-            {name === "store" && waiting > 0 && (
+            {name === "knowledge" && waiting > 0 && (
               <span
                 className="min-w-5 rounded-xl bg-accent px-1.5 text-center text-2xs leading-5 font-semibold text-accent-fg"
                 title={`${waiting} not sent to the team yet`}
@@ -99,7 +97,7 @@ export function App() {
         {overview.data && <p className="mx-2.5 mt-auto text-xs text-muted">Version {overview.data.version}</p>}
       </nav>
       <main className="px-8 pt-7 pb-12 max-md:px-5 max-md:pt-5.5 max-md:pb-10">
-        <div className={current === "traces" || current === "store" ? "max-w-320" : "max-w-220"}>
+        <div className={current === "traces" || current === "knowledge" ? "max-w-320" : "max-w-220"}>
           <View key={`${current}:${focus ?? ""}`} go={go} changed={overview.reload} {...(focus ? { focus } : {})} />
         </div>
       </main>

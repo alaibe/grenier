@@ -1,10 +1,11 @@
 import { blobText, repoText } from "@grenier/connectors/git";
 import { type Config, joinCode, repoSpace, sha256 } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
-import { type TeamClient, TeamError, teamApi } from "@grenier/index";
+import { type StoreDeps, type TeamClient, TeamError, teamApi } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
+import { fetchSkill, searchSkills } from "./catalog.ts";
 import { parseInvite } from "./commands/team.ts";
-import { autoInstall, install, rollback, type Shared, sharedList, uninstall } from "./installs.ts";
+import { autoInstall, install, rollback, type Shared, share, sharedList, uninstall } from "./installs.ts";
 import { deviceName, ensureBaseSpaces, ensurePersonalKey } from "./runtime.ts";
 import { newTeamToken, saveTeam } from "./team.ts";
 
@@ -109,9 +110,40 @@ export function anchorDiffs(store: Store): Route {
   };
 }
 
-/** The team's skills and servers on this machine: listed, installed, removed, put back, and the auto setting. */
-export function installs(store: Store, home: string): Route {
+/**
+ * The team's skills and servers on this machine: listed, installed, removed, put back, and the auto setting; and
+ * skills found on skills.sh, shared with the team from GitHub like any other.
+ */
+export function installs(
+  store: Store,
+  home: string,
+  catalog: { deps: () => Promise<StoreDeps>; fetch?: typeof fetch },
+): Route {
   return async (method, path, body) => {
+    if (path.startsWith("/installs/search?") && method === "GET") {
+      const words = new URLSearchParams(path.slice(path.indexOf("?"))).get("q") ?? "";
+      try {
+        return ok({ skills: await searchSkills(words, catalog.fetch) });
+      } catch (error) {
+        return no(502, (error as Error).message);
+      }
+    }
+    if (path === "/installs/share" && method === "POST") {
+      const { source, name } = (body ?? {}) as { source?: unknown; name?: unknown };
+      if (typeof source !== "string" || typeof name !== "string") return no(400, "share takes a source and a name");
+      try {
+        const skill = await fetchSkill(source, name, catalog.fetch);
+        const shared = await share(await catalog.deps(), {
+          type: "Skill",
+          title: skill.name,
+          body: "",
+          fields: { files: skill.files },
+        });
+        return ok({ ...shared, title: skill.name, files: Object.keys(skill.files).length });
+      } catch (error) {
+        return no(409, (error as Error).message);
+      }
+    }
     if (path === "/installs" && method === "GET") {
       return ok({ shared: await sharedList(store), auto: (await store.state.get("auto_install")) === "on" });
     }

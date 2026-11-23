@@ -4,7 +4,7 @@
  */
 export const SCREENS = {
   dashboard: { url: "/dashboard", title: "Dashboard" },
-  store: { url: "/store", title: "Store" },
+  knowledge: { url: "/knowledge", title: "Knowledge" },
   requests: { url: "/requests", title: "Requests" },
   team: { url: "/team", title: "Team" },
   routines: { url: "/routines", title: "Routines" },
@@ -12,7 +12,6 @@ export const SCREENS = {
   machine: { url: "/machine", title: "This machine" },
   traces: { url: "/traces", title: "Traces" },
   clients: { url: "/clients", title: "Clients and spaces" },
-  audit: { url: "/audit", title: "Audit log" },
   settings: { url: "/settings", title: "Settings" },
 } as const satisfies Record<string, { url: string; title: string }>;
 

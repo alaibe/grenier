@@ -61,7 +61,7 @@ macro_rules! screens {
 // The app's views, as `src/usage/screens.ts` lists them.
 screens! {
     Dashboard => "/dashboard", "Dashboard";
-    Store => "/store", "Store";
+    Knowledge => "/knowledge", "Knowledge";
     Requests => "/requests", "Requests";
     Team => "/team", "Team";
     Routines => "/routines", "Routines";
@@ -69,7 +69,6 @@ screens! {
     Machine => "/machine", "This machine";
     Traces => "/traces", "Traces";
     Clients => "/clients", "Clients and spaces";
-    Audit => "/audit", "Audit log";
     Settings => "/settings", "Settings";
 }
 

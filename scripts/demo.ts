@@ -577,7 +577,7 @@ process.on("exit", () => {
   daemon.kill();
 });
 process.stdout.write(
-  `Grenier's demo: http://localhost:1420/demo#dashboard (or #store, #store/${project}, #team, #routines, #skills, #machine). Ctrl-C stops it.\n`,
+  `Grenier's demo: http://localhost:1420/demo#dashboard (or #knowledge, #knowledge/${project}, #team, #routines, #skills, #machine). Ctrl-C stops it.\n`,
 );
 await new Promise<void>((resolve) => {
   process.once("SIGINT", () => resolve());

@@ -16,8 +16,6 @@ import { team } from "./commands/team.ts";
 import { runDaemon, startDaemon, stopDaemon } from "./daemon.ts";
 import { type Io, isReported, UsageError } from "./io.ts";
 
-export type { Io } from "./io.ts";
-
 const USAGE = `Usage: grenier <command>
 
 Commands:
@@ -40,11 +38,13 @@ Commands:
   mcp share <name>           Share one of your Claude Code MCP servers with the team, without its credentials
   ask [--repo <path>] [--json] <question>
                              What the store holds for a question
-  store [list] [--type <type>] [--space <space>], store show <id>, store stats
+  store [list] [--type <type>] [--space <space>] [--retired], store show <id>, store stats
                              The records on this machine
-  store add <type> <title> [--body "…"] [--field name=value] [--space <space>]
+  store add <type> <title> [--body "…" | --body-file <path>] [--field name=value] [--space <space>]
                              Write a record; store retire <id> retires one
-  store clear --repo <path>  Remove a repository's records from this machine (the team store keeps them)
+  store clear [--repo <path>]
+                             Remove a repository's records from this machine (the team store keeps them);
+                             the current directory's by default
   team deploy [--name grenier-team] [--member <name>]
                              Put the team store in your Cloudflare account (after npx wrangler login), as its admin
   team join <link>           Join a team from an invite link, then confirm the code with its admin
@@ -63,7 +63,7 @@ Commands:
                              auto on installs and updates the ones an admin recommends
   servers [list], servers install|remove|rollback <id>
                              The team's MCP servers, installed into Claude Code once approved
-  routines [list], routines on|off, routines add <file.md> [--repo <path>]
+  routines [list], routines on|off, routines add <file.md> [--repo <path>] [--space <space>]
   routines approve <id> [--mode read-only|shadow|limited|on] [--limit <actions a day>]
   routines run <id> [--version <n>] [--task "…"], routines eval <id> [--version <n>], routines promote <id> <n>
   routines workflow <id> [--file <path>], routines librarian
@@ -85,8 +85,11 @@ Options:
 export async function run(argv: string[], io: Io): Promise<number> {
   const [command, ...rest] = argv;
   try {
-    if (command !== "run" && (rest.includes("-h") || rest.includes("--help"))) {
-      io.out(USAGE);
+    const topic = command === "help" ? rest[0] : asksHelp(command, rest) ? command : undefined;
+    if (topic !== undefined) {
+      const own = commandHelp(topic);
+      if (!own && command === "help") throw new UsageError(`unknown command "${topic}"`);
+      io.out(own ?? USAGE);
       return 0;
     }
     switch (command) {
@@ -191,8 +194,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
     }
   } catch (error) {
     if (error instanceof UsageError || isParseArgsError(error)) {
-      const own = command ? helpFor(command) : [];
-      const help = own.length > 0 ? `${own.join("\n")}\n\nEvery command: grenier --help` : USAGE;
+      const help = (command && commandHelp(command)) || USAGE;
       io.err(`grenier: ${(error as Error).message}\n\n${help}`);
       return 2;
     }
@@ -204,16 +206,24 @@ export async function run(argv: string[], io: Io): Promise<number> {
   }
 }
 
-/** The usage lines of one command: those that start with its name, and the lines that continue them. */
-function helpFor(command: string): string[] {
+/** `grenier <command> --help`, `-h` anywhere, or `help` as its first argument (`ask` takes any words, `run` its agent's). */
+function asksHelp(command: string | undefined, rest: string[]): boolean {
+  if (command === undefined || command === "run") return false;
+  return rest.includes("-h") || rest.includes("--help") || (command !== "ask" && rest[0] === "help");
+}
+
+/** The usage lines of one command, those naming it and the lines that continue them, or undefined for no command. */
+function commandHelp(command: string): string | undefined {
   const lines: string[] = [];
   let taking = false;
   for (const line of USAGE.split("\n")) {
-    if (/^ {2}\S/.test(line)) taking = line.trimStart().split(/[\s,]/)[0] === command;
-    else if (!/^ {29}\S/.test(line)) taking = false;
+    if (/^ {2}\S/.test(line)) {
+      const synopsis = line.trim().split(/ {2,}/)[0] ?? "";
+      taking = synopsis.split(", ").some((part) => part.split(" ")[0] === command);
+    } else if (!/^ {29}\S/.test(line)) taking = false;
     if (taking) lines.push(line);
   }
-  return lines;
+  return lines.length > 0 ? `${lines.join("\n")}\n\nEvery command: grenier --help` : undefined;
 }
 
 function noArguments(command: string, rest: string[]): void {

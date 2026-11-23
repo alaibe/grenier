@@ -42,7 +42,9 @@ Hard rules: a failing test is never a reason to relax one.
 - A shared skill or MCP server is installed only once this machine's person approved its hash, or it is recommended
   and they turned on `skills auto`; a skill's files land only inside `~/.claude/skills/grenier-<name>`, a server under
   `grenier-<name>` in Claude Code's config. A shared server carries the names of its credentials, never their values
-  (`shareableServer` in `apps/cli/src/installs.ts`).
+  (`shareableServer` in `apps/cli/src/installs.ts`). The Skills screen's search sends only the words typed to
+  skills.sh, and its share fetches that skill from GitHub at one commit (`apps/cli/src/catalog.ts`); what it fetches
+  is shared like any skill, and waits for each person's approval.
 - A routine runs on a machine only once its person approved its hash (`routineHash`), in a clean checkout, at the
   lowest priority. With Claude Code, read-only is enforced twice: `--tools` offers only the built-in tools the mode
   allows, and the proxy's `RunGuard` cuts the answer off before any other tool call, an MCP tool included, and stops
@@ -94,9 +96,9 @@ code.
   `pnpm --filter @grenier/desktop sidecar`.
 - `pnpm demo` serves the desktop UI at http://localhost:1420 against a throwaway daemon and team store filled with
   made-up data (`scripts/demo.ts`); laibe's `grenier:screenshots` captures the site's screenshots from it. A screen is
-  picked by the URL's hash, as `#store` or `#store/<record id>`.
+  picked by the URL's hash, as `#knowledge` or `#knowledge/<record id>`.
 - The desktop app bundle: `pnpm build`, `pnpm --filter @grenier/desktop sidecar [--target <triple>]` (downloads Node's
-  official build, checked against the SHA-256 pinned in `scripts/prepare-sidecar.mjs`), then
+  official build, checked against the SHA-256 pinned in `apps/desktop/scripts/prepare-sidecar.mjs`), then
   `pnpm --filter @grenier/desktop tauri build`. CI builds its web UI and sidecar and tests the shell; releases build
   it for macOS, Linux and Windows (`docs/RELEASE.md`).
 - Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `agents` with real agents,

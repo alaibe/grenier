@@ -1,4 +1,4 @@
-import { BUILTIN_TYPES, builtinType, customType, recordProblem, repoSpace } from "@grenier/core";
+import { BUILTIN_TYPES, builtinType, customType, recordProblem } from "@grenier/core";
 import {
   addClient,
   check,
@@ -109,7 +109,7 @@ async function shown(deps: StoreDeps, record: FullRecord, spaces: readonly strin
   };
 }
 
-/** The local admin API the desktop app uses: usage, traces, the store and its editor, the team, clients, audit. */
+/** The local admin API the desktop app uses: usage, traces, the store and its editor, the team, clients. */
 export function createAdmin(options: AdminOptions): Hono {
   const { store, prices } = options;
   const host = options.host;
@@ -171,7 +171,7 @@ export function createAdmin(options: AdminOptions): Hono {
       sessions: await sessionReport(store, rows, prices, since),
       records: stats.reduce((total, row) => total + row.records, 0),
       hits: stats.reduce((total, row) => total + row.hits, 0),
-      waiting: (await store.outbox.list()).length,
+      waiting: team ? (await store.outbox.list()).length : 0,
       team: team ? { url: team.url, lastSync: Number((await store.state.get("last_sync")) ?? 0) || null } : null,
       clients: (await store.clients.list()).filter((client) => client.revokedAt === null).length,
       paused: (await store.sessions.paused()).length,
@@ -334,7 +334,7 @@ export function createAdmin(options: AdminOptions): Hono {
       }
     }
     await write(storeDeps, record, before);
-    return { saved: record.id, waiting: true };
+    return { saved: record.id, waiting: true, team: Boolean(team) };
   }
 
   app.post("/records", async (c) => {
@@ -392,11 +392,6 @@ export function createAdmin(options: AdminOptions): Hono {
       ? c.json({ retired: c.req.param("id") })
       : problem(404, "no such record, or retired already"),
   );
-
-  app.get("/repos/:repo", async (c) => {
-    const space = await store.spaces.get(repoSpace(c.req.param("repo")));
-    return space ? c.json(space) : problem(404, "no such repository here");
-  });
 
   /** The team's own pages, through this device's token: members, invites, machines, usage, runs. */
   app.all("/team/*", async (c) => {
@@ -456,22 +451,6 @@ export function createAdmin(options: AdminOptions): Hono {
       ? c.json({ revoked: c.req.param("name") })
       : problem(404, `no active client named ${c.req.param("name")}`),
   );
-
-  app.get("/audit", async (c) => {
-    const clients = await store.clients.list();
-    const names = new Map(clients.map((client) => [client.id, client.name.replace(/~\d+$/, " (revoked)")]));
-    const wanted = c.req.query("client");
-    const client = wanted ? clients.find((entry) => entry.name === wanted) : undefined;
-    if (wanted && !client) return problem(404, `no client named ${wanted}`);
-    const entries = await store.audit.list({
-      since: parseSince(c.req.query("since") ?? "7d", Date.now()),
-      ...(client ? { clientId: client.id } : {}),
-      limit: 500,
-    });
-    return c.json({
-      entries: entries.map((entry) => ({ ...entry, client: names.get(entry.clientId) ?? entry.clientId })),
-    });
-  });
 
   app.all("*", async (c) => {
     const body = c.req.method === "GET" ? undefined : await c.req.json().catch(() => ({}));

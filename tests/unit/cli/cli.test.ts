@@ -68,6 +68,27 @@ describe("grenier --version and help", () => {
     }
     expect((await grenier("frobnicate")).err).toContain("Usage: grenier <command>");
   });
+
+  it("shows one command's help, however it is asked", async () => {
+    for (const argv of [
+      ["help", "mcp"],
+      ["mcp", "--help"],
+      ["mcp", "install", "-h"],
+      ["mcp", "help"],
+    ]) {
+      const result = await grenier(...argv);
+      expect(result.code).toBe(0);
+      expect(result.out).toMatch(/^ {2}mcp install /);
+      expect(result.out).toContain("mcp share <name>");
+      expect(result.out).not.toContain("team deploy");
+      expect(result.out).toMatch(/Every command: grenier --help$/);
+    }
+    expect((await grenier("help", "stop")).out).toMatch(/^ {2}start, stop /);
+    expect((await grenier("help")).out).toMatch(/^Usage: grenier <command>/);
+    const unknown = await grenier("help", "frobnicate");
+    expect(unknown.code).toBe(2);
+    expect(unknown.err).toContain('unknown command "frobnicate"');
+  });
 });
 
 describe("grenier status", () => {

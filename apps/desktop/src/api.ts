@@ -270,12 +270,3 @@ export interface ClientView {
   scopes: string[];
   createdAt: number;
 }
-
-export interface AuditEntry {
-  id: number;
-  ts: number;
-  client: string;
-  tool: string;
-  args: Record<string, unknown>;
-  itemIds: string[];
-}

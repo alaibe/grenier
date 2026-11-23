@@ -19,13 +19,13 @@ type Layout = "table" | "board" | "calendar";
 const STATUSES = ["to-do", "doing", "done"] as const;
 
 /** Every record this machine holds: listed, searched, filtered by type and space, and opened in the editor. */
-export function Store({ focus }: ViewProps) {
+export function Knowledge({ focus }: ViewProps) {
   const [open, setOpen] = useState<string | null>(focus ?? null);
   if (open) return <RecordEditor key={open} id={open} open={setOpen} back={() => setOpen(null)} />;
-  return <StoreList open={setOpen} />;
+  return <KnowledgeList open={setOpen} />;
 }
 
-function StoreList({ open }: { open: (id: string) => void }) {
+function KnowledgeList({ open }: { open: (id: string) => void }) {
   const [words, setWords] = useState("");
   const [type, setType] = useState("");
   const [space, setSpace] = useState("");
@@ -63,7 +63,7 @@ function StoreList({ open }: { open: (id: string) => void }) {
 
   return (
     <Page
-      title="Store"
+      title="Knowledge"
       intro="What your team and its agents know: projects, tasks, meetings, decisions, docs, memories, skills and routines. Shared with the team as soon as it is written; me is yours alone. A record titled Template: … starts new ones of its type."
       action={
         <Select
@@ -145,7 +145,7 @@ function StoreList({ open }: { open: (id: string) => void }) {
           ) : (
             <>
               <p>Nothing kept yet. Agents fill it with remember; add a record with New, or install the MCP server:</p>
-              <code>grenier mcp install</code>
+              <code>grenier mcp install claude-code</code>
             </>
           )}
         </Empty>

@@ -78,7 +78,7 @@ export function Requests({ go }: ViewProps) {
       {routines.data?.length === 0 && (
         <Empty>
           <p>No routine takes requests yet. Write one as a record of type Routine, or:</p>
-          <code>grenier routines add</code>
+          <code>grenier routines add &lt;file.md&gt;</code>
         </Empty>
       )}
       {routines.data && routines.data.length > 0 && (
@@ -136,7 +136,7 @@ export function Requests({ go }: ViewProps) {
                     <button
                       type="button"
                       className="cursor-pointer text-left font-medium hover:underline"
-                      onClick={() => go("store", task.id)}
+                      onClick={() => go("knowledge", task.id)}
                     >
                       {task.title}
                     </button>
@@ -172,7 +172,6 @@ export function Requests({ go }: ViewProps) {
                 <tr key={run.id}>
                   <td>
                     {routineTitle(run.routine_id)} <span className="text-sm text-muted">v{run.version}</span>
-                    {run.kind === "eval" && <span className="ml-1.5 text-sm text-muted">eval</span>}
                   </td>
                   <td>{run.machine}</td>
                   <td>{run.status}</td>
