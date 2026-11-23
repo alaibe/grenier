@@ -74,7 +74,7 @@ const configSchema = z.strictObject({
         .string()
         .regex(/^[A-Z_][A-Z0-9_]*$/, "must be an environment variable name, such as GRENIER_TEAM_TOKEN")
         .default("GRENIER_TEAM_TOKEN"),
-      /** Seconds between two rounds of sync with the team store when its live connection is down. */
+      /** Seconds between two rounds of sync with the team store; its live connection also starts one on each change. */
       sync_interval: z.int().min(1).max(3600).default(20),
     })
     .prefault({}),
