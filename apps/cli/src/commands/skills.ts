@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { embedderLoader } from "../exploration.ts";
@@ -8,6 +7,7 @@ import {
   findShared,
   install,
   isFolder,
+  readJson,
   readSkill,
   rollback,
   type Shared,
@@ -117,10 +117,7 @@ export async function shareServer(argv: string[], io: Io, home: string = homedir
   const [name, ...rest] = argv;
   if (!name || rest.length > 0) throw new UsageError("mcp share takes the name of one of your Claude Code MCP servers");
   const file = claudeConfig(home);
-  const servers = existsSync(file)
-    ? ((JSON.parse(readFileSync(file, "utf8")) as { mcpServers?: Record<string, Record<string, unknown>> })
-        .mcpServers ?? {})
-    : {};
+  const servers = (readJson(file).mcpServers ?? {}) as Record<string, Record<string, unknown>>;
   const entry = servers[name];
   if (!entry) throw new CommandError(`Claude Code has no MCP server named ${name} in ${file}`);
   const { config: shared, credentials } = shareableServer(entry);

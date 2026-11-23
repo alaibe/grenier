@@ -1,8 +1,8 @@
 import { parseArgs } from "node:util";
 import { MAX_QUESTION, repoSpace } from "@grenier/core";
-import { type Embedder, type RecallResult, recall, StoreUseError } from "@grenier/index";
+import { type Embedder, type RecallResult, recall } from "@grenier/index";
 import { embedderLoader, gitFiles, repoResolver } from "../exploration.ts";
-import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
+import { environment, type Io, UsageError, withStore } from "../io.ts";
 import { ensureBaseSpaces, identity } from "../runtime.ts";
 
 /** How close a prompt must be to a recorded question for the prompt hook to pass its answer on. */
@@ -41,19 +41,14 @@ export async function ask(argv: string[], io: Io): Promise<string> {
   const question = positionals.join(" ").trim();
   if (question === "") throw new UsageError("ask takes a question, as in: grenier ask how are requests routed");
   const { paths, config } = environment(io);
-  try {
-    const repo = await repoResolver(io.cwd)(values.repo);
-    const embedder = await embedderLoader(config, paths, io.err)();
-    const result = await withStore(paths, async (store) => {
-      await ensureBaseSpaces(store);
-      const me = await identity(store, config);
-      return recall({ store, embedder, files: gitFiles, me }, PERSON, { query: question, repo, count: false });
-    });
-    return values.json ? JSON.stringify(result, null, 2) : asText(result);
-  } catch (error) {
-    if (error instanceof StoreUseError) throw new CommandError(error.message);
-    throw error;
-  }
+  const repo = await repoResolver(io.cwd)(values.repo);
+  const embedder = await embedderLoader(config, paths, io.err)();
+  const result = await withStore(paths, async (store) => {
+    await ensureBaseSpaces(store);
+    const me = await identity(store, config);
+    return recall({ store, embedder, files: gitFiles, me }, PERSON, { query: question, repo, count: false });
+  });
+  return values.json ? JSON.stringify(result, null, 2) : asText(result);
 }
 
 /**

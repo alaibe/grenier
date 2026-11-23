@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { repoSpace } from "@grenier/core";
-import { remember, retire, StoreUseError } from "@grenier/index";
+import { remember, retire } from "@grenier/index";
 import { embedderLoader, repoResolver } from "../exploration.ts";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
 import { storeDeps } from "../runtime.ts";
@@ -77,19 +77,14 @@ export async function storeCommand(argv: string[], io: Io): Promise<string[]> {
           if (at < 1) throw new UsageError(`--field takes name=value, not ${entry}`);
           fields[entry.slice(0, at)] = entry.slice(at + 1);
         }
-        try {
-          const kept = await remember(deps, null, await repoResolver(io.cwd)(undefined), {
-            type,
-            title: title.join(" "),
-            ...(body ? { body } : {}),
-            ...(Object.keys(fields).length > 0 ? { fields } : {}),
-            ...(values.space ? { space: values.space } : {}),
-          });
-          return [`Kept ${kept.id} in ${kept.space}.`];
-        } catch (error) {
-          if (error instanceof StoreUseError) throw new CommandError(error.message);
-          throw error;
-        }
+        const kept = await remember(deps, null, await repoResolver(io.cwd)(undefined), {
+          type,
+          title: title.join(" "),
+          ...(body ? { body } : {}),
+          ...(Object.keys(fields).length > 0 ? { fields } : {}),
+          ...(values.space ? { space: values.space } : {}),
+        });
+        return [`Kept ${kept.id} in ${kept.space}.`];
       }
       case "retire": {
         const [id] = rest;

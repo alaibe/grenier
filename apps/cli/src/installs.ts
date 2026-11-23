@@ -112,7 +112,7 @@ export function serverEntry(record: Pick<FullRecord, "fields">): Record<string, 
   };
 }
 
-function readJson(path: string): Record<string, unknown> {
+export function readJson(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
   try {
     return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;

@@ -2,6 +2,7 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type Config, ConfigError } from "@grenier/core";
 import { ensureDirectories, type GrenierPaths, loadConfig, resolvePaths } from "@grenier/core/node";
+import { StoreUseError } from "@grenier/index";
 import { type Store, StoreError } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 
@@ -27,7 +28,12 @@ export class UsageError extends Error {
 }
 
 export function isReported(error: unknown): error is Error {
-  return error instanceof CommandError || error instanceof ConfigError || error instanceof StoreError;
+  return (
+    error instanceof CommandError ||
+    error instanceof ConfigError ||
+    error instanceof StoreError ||
+    error instanceof StoreUseError
+  );
 }
 
 export interface Environment {

@@ -69,6 +69,11 @@ describe("grenier --version and help", () => {
     expect((await grenier("frobnicate")).err).toContain("Usage: grenier <command>");
   });
 
+  it("reports a path that is not a repository, without a stack trace", async () => {
+    const result = await grenier("ask", "--repo", dir, "Where is the proxy?");
+    expect(result).toMatchObject({ code: 1, err: `grenier: not inside a git repository: ${dir}` });
+  });
+
   it("shows one command's help, however it is asked", async () => {
     for (const argv of [
       ["help", "mcp"],
