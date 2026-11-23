@@ -150,7 +150,8 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const result: SyncResult = { pushed: 0, refused: [], pulled: 0, unopened: 0 };
 
   for (;;) {
-    const entries = await store.outbox.pending(200);
+    // Without the personal key, `me` changes wait here; they must not hold back the others.
+    const entries = await store.outbox.pending(200, !deps.personalKey);
     const changes = await outgoing(deps, entries);
     if (changes.length === 0) break;
     const answer = await teamApi<{

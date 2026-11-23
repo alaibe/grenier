@@ -166,8 +166,8 @@ export interface HistoryStore {
 
 export interface OutboxStore {
   add(entry: Omit<OutboxEntry, "seq" | "refused">): Promise<void>;
-  /** The oldest first, without those the team store refused. */
-  pending(limit: number): Promise<OutboxEntry[]>;
+  /** The oldest first, without those the team store refused, and without `me` ones when `withoutMe`. */
+  pending(limit: number, withoutMe?: boolean): Promise<OutboxEntry[]>;
   /** Every entry still here, refused ones included. */
   list(): Promise<OutboxEntry[]>;
   remove(ids: readonly string[]): Promise<void>;

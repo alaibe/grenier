@@ -382,8 +382,19 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .values({ ...entry, seq: next })
           .run();
       },
-      pending: async (limit) =>
-        db.select().from(outbox).where(isNull(outbox.refused)).orderBy(asc(outbox.seq)).limit(limit).all(),
+      pending: async (limit, withoutMe = false) =>
+        db
+          .select()
+          .from(outbox)
+          .where(
+            and(
+              isNull(outbox.refused),
+              withoutMe ? sql`json_extract(${outbox.change}, '$.record.space') IS NOT 'me'` : undefined,
+            ),
+          )
+          .orderBy(asc(outbox.seq))
+          .limit(limit)
+          .all(),
       list: async () => db.select().from(outbox).orderBy(asc(outbox.seq)).all(),
       remove: async (ids) => {
         if (ids.length > 0)
