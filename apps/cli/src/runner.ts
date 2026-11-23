@@ -291,7 +291,7 @@ export class Runner {
     if (!approval || approval.hash !== (await routineHash(routine))) {
       this.deps.notify?.(
         "A routine waits for your approval",
-        `${routine.title}: grenier routines approve ${routine.id}, or approve it in the app.`,
+        `${routine.title}: approve it on the app's Routines screen.`,
       );
       return decline(approval ? "it changed since it was approved here" : "it is not approved here");
     }

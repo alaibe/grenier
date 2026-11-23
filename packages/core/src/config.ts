@@ -53,7 +53,7 @@ const configSchema = z.strictObject({
       loop_repeat_threshold: z.int().min(2).default(3),
       loop_window: z.int().min(2).default(10),
       on_loop: z.enum(["notify", "pause"]).default("notify"),
-      /** Seconds a paused session's request waits for `grenier resume` before it is answered with an error. */
+      /** Seconds a paused session's request waits to be resumed before it is answered with an error. */
       pause_timeout: z.int().min(1).default(600),
     })
     .refine((guards) => guards.loop_repeat_threshold <= guards.loop_window, {

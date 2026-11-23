@@ -164,10 +164,7 @@ export async function doctor(
 
   const team = teamClient(config, paths, io.env);
   if (config.team.url && !team) {
-    add(
-      "fail",
-      `team store ${config.team.url} is set but this machine has no token: join from an invite link, grenier team join <link>`,
-    );
+    add("fail", `team store ${config.team.url} is set but this machine has no token: open an invite link in the app`);
   } else if (team) {
     try {
       const me = await Promise.race([

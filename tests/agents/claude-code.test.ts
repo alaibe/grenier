@@ -1,6 +1,6 @@
 // Run by hand with `pnpm test:agents`: a dummy key and a throwaway config directory, so nothing reaches Anthropic.
 import { execFile, execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -21,6 +21,7 @@ const claude = (() => {
 
 let dir: string;
 let upstream: Server;
+let port: number;
 const messages: string[] = [];
 
 const env = () => ({
@@ -69,7 +70,7 @@ describe.skipIf(claude === null)("Claude Code through grenier run", () => {
       });
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
-    const port = await freePort();
+    port = await freePort();
     await grenier("status");
     writeFileSync(
       join(dir, ".grenier", "config.toml"),
@@ -88,7 +89,10 @@ describe.skipIf(claude === null)("Claude Code through grenier run", () => {
     const run = await grenier("run", "--", claude as string, "-p", "Reply with one word.");
     expect(run.stdout.trim()).toBe("pong");
     expect(messages.length).toBeGreaterThan(0);
-    const report = await grenier("report", "--by", "session");
-    expect(report.stdout).toMatch(/^total\s+\d+/m);
+    const token = readFileSync(join(dir, ".grenier", "admin-token"), "utf8").trim();
+    const overview = (await (
+      await fetch(`http://127.0.0.1:${port}/admin/overview`, { headers: { authorization: `Bearer ${token}` } })
+    ).json()) as { sessions: { requests: number }[] };
+    expect(overview.sessions[0]?.requests).toBeGreaterThan(0);
   }, 120_000);
 });

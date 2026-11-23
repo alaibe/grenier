@@ -159,7 +159,7 @@ describe("loops", () => {
     expect(await gateway.store.events.list({ kind: "loop" })).toEqual([]);
   });
 
-  it("holds the session's requests when on_loop is pause, until grenier resume", async () => {
+  it("holds the session's requests when on_loop is pause, until it is resumed", async () => {
     const upstream = fakeUpstream(() => sse(STREAM));
     gateway = testGateway(upstream, (config) => {
       config.guards.on_loop = "pause";
@@ -182,7 +182,7 @@ describe("loops", () => {
     await vi.waitFor(async () => expect((await gateway.store.sessions.get("s1"))?.paused).toBe(true));
     expect(settled).toBe(false);
     expect(upstream.requests.length).toBe(before);
-    expect(gateway.notifications[0]).toContain("Run: grenier resume s1");
+    expect(gateway.notifications[0]).toContain("Resume it from Grenier's Dashboard");
 
     await gateway.store.sessions.setPaused("s1", false);
     expect((await held).status).toBe(200);

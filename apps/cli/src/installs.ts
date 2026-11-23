@@ -268,19 +268,6 @@ export async function sharedList(store: Store): Promise<SharedState[]> {
   return out;
 }
 
-/** The record a person names on the command line: its id, or its title in any case. */
-export async function findShared(store: Store, type: Shared, name: string): Promise<FullRecord> {
-  const byId = await store.records.get(name);
-  if (byId?.type === type && byId.retiredAt === null) return byId;
-  const spaces = (await store.spaces.list()).map((space) => space.id);
-  const found = (await store.records.list({ spaces, type })).filter(
-    (record) => record.title.toLowerCase() === name.toLowerCase() || slug(record.title) === slug(name),
-  );
-  if (found.length === 0) throw new CommandError(`no ${type === "Skill" ? "skill" : "MCP server"} named ${name}`);
-  if (found.length > 1) throw new CommandError(`more than one is named ${name}; give its id`);
-  return found[0] as FullRecord;
-}
-
 /** Brings recommended skills and servers up to date and removes retired ones it installed; returns what it did. */
 export async function autoInstall(store: Store, home: string): Promise<string[]> {
   if ((await store.state.get("auto_install")) !== "on") return [];

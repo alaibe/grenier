@@ -1,4 +1,4 @@
-import { buildReport, cacheHitRate, formatToday, loadPrices, parseSince, projectOf, totalOf } from "@grenier/log";
+import { buildReport, formatToday, loadPrices, parseSince, projectOf, totalOf } from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { describe, expect, it } from "vitest";
 
@@ -71,13 +71,6 @@ describe("buildReport", () => {
     expect(day).toMatchObject({ inputTokens: 200, cacheReadTokens: 1800, outputTokens: 100, unpriced: 1 });
     expect(day?.cost).toBeCloseTo(0.01, 10);
     expect(day?.saved).toBeCloseTo((900 * 3.8) / 1_000_000, 12);
-  });
-});
-
-describe("cacheHitRate", () => {
-  it("is the share of input tokens read from the cache", () => {
-    expect(cacheHitRate({ inputTokens: 100, cacheWriteTokens: 0, cacheReadTokens: 900 })).toBe(0.9);
-    expect(cacheHitRate({ inputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 })).toBe(0);
   });
 });
 

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -105,8 +105,15 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
   );
 
   type Row = { key: string } & RunUsage;
-  const sessionRows = async (cwd: string): Promise<Row[]> =>
-    JSON.parse((await grenier(["report", "--by", "session", "--since", "1d", "--json"], cwd)).stdout) as Row[];
+  // What the app's Dashboard reads: the daemon's sessions of the last 7 days.
+  const sessionRows = async (): Promise<Row[]> => {
+    const token = readFileSync(join(home, "admin-token"), "utf8").trim();
+    const response = await fetch(`http://127.0.0.1:${options.port}/admin/overview`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(`the daemon answered ${response.status}`);
+    return ((await response.json()) as { sessions: Row[] }).sessions;
+  };
   const ours = new Set<string>();
   let capped = false;
 
@@ -141,7 +148,7 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
         runs.push({ question, cold: pair.cold as Run, warm: pair.warm as Run });
         if (options.budget !== undefined) {
           for (const run of [pair.cold, pair.warm]) if (run?.session) ours.add(run.session);
-          const spent = (await sessionRows(dir))
+          const spent = (await sessionRows())
             .filter((row) => ours.has(row.key))
             .reduce((sum, row) => sum + row.cost, 0);
           if (spent >= options.budget) {
@@ -151,7 +158,7 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
         }
       }
 
-      const report = await sessionRows(dir);
+      const report = await sessionRows();
       const usageOf = (id: string | null): RunUsage => {
         const row = report.find((entry) => entry.key === id);
         return row

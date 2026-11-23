@@ -17,7 +17,7 @@ function asText(result: RecallResult): string {
   const lines = [best.body, "", `${best.type}${best.kind ? ` (${best.kind})` : ""}: ${best.title}`];
   const files = best.anchors.map((anchor) => anchor.ref);
   if (files.length > 0) lines.push(`From: ${files.join(", ")}`);
-  lines.push(`By ${best.author}, in ${best.space}. Id: ${best.id} (grenier store retire ${best.id} retires it)`);
+  lines.push(`By ${best.author}, in ${best.space}. Id: ${best.id} (the app's Knowledge screen retires it)`);
   if (best.status === "stale") {
     lines.unshift(
       `Stale: ${best.changed.join(", ")} changed since it was written; re-read them before relying on it.`,

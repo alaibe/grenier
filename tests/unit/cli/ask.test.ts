@@ -97,7 +97,7 @@ describe("grenier ask", () => {
         "",
         `Memory (answer): ${QUESTION}`,
         "From: src/proxy.ts",
-        `By ada, in repo:${await repoId(dir)}. Id: ${id} (grenier store retire ${id} retires it)`,
+        `By ada, in repo:${await repoId(dir)}. Id: ${id} (the app's Knowledge screen retires it)`,
       ].join("\n"),
     );
     expect(await hits()).toBe(0);

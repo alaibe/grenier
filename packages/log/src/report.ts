@@ -17,11 +17,6 @@ export interface ReportRow {
   saved: number;
 }
 
-export function cacheHitRate(row: Pick<ReportRow, "inputTokens" | "cacheWriteTokens" | "cacheReadTokens">): number {
-  const input = row.inputTokens + row.cacheWriteTokens + row.cacheReadTokens;
-  return input === 0 ? 0 : row.cacheReadTokens / input;
-}
-
 /** Totals per day (local time), session or repository, in the order each key first appears. */
 export function buildReport(rows: readonly UsageWithSession[], by: GroupBy, prices: Prices): ReportRow[] {
   const groups = new Map<string, ReportRow>();
@@ -110,8 +105,6 @@ export function parseSince(value: string, now: number): number {
   throw new Error(`--since takes a duration such as 7d, 12h or 30m, or a date such as 2026-11-01, not "${value}"`);
 }
 
-const COLUMNS = ["", "requests", "input", "cache write", "cache read", "output", "cache hit", "cost", "saved"];
-
 export function totalOf(rows: readonly ReportRow[]): ReportRow {
   return rows.reduce<ReportRow>(
     (sum, row) => ({
@@ -137,41 +130,6 @@ export function totalOf(rows: readonly ReportRow[]): ReportRow {
       saved: 0,
     },
   );
-}
-
-export function formatReport(rows: readonly ReportRow[]): string {
-  if (rows.length === 0) return "No requests in this period.";
-
-  const total = totalOf(rows);
-  const cells = (row: ReportRow) => [
-    row.key,
-    String(row.requests),
-    tokens(row.inputTokens),
-    tokens(row.cacheWriteTokens),
-    tokens(row.cacheReadTokens),
-    tokens(row.outputTokens),
-    `${Math.round(cacheHitRate(row) * 100)}%`,
-    `$${row.cost.toFixed(2)}`,
-    `$${row.saved.toFixed(2)}`,
-  ];
-  const table = [COLUMNS, ...rows.map(cells), cells(total)];
-  const widths = COLUMNS.map((_, column) => Math.max(...table.map((line) => (line[column] ?? "").length)));
-  const lines = table.map((line) =>
-    line
-      .map((cell, column) => (column === 0 ? cell.padEnd(widths[column] ?? 0) : cell.padStart(widths[column] ?? 0)))
-      .join("  "),
-  );
-  lines.splice(lines.length - 1, 0, "-".repeat(lines[0]?.length ?? 0));
-  if (total.unpriced > 0) {
-    lines.push("", `${total.unpriced} request(s) used a model with no price in prices.toml and count as $0.`);
-  }
-  return lines.join("\n");
-}
-
-function tokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  if (count >= 10_000) return `${Math.round(count / 1000)}k`;
-  return String(count);
 }
 
 const spentAndCached = (row: ReportRow) => `$${row.cost.toFixed(2)} spent, $${row.saved.toFixed(2)} cached`;

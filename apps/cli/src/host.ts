@@ -4,10 +4,9 @@ import type { GrenierPaths } from "@grenier/core/node";
 import { type StoreDeps, type TeamClient, TeamError, teamApi } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { fetchSkill, searchSkills } from "./catalog.ts";
-import { parseInvite } from "./commands/team.ts";
 import { autoInstall, install, rollback, type Shared, share, sharedList, uninstall } from "./installs.ts";
 import { deviceName, ensureBaseSpaces, ensurePersonalKey } from "./runtime.ts";
-import { newTeamToken, saveTeam } from "./team.ts";
+import { newTeamToken, parseInvite, saveTeam } from "./team.ts";
 
 export type Reply = { status: number; body: unknown } | null;
 export type Route = (method: string, path: string, body: unknown) => Promise<Reply>;

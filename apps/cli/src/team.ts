@@ -5,7 +5,7 @@ import type { Config } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import type { TeamClient } from "@grenier/index";
 
-/** Where `grenier team join` keeps the member token, readable by this user only. */
+/** Where joining or deploying a team keeps the member token, readable by this user only. */
 export function tokenFile(paths: GrenierPaths): string {
   return join(paths.home, "team-token");
 }
@@ -16,6 +16,15 @@ export function teamClient(config: Config, paths: GrenierPaths, env: NodeJS.Proc
   const fromEnv = env[config.team.token_env];
   const token = fromEnv || (existsSync(tokenFile(paths)) ? readFileSync(tokenFile(paths), "utf8").trim() : "");
   return token ? { url: config.team.url, token } : null;
+}
+
+/** An invite link, `grenier://join/<host>/<invite>/<secret>`: the team store's address, the invite and its secret. */
+export function parseInvite(link: string): { url: string; invite: string; secret: string } {
+  const match = /^grenier:\/\/join\/([\w.:-]+)\/([0-9a-f]+)\/([0-9a-f]+)\/?$/.exec(link.trim());
+  if (!match) throw new Error("an invite link looks like grenier://join/<host>/<invite>/<secret>");
+  const host = match[1] as string;
+  const local = /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host);
+  return { url: `${local ? "http" : "https"}://${host}`, invite: match[2] as string, secret: match[3] as string };
 }
 
 /** A member token as the team server makes them, and the SHA-256 it keeps instead. */

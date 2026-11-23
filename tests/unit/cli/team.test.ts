@@ -4,10 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inviteLink, parseInvite, team } from "../../../apps/cli/src/commands/team.ts";
+import { team } from "../../../apps/cli/src/commands/team.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
-import { saveTeam, withTomlValue } from "../../../apps/cli/src/team.ts";
-import { SETUP_TOKEN, startWorker } from "../../support/worker.ts";
+import { parseInvite, withTomlValue } from "../../../apps/cli/src/team.ts";
 
 let dir: string;
 let home: string;
@@ -26,8 +25,8 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function io(homeDir = home, err: string[] = []): Io {
-  return { env: { GRENIER_HOME: homeDir }, cwd: dir, out: () => {}, err: (line) => err.push(line), self: [] };
+function io(): Io {
+  return { env: { GRENIER_HOME: home }, cwd: dir, out: () => {}, err: () => {}, self: [] };
 }
 
 /** Answers like Wrangler, and records what it was asked. */
@@ -76,59 +75,15 @@ describe("grenier team deploy", () => {
 });
 
 describe("invite links", () => {
-  it("names the team store's host, the invite and its secret, and reads them back", () => {
-    const link = inviteLink("https://grenier-team.acme.workers.dev", "ab12", "cd34");
-    expect(link).toBe("grenier://join/grenier-team.acme.workers.dev/ab12/cd34");
-    expect(parseInvite(link)).toEqual({ url: "https://grenier-team.acme.workers.dev", invite: "ab12", secret: "cd34" });
+  it("name the team store's host, the invite and its secret", () => {
+    expect(parseInvite("grenier://join/grenier-team.acme.workers.dev/ab12/cd34")).toEqual({
+      url: "https://grenier-team.acme.workers.dev",
+      invite: "ab12",
+      secret: "cd34",
+    });
     expect(parseInvite("grenier://join/127.0.0.1:8787/ab/cd").url).toBe("http://127.0.0.1:8787");
     expect(() => parseInvite("https://example.com")).toThrow("grenier://join/");
   });
-});
-
-describe("joining a team", () => {
-  it("joins from a link once the admin confirms the code the new machine shows", async () => {
-    const worker = await startWorker();
-    try {
-      await worker.call("/api/setup", SETUP_TOKEN, { body: { member: "ada", device: "ada-mbp" } });
-      saveTeam(
-        { home, config: join(home, "config.toml"), db: join(home, "grenier.db") },
-        "https://team.test",
-        SETUP_TOKEN,
-      );
-      const adminIo = io();
-      const lines = await team(["invite", "bob"], adminIo, { fetch: worker.fetch });
-      const link = lines[1] as string;
-      expect(link).toMatch(/^grenier:\/\/join\/team\.test\//);
-
-      const bobHome = join(dir, ".bob");
-      mkdirSync(bobHome);
-      const bobErr: string[] = [];
-      let confirmed = false;
-      const joined = team(["join", link], io(bobHome, bobErr), {
-        fetch: worker.fetch,
-        sleep: async () => {
-          if (confirmed) return;
-          const code = /Your code: (\d{3}) (\d{3})/.exec(bobErr.join("\n"));
-          expect(code).not.toBeNull();
-          const pending = await team(["pending"], adminIo, { fetch: worker.fetch });
-          expect(pending[0]).toContain(`code ${code?.[1]}${code?.[2]}`);
-          await team(["confirm", `${code?.[1]} ${code?.[2]}`], adminIo, { fetch: worker.fetch });
-          confirmed = true;
-        },
-      });
-      expect((await joined)[0]).toMatch(/^Joined https:\/\/team\.test as bob \(member\)/);
-      expect(parse(readFileSync(join(bobHome, "config.toml"), "utf8"))).toMatchObject({
-        team: { url: "https://team.test" },
-      });
-      const members = await team(["members"], adminIo, { fetch: worker.fetch });
-      expect(members.map((line) => line.split(/\s+/)[0])).toEqual(["ada", "bob"]);
-      await expect(team(["role", "ada", "member"], adminIo, { fetch: worker.fetch })).rejects.toThrow(
-        "at least one admin",
-      );
-    } finally {
-      await worker.mf.dispose();
-    }
-  }, 60_000);
 });
 
 describe("withTomlValue", () => {

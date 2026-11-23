@@ -35,9 +35,7 @@ export async function resolveScopes(store: Store, scopes: readonly string[]): Pr
 export async function addClient(store: Store, name: string, scopes: string[]): Promise<string> {
   if (!/^[\w.@-]{1,64}$/.test(name)) throw new StoreUseError("a client name takes letters, digits and . _ @ -");
   if ((await store.clients.list()).some((client) => client.name === name)) {
-    throw new StoreUseError(
-      `there is already a client named ${name}; revoke it first (grenier clients revoke ${name})`,
-    );
+    throw new StoreUseError(`there is already a client named ${name}; revoke it first on the app's Clients screen`);
   }
   const kept = await resolveScopes(store, scopes);
   const { token, hash } = await newClientToken();

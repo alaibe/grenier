@@ -22,6 +22,7 @@ const claude = (() => {
 let dir: string;
 let repo: string;
 let upstream: Server;
+let port: number;
 const offered: string[][] = [];
 
 const env = () => ({
@@ -33,6 +34,24 @@ const env = () => ({
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   DISABLE_AUTOUPDATER: "1",
 });
+
+interface Run {
+  routineId: string;
+  status: string;
+  result: string | null;
+}
+
+/** The daemon's admin API, as the app's Routines screen calls it. */
+async function admin<T>(path: string, body?: unknown): Promise<T> {
+  const token = readFileSync(join(dir, ".grenier", "admin-token"), "utf8").trim();
+  const response = await fetch(`http://127.0.0.1:${port}/admin${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  expect(response.status, path).toBeLessThan(300);
+  return (await response.json()) as T;
+}
 
 async function grenier(...args: string[]) {
   try {
@@ -99,11 +118,12 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
       });
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    port = await freePort();
     await grenier("status");
     writeFileSync(
       join(dir, ".grenier", "config.toml"),
       [
-        `[proxy]\nport = ${await freePort()}\nupstream_anthropic = "http://127.0.0.1:${(upstream.address() as AddressInfo).port}"`,
+        `[proxy]\nport = ${port}\nupstream_anthropic = "http://127.0.0.1:${(upstream.address() as AddressInfo).port}"`,
         `[store]\nembeddings = "off"`,
         `[machine]\nroutines = true\nidle_minutes = 0\nplugged_in = false\ncpu_max = 1\nmemory_max = 1`,
       ].join("\n\n"),
@@ -122,12 +142,17 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
     const added = await grenier("routines", "add", join(dir, "tidy.md"), "--repo", repo, "--space", "me");
     const id = /\(([0-9a-f]+)\)/.exec(added.stdout)?.[1] as string;
     expect(id, added.stdout + added.stderr).toBeTruthy();
-    expect((await grenier("routines", "approve", id)).code).toBe(0);
+    await admin(`/routines/${id}/approve`, { mode: "read-only" });
 
     const started = Date.now();
-    const run = await grenier("routines", "run", id);
-    expect(run.stdout).toMatch(/^cut, \d+ actions/m);
-    expect(run.stdout).toContain("Cut off: it called Edit");
+    await admin(`/routines/${id}/run`, {});
+    let run: Run | undefined;
+    while (run === undefined || run.status === "running") {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      run = (await admin<{ runs: Run[] }>("/runs")).runs.find((entry) => entry.routineId === id);
+    }
+    expect(run.status).toBe("cut");
+    expect(run.result).toContain("Cut off: it called Edit");
     expect(Date.now() - started).toBeLessThan(60_000);
     expect(offered.length).toBeGreaterThan(0);
     for (const tools of offered) {

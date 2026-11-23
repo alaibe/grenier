@@ -13,6 +13,7 @@ const STREAM = readFileSync(new URL("../fixtures/anthropic/stream-tool-use.sse",
 
 let dir: string;
 let upstream: Server;
+let proxyPort: number;
 const received: { url: string; apiKey: string | undefined }[] = [];
 
 async function freePort(): Promise<number> {
@@ -50,7 +51,7 @@ beforeAll(async () => {
   });
   await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
   const upstreamPort = (upstream.address() as AddressInfo).port;
-  const proxyPort = await freePort();
+  proxyPort = await freePort();
 
   await grenier("status");
   writeFileSync(
@@ -87,7 +88,16 @@ describe("the daemon and grenier run", () => {
     expect(readFileSync(join(dir, "out.sse"))).toEqual(STREAM);
     expect(received.at(-1)).toEqual({ url: "/v1/messages?beta=true", apiKey: "sk-ant-e2e" });
 
-    const report = await grenier("report", "--by", "session");
-    expect(report.stdout).toMatch(new RegExp(`^${session}\\s+1\\s+12\\s+2048\\s+30k\\s+87\\s`, "m"));
+    const token = readFileSync(join(dir, ".grenier", "admin-token"), "utf8").trim();
+    const overview = (await (
+      await fetch(`http://127.0.0.1:${proxyPort}/admin/overview`, { headers: { authorization: `Bearer ${token}` } })
+    ).json()) as { sessions: { key: string }[] };
+    expect(overview.sessions.find((row) => row.key === session)).toMatchObject({
+      requests: 1,
+      inputTokens: 12,
+      cacheWriteTokens: 2048,
+      cacheReadTokens: 30_000,
+      outputTokens: 87,
+    });
   });
 });

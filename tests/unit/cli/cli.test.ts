@@ -61,7 +61,7 @@ describe("grenier --version and help", () => {
   });
 
   it("exits with 2 on an unknown command, option or argument", async () => {
-    for (const argv of [["frobnicate"], ["--frobnicate"], ["status", "extra"], ["report", "--by", "week"]]) {
+    for (const argv of [["frobnicate"], ["--frobnicate"], ["status", "extra"], ["audit", "--since", "soon"]]) {
       const result = await grenier(...argv);
       expect(result.code).toBe(2);
       expect(result.err).toMatch(/^grenier: /);
@@ -162,38 +162,6 @@ describe("an unknown config section", () => {
     const result = await grenier("status");
     expect(result.code).toBe(1);
     expect(result.err).toContain('Unrecognized key: "budgets"');
-  });
-});
-
-describe("grenier resume", () => {
-  it("lets a paused session continue and records it", async () => {
-    await grenier("status");
-    const store = db();
-    await store.sessions.create({ id: "s1", startedAt: 0, paused: true });
-    await store.close();
-
-    expect(await grenier("resume", "s1")).toEqual({ code: 0, out: "Session s1 resumed.", err: "" });
-    expect((await grenier("resume", "s1")).out).toBe("Session s1 is not paused.");
-
-    const after = db();
-    expect((await after.sessions.get("s1"))?.paused).toBe(false);
-    expect((await after.events.list({ kind: "resume" })).length).toBe(1);
-    await after.close();
-  });
-});
-
-describe("grenier report", () => {
-  it("shows the requests of the period", async () => {
-    await grenier("status");
-    const store = db();
-    await store.sessions.create({ id: "s1", startedAt: Date.now(), repoRoot: "/work/app", repoId: "r1" });
-    await store.usage.add({ sessionId: "s1", ts: Date.now(), model: "claude-opus-5-5", inputTokens: 10, cost: 0.5 });
-    await store.close();
-
-    const byRepo = await grenier("report", "--by", "repo");
-    expect(byRepo.code).toBe(0);
-    expect(byRepo.out).toMatch(/^app\s+1\s+10\s/m);
-    expect((await grenier("report", "--since", "2000-01-01")).out).toMatch(/^total\s+1/m);
   });
 });
 

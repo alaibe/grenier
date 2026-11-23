@@ -3,8 +3,7 @@ import { remember } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { formatEffectiveness } from "../../../apps/cli/src/commands/report.ts";
-import { computeOutcomes, effectiveness, LANDING_DAYS } from "../../../apps/cli/src/effectiveness.ts";
+import { computeOutcomes, effectiveness } from "../../../apps/cli/src/effectiveness.ts";
 import { storeDeps, TestRepo } from "../../support/repo.ts";
 
 const DAY = 86_400_000;
@@ -92,7 +91,7 @@ describe("what a session's spend became", () => {
     const result = await effectiveness(store, now - 30 * DAY, now);
     expect(result).toMatchObject({ spend: 2, sessions: 1, perIssue: [{ key: "LIN-42", cost: 2, sessions: 1 }] });
     expect(result.effective).toBeCloseTo(2 * (2 / 3));
-    expect(formatEffectiveness(result)).toContain("Landed share: 67%");
+    expect(result.landedShare).toBeCloseTo(2 / 3);
   });
 
   it("waits until a session's edits had time to land", async () => {
@@ -114,7 +113,6 @@ describe("what a session's spend became", () => {
     );
     expect(await computeOutcomes(store, now)).toBe(0);
     const result = await effectiveness(store, now - 30 * DAY, now);
-    expect(result.pending).toBe(1);
-    expect(formatEffectiveness(result)).toContain(`under ${LANDING_DAYS} days old`);
+    expect(result).toMatchObject({ sessions: 0, pending: 1 });
   });
 });

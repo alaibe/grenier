@@ -1,14 +1,12 @@
 import { version } from "../package.json";
 import { ask, promptHook } from "./commands/ask.ts";
+import { audit } from "./commands/audit.ts";
 import { doctor } from "./commands/doctor.ts";
 import { key } from "./commands/key.ts";
 import { install, serve } from "./commands/mcp.ts";
-import { audit, clients } from "./commands/personal.ts";
-import { report } from "./commands/report.ts";
-import { resume } from "./commands/resume.ts";
-import { machine, routines } from "./commands/routines.ts";
+import { routines } from "./commands/routines.ts";
 import { run as runAgent } from "./commands/run.ts";
-import { sharedCommand, shareServer } from "./commands/skills.ts";
+import { shareServer, shareSkill } from "./commands/skills.ts";
 import { status } from "./commands/status.ts";
 import { statusline } from "./commands/statusline.ts";
 import { storeCommand } from "./commands/store.ts";
@@ -23,14 +21,7 @@ Commands:
   doctor                     Check the daemon, the AI tools' configs, the hook and the team store
   start, stop                Start or stop the daemon (the proxy on 127.0.0.1)
   run -- <command>           Run an agent through the proxy as its own session
-  report [--by day|session|repo] [--since 7d] [--json]
-                             Tokens, cache hit rate, cost and savings
-  report --cache [--since 7d]
-                             Prompt-cache writes and reads by session, flagging churn
-  report --effectiveness [--since 30d]
-                             What the spend turned into: landed share, rediscovery, cost per issue
   statusline [--today]       One line for Claude Code's status line: what this session and today spent and cached
-  resume <session>           Let a session paused by the loop guard continue
   mcp install <claude-code|cursor|codex|claude-desktop> [--scope <spaces>] [--hook]
                              Add Grenier's MCP server to that client's config, with a client token;
                              --hook also passes Claude Code a recorded answer close to each prompt
@@ -38,42 +29,23 @@ Commands:
   mcp share <name>           Share one of your Claude Code MCP servers with the team, without its credentials
   ask [--repo <path>] [--json] <question>
                              What the store holds for a question
-  store [list] [--type <type>] [--space <space>] [--retired], store show <id>, store stats
-                             The records on this machine
-  store add <type> <title> [--body "…" | --body-file <path>] [--field name=value] [--space <space>]
-                             Write a record; store retire <id> retires one
   store clear [--repo <path>]
                              Remove a repository's records from this machine (the team store keeps them);
                              the current directory's by default
   team deploy [--name grenier-team] [--member <name>]
                              Put the team store in your Cloudflare account (after npx wrangler login), as its admin
-  team join <link>           Join a team from an invite link, then confirm the code with its admin
-  team invite <name> [--admin], team pending, team confirm <code>
-                             Invite someone (admins): a link, then the six-digit code their screen shows
-  team members, team role <name> admin|member, team remove <name>
-  team machines, team rename <name>
-                             The team's machines and their state; rename this one
+  team rename <name>         Rename this machine
   team spaces [add <name> [--members a,b]]
   team web                   A one-time link that signs a browser in to the web view
   team webhook <routine>     An address another tool can call to file requests for a routine (admins)
-  team status, team sync     The team connection; sync now (the daemon syncs on its own)
+  team sync                  Sync with the team store now (the daemon syncs on its own)
   key, key set <key>         Your personal key for the encrypted \`me\` space; put the same on your other machines
-  skills [list], skills share <folder>, skills install|remove|rollback <id>, skills auto on|off
-                             The team's skills, installed into Claude Code once approved;
-                             auto on installs and updates the ones an admin recommends
-  servers [list], servers install|remove|rollback <id>
-                             The team's MCP servers, installed into Claude Code once approved
-  routines [list], routines on|off, routines add <file.md> [--repo <path>] [--space <space>]
-  routines approve <id> [--mode read-only|shadow|limited|on] [--limit <actions a day>]
-  routines run <id> [--version <n>] [--task "…"], routines eval <id> [--version <n>], routines promote <id> <n>
+  skills share <folder>      Share a skill with the team; each teammate installs it once approved
+  routines add <file.md> [--repo <path>] [--space <space>]
   routines workflow <id> [--file <path>], routines librarian
-                             The team's routines, run on idle machines that opted in; workflow prints and approves
-                             the GitHub workflow that runs one on a Grenier runner; librarian adds the
-                             built-in routine that suggests fixes to the store each day
-  machine, machine set <rule> <value>
-                             This machine's state and the rules that keep routines from disturbing you
-  clients add <name> [--scope <spaces>], clients [list], clients revoke <name>
-                             Tokens for agents and apps that use the store over MCP
+                             Write a routine; workflow prints and approves the GitHub workflow that runs one
+                             on a Grenier runner; librarian adds the built-in routine that suggests fixes
+                             to the store each day
   audit [--client <name>] [--since 7d]
                              Every read a client made of the store
 
@@ -136,14 +108,8 @@ export async function run(argv: string[], io: Io): Promise<number> {
         return await runDaemon(io);
       case "run":
         return await runAgent(rest, io);
-      case "report":
-        io.out(await report(rest, io));
-        return 0;
       case "statusline":
         io.out(await statusline(rest, io));
-        return 0;
-      case "resume":
-        io.out(await resume(rest, io));
         return 0;
       case "mcp":
         if (rest[0] === "serve" && rest.length === 1) return await serve(io);
@@ -174,17 +140,8 @@ export async function run(argv: string[], io: Io): Promise<number> {
       case "routines":
         for (const line of await routines(rest, io)) io.out(line);
         return 0;
-      case "machine":
-        for (const line of await machine(rest, io)) io.out(line);
-        return 0;
       case "skills":
-        for (const line of await sharedCommand("Skill", rest, io)) io.out(line);
-        return 0;
-      case "servers":
-        for (const line of await sharedCommand("McpServer", rest, io)) io.out(line);
-        return 0;
-      case "clients":
-        for (const line of await clients(rest, io)) io.out(line);
+        for (const line of await shareSkill(rest, io)) io.out(line);
         return 0;
       case "audit":
         for (const line of await audit(rest, io)) io.out(line);

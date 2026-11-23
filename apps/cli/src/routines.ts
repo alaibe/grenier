@@ -136,7 +136,7 @@ export async function promote(
   if (current && current.version !== version) {
     const scored = scores(runs);
     const mine = scored.get(version);
-    if (mine === undefined) throw new CommandError(`run version ${version}'s evals first: grenier routines eval`);
+    if (mine === undefined) throw new CommandError(`run version ${version}'s evals first`);
     const theirs = scored.get(current.version) ?? 0;
     if (mine < theirs) {
       throw new CommandError(

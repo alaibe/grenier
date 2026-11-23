@@ -26,6 +26,5 @@ pnpm install && pnpm build && npm install --global ./apps/cli
 ```bash
 grenier mcp install claude-code     # recall and remember, for your agents
 grenier run -- claude               # an agent through the proxy
-grenier report                      # what it spent
 grenier team deploy                 # optional: the team store, in your Cloudflare account
 ```

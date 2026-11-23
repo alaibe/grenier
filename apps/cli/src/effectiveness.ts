@@ -5,7 +5,7 @@ import { lineHashes } from "@grenier/gateway";
 import type { Store } from "@grenier/store";
 
 /** Days a session's edits have to land on the default branch before they are counted. */
-export const LANDING_DAYS = 14;
+const LANDING_DAYS = 14;
 const DAY = 86_400_000;
 const ISSUE = /\b[A-Z][A-Z0-9]{1,9}-\d{1,6}\b|(?<![\w/])#\d{1,6}\b/g;
 

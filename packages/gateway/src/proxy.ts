@@ -24,7 +24,7 @@ export interface ProxyOptions {
   now?: () => number;
   notify?: (title: string, message: string) => void;
   log?: (line: string) => void;
-  /** How often a held request looks for `grenier resume`, in milliseconds. */
+  /** How often a held request looks for its session resumed, in milliseconds. */
   pollInterval?: number;
   /** When this process started: sessions older than it get their history marked as seen, not counted. */
   startedAt?: number;
@@ -139,7 +139,7 @@ export function createProxy(options: ProxyOptions) {
       if (config.guards.on_loop === "pause" && session.id !== UNTAGGED) {
         await store.sessions.setPaused(session.id, true);
         await store.events.add({ sessionId: session.id, ts: now(), kind: "pause", detail: JSON.stringify(detail) });
-        notify("Grenier paused a session", `${repeated}. Run: grenier resume ${session.id}`);
+        notify("Grenier paused a session", `${repeated}. Resume it from Grenier's Dashboard.`);
       } else {
         notify("Grenier: possible loop", `${repeated} (session ${session.id}).`);
       }
@@ -214,7 +214,7 @@ export function createProxy(options: ProxyOptions) {
       return errorResponse(
         429,
         "rate_limit_error",
-        `Grenier paused this session after a possible loop. To let it continue, run: grenier resume ${session.id}`,
+        `Grenier paused this session after a possible loop. To let it continue, resume it from Grenier's Dashboard.`,
       );
     }
 
