@@ -288,3 +288,73 @@ describe("cache_control injection", () => {
     expect(new TextDecoder().decode(upstream.requests[0]?.body)).toBe(JSON.stringify(marked));
   });
 });
+
+describe("a routine's run", () => {
+  function guarded(allowed: string[], available = { now: true }) {
+    const cut: string[] = [];
+    const upstream = fakeUpstream(() => sse(STREAM));
+    gateway = testGateway(upstream, () => {}, {
+      runGuard: async (session) =>
+        session.id === "run1"
+          ? {
+              allows: (tool) => allowed.includes(tool),
+              cut: (tool) => cut.push(tool),
+              hold: async () => available.now && cut.length === 0,
+            }
+          : null,
+    });
+    return { cut, upstream };
+  }
+
+  it("passes the stream through whole when every tool call is allowed", async () => {
+    guarded(["Read"]);
+    const response = await gateway.request("/s/run1/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+    expect(await bytes(response)).toEqual(STREAM);
+  });
+
+  it("cuts the answer off before a tool call it may not make, and refuses the run's next call", async () => {
+    const { cut, upstream } = guarded(["Grep"]);
+    const response = await gateway.request("/s/run1/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+    const text = new TextDecoder().decode(await bytes(response));
+    expect(text).not.toContain('"name":"Read"');
+    expect(text).toContain("message_start");
+    expect(text).toContain("Grenier cut this routine's run off: it may not call Read.");
+    expect(cut).toEqual(["Read"]);
+    const next = await gateway.request("/s/run1/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+    expect(next.status).toBe(529);
+    expect(upstream.requests).toHaveLength(1);
+  });
+
+  it("checks a whole answer's tool calls too", async () => {
+    const cut: string[] = [];
+    const message = { type: "message", content: [{ type: "tool_use", id: "t1", name: "Edit", input: {} }] };
+    gateway = testGateway(
+      fakeUpstream(() => Response.json(message)),
+      () => {},
+      {
+        runGuard: async () => ({
+          allows: (tool) => tool === "Read",
+          cut: (tool) => cut.push(tool),
+          hold: async () => true,
+        }),
+      },
+    );
+    const response = await gateway.request("/s/run1/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+    expect(response.status).toBe(403);
+    expect(cut).toEqual(["Edit"]);
+  });
+
+  it("holds nothing back for a session that is not a run", async () => {
+    guarded([]);
+    const response = await gateway.request("/s/other/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+    expect(await bytes(response)).toEqual(STREAM);
+  });
+
+  it("stops the run when its machine is no longer available", async () => {
+    const state = { now: false };
+    const { upstream } = guarded(["Read"], state);
+    const response = await gateway.request("/s/run1/v1/messages", messagesRequest({ model: "claude-opus-5-5" }));
+    expect(response.status).toBe(529);
+    expect(upstream.requests).toHaveLength(0);
+  });
+});

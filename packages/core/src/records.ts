@@ -1,0 +1,264 @@
+import { MAX_SHARED_TEXT, sha256, unshareable } from "./policy.ts";
+
+/** A field of a record type, and the rule its value follows. */
+export interface FieldDef {
+  name: string;
+  kind: "text" | "number" | "date" | "person" | "record" | "select" | "list" | "json";
+  required?: boolean;
+  /** For a select: the values it takes. */
+  options?: readonly string[];
+  /** For a record field: the type the linked record has. */
+  type?: string;
+}
+
+export interface TypeDef {
+  name: string;
+  /** What it is for, as the editor and agents read it. */
+  description: string;
+  fields: readonly FieldDef[];
+  /** A Markdown body is part of it: a doc, a meeting's transcript, a memory's text. */
+  body: boolean;
+  /** At most this many characters of body. */
+  maxBody: number;
+  /** The body may quote at most a short snippet of code, as a memory about code may. */
+  limitCode?: boolean;
+}
+
+export const MEMORY_KINDS = ["answer", "summary", "convention", "fact"] as const;
+export const TASK_STATUSES = ["to-do", "doing", "done"] as const;
+export const ROUTINE_MODES = ["read-only", "shadow", "limited", "on"] as const;
+export const VERSION_STATUSES = ["testing", "production", "retired"] as const;
+
+const LONG = 200_000;
+
+/** The types every team has. Admins add more as records of type Type. */
+export const BUILTIN_TYPES: readonly TypeDef[] = [
+  {
+    name: "Project",
+    description: "A piece of work with an owner, linking its repos, tasks, meetings, decisions and docs.",
+    fields: [
+      { name: "owner", kind: "person" },
+      { name: "status", kind: "select", options: ["planned", "active", "done"] },
+      { name: "repos", kind: "list" },
+    ],
+    body: true,
+    maxBody: LONG,
+  },
+  {
+    name: "Task",
+    description: "Something to do. A task that names a routine is a request: an idle machine runs it.",
+    fields: [
+      { name: "status", kind: "select", options: TASK_STATUSES, required: true },
+      { name: "owner", kind: "person" },
+      { name: "routine", kind: "record", type: "Routine" },
+      { name: "version", kind: "number" },
+      { name: "result", kind: "text" },
+      { name: "machine", kind: "text" },
+    ],
+    body: true,
+    maxBody: LONG,
+  },
+  {
+    name: "Meeting",
+    description: "A meeting and its transcript or notes, linked to its project and the people in it.",
+    fields: [
+      { name: "date", kind: "date", required: true },
+      { name: "people", kind: "list" },
+    ],
+    body: true,
+    maxBody: LONG,
+  },
+  {
+    name: "Decision",
+    description: "A decision, who owns it, when and why.",
+    fields: [
+      { name: "owner", kind: "person", required: true },
+      { name: "date", kind: "date", required: true },
+      { name: "reason", kind: "text", required: true },
+    ],
+    body: true,
+    maxBody: LONG,
+  },
+  {
+    name: "Doc",
+    description: "A document: a spec, a guide, a plan, how to set up and run a repo.",
+    fields: [],
+    body: true,
+    maxBody: LONG,
+  },
+  {
+    name: "Person",
+    description: "Someone the team works with: a teammate, a customer, a contact.",
+    fields: [
+      { name: "email", kind: "text" },
+      { name: "role", kind: "text" },
+      { name: "manager", kind: "person" },
+    ],
+    body: true,
+    maxBody: 20_000,
+  },
+  {
+    name: "Memory",
+    description:
+      "One thing worth knowing: an answer about code, a summary of a file, a convention, a fact. Short, with what it came from.",
+    fields: [
+      { name: "kind", kind: "select", options: MEMORY_KINDS, required: true },
+      { name: "path", kind: "text" },
+    ],
+    body: true,
+    maxBody: MAX_SHARED_TEXT,
+    limitCode: true,
+  },
+  {
+    name: "Skill",
+    description: "A skill for the team's agents: SKILL.md and its files, installed on the machines that approve it.",
+    fields: [
+      { name: "files", kind: "json", required: true },
+      { name: "recommended", kind: "select", options: ["yes", "no"] },
+    ],
+    body: false,
+    maxBody: 0,
+  },
+  {
+    name: "McpServer",
+    description: "An MCP server's configuration (command or URL, pinned version), never its credentials.",
+    fields: [
+      { name: "config", kind: "json", required: true },
+      { name: "credentials", kind: "list" },
+      { name: "recommended", kind: "select", options: ["yes", "no"] },
+    ],
+    body: true,
+    maxBody: 20_000,
+  },
+  {
+    name: "Routine",
+    description: "The team's factory for one kind of task: versioned prompts, a repo, allowed tools, evals.",
+    fields: [
+      { name: "versions", kind: "json", required: true },
+      { name: "repo", kind: "text" },
+      { name: "tools", kind: "list" },
+      { name: "evals", kind: "json" },
+      { name: "trigger", kind: "select", options: ["request", "github", "schedule"], required: true },
+      { name: "schedule", kind: "text" },
+      { name: "collector", kind: "select", options: ["yes", "no"] },
+      { name: "owner", kind: "person" },
+      { name: "agent", kind: "select", options: ["claude", "codex"] },
+    ],
+    body: true,
+    maxBody: 20_000,
+  },
+  {
+    name: "Suggestion",
+    description: "An edit the librarian suggests to another record. A person accepts or dismisses it.",
+    fields: [
+      { name: "target", kind: "record", required: true },
+      { name: "change", kind: "json", required: true },
+      { name: "reason", kind: "text", required: true },
+    ],
+    body: false,
+    maxBody: 0,
+  },
+  {
+    name: "Type",
+    description: "A record type an admin added, with its fields.",
+    fields: [{ name: "fields", kind: "json", required: true }],
+    body: true,
+    maxBody: 20_000,
+  },
+];
+
+export function builtinType(name: string): TypeDef | undefined {
+  return BUILTIN_TYPES.find((type) => type.name === name);
+}
+
+/** A type an admin defined, from its record of type Type. */
+export function customType(record: { title: string; body: string; fields: Record<string, unknown> }): TypeDef {
+  const fields = Array.isArray(record.fields.fields) ? (record.fields.fields as FieldDef[]) : [];
+  return { name: record.title, description: record.body, fields, body: true, maxBody: LONG };
+}
+
+/** Text that looks like a key, a token or a private key, which no record may hold. */
+const SECRETS: readonly RegExp[] = [
+  /\bsk-ant-[A-Za-z0-9_-]{20,}/,
+  /\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}/,
+  /\bgh[pousr]_[A-Za-z0-9]{30,}/,
+  /\bgithub_pat_[A-Za-z0-9_]{40,}/,
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bg[ctd]_[A-Za-z0-9_-]{40,}/,
+  /\blin_api_[A-Za-z0-9]{30,}/,
+  /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/,
+];
+
+/** What in the text looks like a secret, or null. */
+export function secretIn(text: string): string | null {
+  for (const pattern of SECRETS) if (pattern.test(text)) return "it holds what looks like a key or a token";
+  return null;
+}
+
+export interface RecordShape {
+  type: string;
+  kind?: string | null;
+  title: string;
+  body: string;
+  fields: Record<string, unknown>;
+}
+
+/** Why a record does not follow its type's rules, or null. Every write is checked. */
+export function recordProblem(record: RecordShape, type: TypeDef | undefined): string | null {
+  if (!type) return `there is no type ${record.type}`;
+  const title = record.title.trim();
+  if (title === "") return "a record needs a title";
+  if (title.length > 300) return "a title holds at most 300 characters";
+  if (!type.body && record.body.trim() !== "") return `a ${type.name} has no body`;
+  if (record.body.length > type.maxBody) return `a ${type.name}'s body holds at most ${type.maxBody} characters`;
+  const secret = secretIn(`${title}\n${record.body}\n${JSON.stringify(record.fields)}`);
+  if (secret) return secret;
+  if (type.limitCode && record.body.trim() !== "") {
+    const problem = unshareable(record.body);
+    if (problem) return problem;
+  }
+  for (const field of type.fields) {
+    const value = record.fields[field.name];
+    const empty = value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
+    if (empty) {
+      if (field.required) return `a ${type.name} needs ${field.name}`;
+      continue;
+    }
+    if (field.kind === "select" && field.options && !field.options.includes(String(value))) {
+      return `${field.name} takes ${field.options.join(", ")}, not ${String(value)}`;
+    }
+    if (field.kind === "number" && typeof value !== "number") return `${field.name} takes a number`;
+    if (field.kind === "date" && (typeof value !== "string" || Number.isNaN(Date.parse(value)))) {
+      return `${field.name} takes a date, as 2026-11-22`;
+    }
+    if (field.kind === "list" && !Array.isArray(value)) return `${field.name} takes a list`;
+  }
+  if (type.name === "Memory" && record.kind !== record.fields.kind) return "a memory's kind is its kind field";
+  return null;
+}
+
+/** A routine's prompt version. */
+export interface RoutineVersion {
+  version: number;
+  prompt: string;
+  status: (typeof VERSION_STATUSES)[number];
+}
+
+/** A test task of a routine's eval set, and how its result is judged. */
+export interface EvalCase {
+  input: string;
+  /** For a code judge: text the result must contain. For a model judge: what a good result does. */
+  expect: string;
+  judge: "code" | "model" | "person";
+}
+
+export function repoSpace(repoId: string): string {
+  return `repo:${repoId}`;
+}
+
+/** The six digits both screens show while a device joins: from the hash of the invite's secret and the device's nonce. */
+export async function joinCode(secretHash: string, nonce: string): Promise<string> {
+  const digest = await sha256(`${secretHash}:${nonce}`);
+  return String(Number.parseInt(digest.slice(0, 12), 16) % 1_000_000).padStart(6, "0");
+}

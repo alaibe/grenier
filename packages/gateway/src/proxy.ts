@@ -1,15 +1,5 @@
-import {
-  type BudgetLimit,
-  budgetMessage,
-  type Config,
-  effectiveLimits,
-  firstBreach,
-  limitsNear,
-  unpricedMessage,
-  WARN_AT,
-  warningMessage,
-} from "@grenier/core";
-import { costOf, type Prices, priceOf, projectOf, startOfToday } from "@grenier/log";
+import type { Config } from "@grenier/core";
+import { costOf, type Prices, priceOf } from "@grenier/log";
 import type { Session, Store } from "@grenier/store";
 import { LoopWatch, type ToolCall, type ToolUse } from "./loops.ts";
 import { OpenAIUsageReader } from "./openai.ts";
@@ -39,20 +29,61 @@ export interface ProxyOptions {
   pollInterval?: number;
   /** When this process started: sessions older than it get their history marked as seen, not counted. */
   startedAt?: number;
-  /** Today's team and member limits and spend, from the team server; null when there is no team. */
-  teamBudget?: () => Promise<{
-    team: { limit: number | null; spent: number };
-    member: { limit: number | null; spent: number };
-  } | null>;
+  /** For a session that is a routine's run: what it may call, and the wait while the machine's person is back. */
+  runGuard?: (session: Session) => Promise<RunGuard | null>;
 }
 
-const TEAM_BUDGET_TTL = 15_000;
+/** What the proxy enforces on a routine's run, whatever the agent was told. */
+export interface RunGuard {
+  /** Whether a tool call may go through; a refused one cuts the answer off before it and ends the run. */
+  allows(tool: string): boolean;
+  /** Called once a tool call was cut off. */
+  cut(tool: string): void;
+  /** True once the run may make its next model call; false when it must stop. */
+  hold(signal: AbortSignal): Promise<boolean>;
+}
 
-/** What a request let through is expected to cost, held against the limits until its usage row is written. */
-interface Reservation {
-  sessionId: string;
-  project: string | null;
-  amount: number;
+/**
+ * Passes an Anthropic event stream through whole events at a time, until one starts a tool call the guard refuses:
+ * that event and everything after it are replaced by an error event, and the upstream is cancelled.
+ */
+function guardedEvents(guard: RunGuard) {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let pending = "";
+  return (chunk: Uint8Array | null): { out: Uint8Array | null; stop: boolean } => {
+    pending += chunk ? decoder.decode(chunk, { stream: true }) : decoder.decode();
+    const end = chunk ? pending.lastIndexOf("\n\n") : pending.length;
+    if (end < 0) return { out: null, stop: false };
+    const complete = pending.slice(0, chunk ? end + 2 : end);
+    pending = pending.slice(complete.length);
+    let passed = "";
+    for (const event of complete.split(/(?<=\n\n)/)) {
+      const data = /^data: (.*)$/m.exec(event)?.[1];
+      let tool: string | null = null;
+      if (data?.includes('"tool_use"')) {
+        try {
+          const parsed = JSON.parse(data) as { type?: string; content_block?: { type?: string; name?: string } };
+          if (parsed.type === "content_block_start" && parsed.content_block?.type === "tool_use") {
+            tool = parsed.content_block.name ?? "";
+          }
+        } catch {
+          // Not JSON: passed through like any other line.
+        }
+      }
+      if (tool !== null && !guard.allows(tool)) {
+        guard.cut(tool);
+        const error = {
+          type: "error",
+          error: { type: "permission_error", message: `Grenier cut this routine's run off: it may not call ${tool}.` },
+        };
+        passed += `event: error\ndata: ${JSON.stringify(error)}\n\n`;
+        return { out: encoder.encode(passed), stop: true };
+      }
+      passed += event;
+    }
+    return { out: passed ? encoder.encode(passed) : null, stop: false };
+  };
 }
 
 // Hop-by-hop headers (RFC 9110 §7.6.1) and the ones fetch sets itself.
@@ -147,46 +178,7 @@ export function createProxy(options: ProxyOptions) {
     return true;
   }
 
-  const reservations = new Set<Reservation>();
-  const warned = new Set<string>();
   const unpricedSeen = new Set<string>();
-  // Budget checks and usage writes run one at a time, so requests in flight are always counted.
-  let queue: Promise<unknown> = Promise.resolve();
-  function serial<T>(task: () => Promise<T>): Promise<T> {
-    const run = queue.then(task, task);
-    queue = run.catch(() => undefined);
-    return run;
-  }
-
-  function reserved(limit: BudgetLimit, session: Session, project: string | null): number {
-    let total = 0;
-    for (const reservation of reservations) {
-      if (
-        limit.scope === "daily" ||
-        (limit.scope === "session" && reservation.sessionId === session.id) ||
-        (limit.scope === "repo" && reservation.project === project)
-      ) {
-        total += reservation.amount;
-      }
-    }
-    return total;
-  }
-
-  async function warnNear(session: Session, limits: readonly BudgetLimit[], spent: (limit: BudgetLimit) => number) {
-    const day = startOfToday(now());
-    for (const near of limitsNear(limits, spent, WARN_AT)) {
-      const key = `${near.scope}:${near.scope === "session" ? session.id : near.key}:${day}`;
-      if (warned.has(key)) continue;
-      warned.add(key);
-      await store.events.add({
-        sessionId: session.id,
-        ts: now(),
-        kind: "budget_warning",
-        detail: JSON.stringify(near),
-      });
-      notify("Grenier: 80% of a budget", warningMessage(near));
-    }
-  }
 
   /** Says once, ever, that a model has no price, so its requests count as $0. */
   async function sawUnpriced(session: Session, model: string) {
@@ -196,71 +188,6 @@ export function createProxy(options: ProxyOptions) {
     if (earlier.some((event) => event.detail === JSON.stringify({ model }))) return;
     await store.events.add({ sessionId: session.id, ts: now(), kind: "unpriced", detail: JSON.stringify({ model }) });
     notify("Grenier: a model with no price", `${model} has no price in prices.toml: its requests count as $0.`);
-  }
-
-  type Admission = { refused: Response; reservation?: undefined } | { refused?: undefined; reservation: Reservation };
-
-  /**
-   * Lets a request through with a reservation of what it is expected to cost (the session's last request that cost
-   * something), or refuses it: a limit is reached, the request would pass one, or its model has no price.
-   */
-  function admit(session: Session, model: string | null, next: number): Promise<Admission> {
-    return serial(async () => {
-      const project = projectOf(session);
-      const limits = effectiveLimits(config.budgets, await store.budgets.list(), project);
-      const today = startOfToday(now());
-      const stored = new Map<string, number>();
-      for (const limit of limits) {
-        if (limit.scope === "daily") stored.set("daily", await store.usage.spend({ since: today }));
-        if (limit.scope === "session") stored.set("session", await store.usage.spend({ sessionId: session.id }));
-        if (limit.scope === "repo") {
-          const folders = (await store.usage.spendByFolder(today)).filter((folder) => projectOf(folder) === project);
-          stored.set(
-            "repo",
-            folders.reduce((total, folder) => total + folder.spent, 0),
-          );
-        }
-      }
-      const spent = (limit: BudgetLimit) => (stored.get(limit.scope) ?? 0) + reserved(limit, session, project);
-      const breach = firstBreach(limits, spent, next);
-      if (breach) return { refused: await refuse(session, breach, budgetMessage(breach)) };
-      const unpriced = model !== null && priceOf(model, prices) === null;
-      const first = limits[0] ?? teamLimits(teamStatus?.value)[0];
-      if (unpriced && first && config.budgets.unpriced === "block") {
-        return { refused: await refuse(session, { ...first, model, unpriced: true }, unpricedMessage(model, first)) };
-      }
-      if (unpriced) await sawUnpriced(session, model);
-      await warnNear(session, limits, spent);
-      const reservation = { sessionId: session.id, project, amount: next };
-      reservations.add(reservation);
-      return { reservation };
-    });
-  }
-
-  async function refuse(session: Session, detail: unknown, message: string): Promise<Response> {
-    await store.events.add({ sessionId: session.id, ts: now(), kind: "budget", detail: JSON.stringify(detail) });
-    return errorResponse(429, "rate_limit_error", message);
-  }
-
-  type TeamStatus = Awaited<ReturnType<NonNullable<ProxyOptions["teamBudget"]>>>;
-  function teamLimits(status: TeamStatus | undefined): BudgetLimit[] {
-    const limits: BudgetLimit[] = [];
-    if (status?.team.limit != null) limits.push({ scope: "team", key: "", limit: status.team.limit });
-    if (status?.member.limit != null) limits.push({ scope: "member", key: "", limit: status.member.limit });
-    return limits;
-  }
-
-  let teamStatus: { at: number; value: TeamStatus } | undefined;
-  async function teamBreach(next: number) {
-    if (!options.teamBudget) return null;
-    if (!teamStatus || now() - teamStatus.at > TEAM_BUDGET_TTL) {
-      // A team server that cannot be reached does not stop anyone's work: the request goes through.
-      teamStatus = { at: now(), value: await options.teamBudget().catch(() => null) };
-    }
-    const status = teamStatus.value;
-    if (!status) return null;
-    const spent = (limit: BudgetLimit) => (limit.scope === "team" ? status.team.spent : status.member.spent);
-    return firstBreach(teamLimits(status), spent, next);
   }
 
   return async function proxy(
@@ -300,19 +227,19 @@ export function createProxy(options: ProxyOptions) {
       );
     }
 
-    const requestedModel = typeof parsed?.model === "string" ? parsed.model : null;
-    let reservation: Reservation | undefined;
-    if (inference) {
-      const next = (await store.usage.lastCost(session.id)) ?? 0;
-      const team = await teamBreach(next);
-      if (team) return refuse(session, team, budgetMessage(team));
-      const admission = await admit(session, requestedModel, next);
-      if (admission.refused) return admission.refused;
-      reservation = admission.reservation;
+    const guard = (await options.runGuard?.(session)) ?? null;
+    if (guard && !(await guard.hold(request.signal))) {
+      return errorResponse(
+        529,
+        "overloaded_error",
+        "Grenier stopped this routine's run: the machine is no longer available, or the run was cut off. Its task goes back to the team.",
+      );
     }
-    const release = () => {
-      if (reservation) reservations.delete(reservation);
-    };
+
+    const requestedModel = typeof parsed?.model === "string" ? parsed.model : null;
+    if (inference && requestedModel !== null && priceOf(requestedModel, prices) === null) {
+      await sawUnpriced(session, requestedModel);
+    }
 
     // The body changes only behind an opt-in flag, and every change is logged.
     if (
@@ -353,7 +280,6 @@ export function createProxy(options: ProxyOptions) {
         redirect: "manual",
       });
     } catch (error) {
-      release();
       return errorResponse(502, "api_error", `Grenier could not reach ${target.host}: ${(error as Error).message}`);
     }
 
@@ -362,7 +288,6 @@ export function createProxy(options: ProxyOptions) {
       if (!DROPPED_RESPONSE_HEADERS.has(name.toLowerCase())) responseHeaders.append(name, value);
     }
     if (!inference || !response.body) {
-      release();
       return new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
@@ -377,7 +302,7 @@ export function createProxy(options: ProxyOptions) {
     const record = () => {
       if (recorded) return Promise.resolve();
       recorded = true;
-      return serial(async () => {
+      return (async () => {
         try {
           const usage = reader.result();
           const model = usage.model ?? requestedModel;
@@ -394,14 +319,45 @@ export function createProxy(options: ProxyOptions) {
           });
         } catch (error) {
           log(`grenier: could not record the usage of session ${session.id}: ${(error as Error).message}`);
-        } finally {
-          release();
         }
-      });
+      })();
     };
     request.signal.addEventListener("abort", () => void record(), { once: true });
 
+    // A whole answer, not a stream: its tool calls are checked before any of it goes back.
+    if (guard && provider === "anthropic" && !(contentType ?? "").includes("text/event-stream")) {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      reader.push(bytes);
+      await record();
+      let blocks: { type?: string; name?: string }[] = [];
+      try {
+        blocks =
+          (JSON.parse(new TextDecoder().decode(bytes)) as { content?: { type?: string; name?: string }[] }).content ??
+          [];
+      } catch {
+        // Not a message: passed back as it came.
+      }
+      for (const block of blocks) {
+        if (block.type !== "tool_use" || guard.allows(block.name ?? "")) continue;
+        guard.cut(block.name ?? "");
+        return errorResponse(
+          403,
+          "permission_error",
+          `Grenier cut this routine's run off: it may not call ${block.name}.`,
+        );
+      }
+      return new Response(bytes, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      });
+    }
+
     const source = response.body.getReader();
+    const filter =
+      guard && provider === "anthropic" && (contentType ?? "").includes("text/event-stream")
+        ? guardedEvents(guard)
+        : null;
     const tapped = new ReadableStream<Uint8Array>({
       async pull(controller) {
         let chunk: Awaited<ReturnType<typeof source.read>>;
@@ -413,12 +369,24 @@ export function createProxy(options: ProxyOptions) {
           return;
         }
         if (chunk.done) {
+          const rest = filter?.(null);
+          if (rest?.out) controller.enqueue(rest.out);
           await record();
           controller.close();
           return;
         }
         reader.push(chunk.value);
-        controller.enqueue(chunk.value);
+        if (!filter) {
+          controller.enqueue(chunk.value);
+          return;
+        }
+        const { out, stop } = filter(chunk.value);
+        if (out) controller.enqueue(out);
+        if (stop) {
+          await record();
+          controller.close();
+          await source.cancel().catch(() => undefined);
+        }
       },
       async cancel(reason) {
         await record();

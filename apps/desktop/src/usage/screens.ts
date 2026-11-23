@@ -4,13 +4,15 @@
  */
 export const SCREENS = {
   dashboard: { url: "/dashboard", title: "Dashboard" },
+  store: { url: "/store", title: "Store" },
+  requests: { url: "/requests", title: "Requests" },
+  team: { url: "/team", title: "Team" },
+  routines: { url: "/routines", title: "Routines" },
+  skills: { url: "/skills", title: "Skills and servers" },
+  machine: { url: "/machine", title: "This machine" },
   traces: { url: "/traces", title: "Traces" },
-  cache: { url: "/cache", title: "Exploration cache" },
-  budgets: { url: "/budgets", title: "Budgets" },
-  sources: { url: "/sources", title: "Sources" },
-  clients: { url: "/clients", title: "Clients and scopes" },
+  clients: { url: "/clients", title: "Clients and spaces" },
   audit: { url: "/audit", title: "Audit log" },
-  review: { url: "/review", title: "Review queue" },
   settings: { url: "/settings", title: "Settings" },
 } as const satisfies Record<string, { url: string; title: string }>;
 

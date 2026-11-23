@@ -119,16 +119,18 @@ describe("the benchmark", () => {
     ]);
   }, 120_000);
 
-  it("stops at its budget, and leaves a question whose runs did not both finish out of the table", async () => {
-    // $0.081 a cold run and $0.009 a warm one: the third run passes at $0.09 spent, the fourth meets the limit.
-    const results = await bench("work-capped", 0.1);
+  it("asks no further question once its cap is reached, and leaves a run that did not finish out of the table", async () => {
+    // A question costs $0.081 cold and $0.009 warm: the first pair passes a $0.05 cap, so the second is not asked.
+    const results = await bench("work-capped", 0.05);
 
-    expect(results.map((result) => [result.question, result.complete])).toEqual([
-      ["Where is app defined?", true],
-      ["What does app export?", false],
-    ]);
-    const table = formatResults(results, { date: "2026-11-16", agent: "test agent", budget: 0.1 });
-    expect(table).toContain("The run was capped at $0.1.");
+    expect(results.map((result) => [result.question, result.complete])).toEqual([["Where is app defined?", true]]);
+    const first = results[0] as (typeof results)[number];
+    const table = formatResults([first, { ...first, question: "What does app export?", complete: false }], {
+      date: "2026-11-16",
+      agent: "test agent",
+      budget: 0.05,
+    });
+    expect(table).toContain("The run was capped at $0.05.");
     expect(table).toMatch(/\| \*\*Total\*\* \| {2}\| 20,050 \| \$0\.0810 \| 2,050 \| \$0\.0090 \| 89% \|/);
     expect(table).toContain("Not counted, because a run stopped before the end");
     expect(table).toContain("- app: What does app export?");

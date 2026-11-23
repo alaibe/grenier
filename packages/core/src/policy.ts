@@ -1,5 +1,3 @@
-import type { Config } from "./config.ts";
-
 /** JSON with object keys sorted at every level, so equal values give equal text. */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortKeys(value));
@@ -48,111 +46,10 @@ export class LoopDetector {
   }
 }
 
-export interface BudgetLimit {
-  /** daily, session and repo limits are this machine's; team and member limits are the team server's, per UTC day. */
-  scope: "daily" | "session" | "repo" | "team" | "member";
-  /** The project's folder name for a repo limit, "" otherwise. */
-  key: string;
-  limit: number;
-}
-
-/** Limits set with `grenier budget set` win over the config file's. */
-export function effectiveLimits(
-  configured: Pick<Config["budgets"], "daily" | "session">,
-  stored: readonly { scope: string; key: string; limitAmount: number }[],
-  project: string | null,
-): BudgetLimit[] {
-  const find = (scope: string, key: string) =>
-    stored.find((budget) => budget.scope === scope && budget.key === key)?.limitAmount;
-
-  const limits: BudgetLimit[] = [];
-  const daily = find("daily", "") ?? configured.daily;
-  if (daily !== undefined) limits.push({ scope: "daily", key: "", limit: daily });
-  const session = find("session", "") ?? configured.session;
-  if (session !== undefined) limits.push({ scope: "session", key: "", limit: session });
-  const repo = project === null ? undefined : find("repo", project);
-  if (repo !== undefined && project !== null) limits.push({ scope: "repo", key: project, limit: repo });
-  return limits;
-}
-
-export interface BudgetBreach extends BudgetLimit {
-  spent: number;
-  /** What the request was expected to cost, when that, not what was spent, would pass the limit. */
-  next?: number;
-}
-
-/**
- * The first limit that `spent` has reached, or that the next request, expected to cost `next`, would pass; null when
- * there is none. A limit is reached once spending equals it.
- */
-export function firstBreach(
-  limits: readonly BudgetLimit[],
-  spent: (limit: BudgetLimit) => number,
-  next = 0,
-): BudgetBreach | null {
-  for (const limit of limits) {
-    const amount = spent(limit);
-    if (amount >= limit.limit) return { ...limit, spent: amount };
-    if (next > 0 && amount + next > limit.limit) return { ...limit, spent: amount, next };
-  }
-  return null;
-}
-
 /** Dollars with cents, or with the two digits that matter below ten cents: $1.25, $0.004, $0.0049. */
 export function money(amount: number): string {
   if (amount === 0 || Math.abs(amount) >= 0.1) return `$${amount.toFixed(2)}`;
   return `$${Number(amount.toPrecision(2))}`;
-}
-
-function limitName(limit: BudgetLimit): string {
-  return {
-    daily: `the daily budget of ${money(limit.limit)}`,
-    session: `this session's budget of ${money(limit.limit)}`,
-    repo: `the daily budget of ${money(limit.limit)} for ${limit.key}`,
-    team: `the team's daily budget of ${money(limit.limit)}`,
-    member: `your daily budget of ${money(limit.limit)} in the team`,
-  }[limit.scope];
-}
-
-/** The message an agent shows when a budget stops it: the limit, what was spent, and the command to change it. */
-export function budgetMessage(breach: BudgetBreach): string {
-  const what = limitName(breach);
-  const change = {
-    daily: "grenier budget set --daily <amount>",
-    session: "grenier budget set --session <amount>",
-    repo: `grenier budget set --repo ${breach.key}=<amount>`,
-    team: "grenier team budget --team <amount> (a team admin)",
-    member: "grenier team budget --member <amount> (a team admin)",
-  }[breach.scope];
-  const why =
-    breach.next === undefined
-      ? `${what} is reached (${money(breach.spent)} spent)`
-      : `${what} would be passed (${money(breach.spent)} spent, and this session's last request cost ${money(breach.next)})`;
-  return `Grenier stopped this request: ${why}. To change it, run: ${change}`;
-}
-
-/** Why a request to a model with no price is stopped while `limit` applies, and the two ways out. */
-export function unpricedMessage(model: string, limit: BudgetLimit): string {
-  return `Grenier stopped this request: ${model} has no price in prices.toml, so it would count as $0 against ${limitName(limit)}. Add its price under [prices."${model}"] in config.toml, or set budgets.unpriced = "allow" to let it through at $0.`;
-}
-
-/** The share of a limit past which Grenier warns that it is near. */
-export const WARN_AT = 0.8;
-
-/** The limits whose spending has reached `share` of them without reaching them. */
-export function limitsNear(
-  limits: readonly BudgetLimit[],
-  spent: (limit: BudgetLimit) => number,
-  share: number,
-): (BudgetLimit & { spent: number })[] {
-  return limits
-    .map((limit) => ({ ...limit, spent: spent(limit) }))
-    .filter((limit) => limit.spent >= limit.limit * share && limit.spent < limit.limit);
-}
-
-/** The notification for a limit that `limitsNear` returned. */
-export function warningMessage(near: BudgetLimit & { spent: number }): string {
-  return `${money(near.spent)} of ${limitName(near)} is spent.`;
 }
 
 export const MAX_SHARED_TEXT = 4000;

@@ -48,15 +48,21 @@ describe("openSqliteStore", () => {
 
     expect(tableNames()).toEqual(
       expect.arrayContaining([
-        "answer_sources",
-        "answers",
-        "answers_fts",
-        "budgets",
+        "anchors",
+        "approvals",
+        "audit",
         "clients",
         "events",
-        "file_summaries",
+        "history",
+        "links",
+        "outbox",
+        "records",
+        "records_fts",
+        "runs",
         "schema_migrations",
         "sessions",
+        "spaces",
+        "steps",
         "usage",
       ]),
     );
@@ -122,16 +128,16 @@ describe("the schema", () => {
     }
   }
 
-  function addAnswer(db: BetterSQLite3Database<typeof schema>, id: string, question: string): void {
-    db.insert(schema.answers)
-      .values({ id, repoId: "repo", question, answer: "an answer", createdAt: 0, author: "local" })
+  function addRecord(db: BetterSQLite3Database<typeof schema>, id: string, title: string): void {
+    db.insert(schema.records)
+      .values({ id, space: "team", type: "Memory", title, body: "a body", author: "ada", createdAt: 0, updatedAt: 0 })
       .run();
   }
 
   function search(db: BetterSQLite3Database<typeof schema>, query: string): string[] {
     return db
       .all<{ id: string }>(
-        sql`SELECT answers.id FROM answers_fts JOIN answers ON answers.seq = answers_fts.rowid WHERE answers_fts MATCH ${query}`,
+        sql`SELECT records.id FROM records_fts JOIN records ON records.seq = records_fts.rowid WHERE records_fts MATCH ${query}`,
       )
       .map((row) => row.id);
   }
@@ -165,44 +171,51 @@ describe("the schema", () => {
     });
   });
 
-  it("keeps the full-text index in step with the answers", async () => {
+  it("keeps the full-text index in step with the records", async () => {
     await openSqliteStore(file).close();
     withDb((db, sqlite) => {
-      addAnswer(db, "a1", "How does the proxy stream responses?");
-      addAnswer(db, "a2", "Where are budgets enforced?");
+      addRecord(db, "a1", "How does the proxy stream responses?");
+      addRecord(db, "a2", "Where are routines dispatched?");
       expect(search(db, "proxy")).toEqual(["a1"]);
 
-      db.update(schema.answers).set({ question: "How is the cache keyed?" }).where(eq(schema.answers.id, "a1")).run();
+      db.update(schema.records).set({ title: "How is the store keyed?" }).where(eq(schema.records.id, "a1")).run();
       expect(search(db, "proxy")).toEqual([]);
-      expect(search(db, "cache")).toEqual(["a1"]);
+      expect(search(db, "store")).toEqual(["a1"]);
 
-      db.update(schema.answers)
-        .set({ hits: sql`${schema.answers.hits} + 1` })
-        .where(eq(schema.answers.id, "a2"))
+      db.update(schema.records)
+        .set({ hits: sql`${schema.records.hits} + 1` })
+        .where(eq(schema.records.id, "a2"))
         .run();
-      expect(search(db, "budgets")).toEqual(["a2"]);
+      expect(search(db, "routines")).toEqual(["a2"]);
 
-      db.delete(schema.answers).where(eq(schema.answers.id, "a2")).run();
-      expect(search(db, "budgets")).toEqual([]);
-      expect(() => sqlite.exec("INSERT INTO answers_fts (answers_fts) VALUES ('integrity-check')")).not.toThrow();
+      db.delete(schema.records).where(eq(schema.records.id, "a2")).run();
+      expect(search(db, "routines")).toEqual([]);
+      expect(() => sqlite.exec("INSERT INTO records_fts (records_fts) VALUES ('integrity-check')")).not.toThrow();
     });
   });
 
-  it("removes an answer's sources with the answer", async () => {
+  it("removes a record's anchors and links with the record", async () => {
     await openSqliteStore(file).close();
     withDb((db) => {
-      addAnswer(db, "a1", "question");
-      db.insert(schema.answerSources).values({ answerId: "a1", path: "src/x.ts", blobHash: "abc" }).run();
-      db.delete(schema.answers).where(eq(schema.answers.id, "a1")).run();
-      expect(db.select().from(schema.answerSources).all()).toEqual([]);
+      addRecord(db, "a1", "question");
+      db.insert(schema.anchors)
+        .values({ recordId: "a1", kind: "git", repoId: "r", ref: "src/x.ts", version: "abc" })
+        .run();
+      db.insert(schema.links).values({ recordId: "a1", kind: "repo", ref: "r" }).run();
+      db.delete(schema.records).where(eq(schema.records.id, "a1")).run();
+      expect(db.select().from(schema.anchors).all()).toEqual([]);
+      expect(db.select().from(schema.links).all()).toEqual([]);
     });
   });
 
-  it("refuses a source for an answer that does not exist", async () => {
+  it("refuses an anchor for a record that does not exist", async () => {
     await openSqliteStore(file).close();
     withDb((db) => {
       expect(() =>
-        db.insert(schema.answerSources).values({ answerId: "nope", path: "src/x.ts", blobHash: "abc" }).run(),
+        db
+          .insert(schema.anchors)
+          .values({ recordId: "nope", kind: "git", repoId: "r", ref: "x", version: "abc" })
+          .run(),
       ).toThrow(/FOREIGN KEY constraint failed/);
     });
   });

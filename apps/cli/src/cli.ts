@@ -1,17 +1,18 @@
 import { version } from "../package.json";
 import { ask, promptHook } from "./commands/ask.ts";
-import { budget } from "./commands/budget.ts";
-import { cache } from "./commands/cache.ts";
 import { doctor } from "./commands/doctor.ts";
+import { key } from "./commands/key.ts";
 import { install, serve } from "./commands/mcp.ts";
-import { audit, clients, review, sources } from "./commands/personal.ts";
+import { audit, clients } from "./commands/personal.ts";
 import { report } from "./commands/report.ts";
 import { resume } from "./commands/resume.ts";
+import { machine, routines } from "./commands/routines.ts";
 import { run as runAgent } from "./commands/run.ts";
+import { sharedCommand, shareServer } from "./commands/skills.ts";
 import { status } from "./commands/status.ts";
 import { statusline } from "./commands/statusline.ts";
+import { storeCommand } from "./commands/store.ts";
 import { team } from "./commands/team.ts";
-import { vault } from "./commands/vault.ts";
 import { runDaemon, startDaemon, stopDaemon } from "./daemon.ts";
 import { type Io, isReported, UsageError } from "./io.ts";
 
@@ -21,52 +22,60 @@ const USAGE = `Usage: grenier <command>
 
 Commands:
   status                     Show the config, the database and whether the daemon runs
-  doctor                     Check the daemon, the AI tools' configs, the hook and the team server
+  doctor                     Check the daemon, the AI tools' configs, the hook and the team store
   start, stop                Start or stop the daemon (the proxy on 127.0.0.1)
   run -- <command>           Run an agent through the proxy as its own session
   report [--by day|session|repo] [--since 7d] [--json]
                              Tokens, cache hit rate, cost and savings
   report --cache [--since 7d]
                              Prompt-cache writes and reads by session, flagging churn
+  report --effectiveness [--since 30d]
+                             What the spend turned into: landed share, rediscovery, cost per issue
   statusline [--today]       One line for Claude Code's status line: what this session and today spent and cached
-  budget                     Show the spending limits
-  budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]
-                             Set limits in dollars ("off" removes one)
   resume <session>           Let a session paused by the loop guard continue
-  mcp install <claude-code|cursor|codex|claude-desktop> [--scope <sources or kinds>] [--hook]
+  mcp install <claude-code|cursor|codex|claude-desktop> [--scope <spaces>] [--hook]
                              Add Grenier's MCP server to that client's config, with a client token;
                              --hook also passes Claude Code a recorded answer close to each prompt
   mcp serve                  The MCP server over stdio (what the clients launch)
+  mcp share <name>           Share one of your Claude Code MCP servers with the team, without its credentials
   ask [--repo <path>] [--json] <question>
-                             What the exploration cache holds for a question
-  cache stats                Answers and summaries kept, by repository
-  cache forget <id>          Remove one answer, from the team's cache too when it was shared
-  cache clear [--repo <name>]
-                             Empty the cache, or one repository's part of it
-  team deploy [--name grenier-team] [--admin <name>]
-                             Deploy the team server to your Cloudflare account (after npx wrangler login,
-                             with R2 turned on)
-  team join <url> <token>    Connect this machine to a team server
-  team invite <name> [--admin]
-                             Create a teammate's token (admins)
-  team share [--repo <path>], team unshare [--repo <path>]
-                             Share a repository's answers and summaries with the team, or stop
+                             What the store holds for a question
+  store [list] [--type <type>] [--space <space>], store show <id>, store stats
+                             The records on this machine
+  store add <type> <title> [--body "…"] [--field name=value] [--space <space>]
+                             Write a record; store retire <id> retires one
+  store clear --repo <path>  Remove a repository's records from this machine (the team store keeps them)
+  team deploy [--name grenier-team] [--member <name>]
+                             Put the team store in your Cloudflare account (after npx wrangler login), as its admin
+  team join <link>           Join a team from an invite link, then confirm the code with its admin
+  team invite <name> [--admin], team pending, team confirm <code>
+                             Invite someone (admins): a link, then the six-digit code their screen shows
+  team members, team role <name> admin|member, team remove <name>
+  team machines, team rename <name>
+                             The team's machines and their state; rename this one
+  team spaces [add <name> [--members a,b]]
+  team web                   A one-time link that signs a browser in to the web view
+  team webhook <routine>     An address another tool can call to file requests for a routine (admins)
   team status, team sync     The team connection; sync now (the daemon syncs on its own)
-  team rotate                A new team token for this machine; the old one stops working
-  team budget [--team <n>] [--member <n>]
-                             Team-wide and per-member daily limits in dollars (admins set them)
-  sources add <markdown|ics|caldav|imap> <name> <path, url or host> [--user …] [--password-command "…"]
-                             Add a personal-data source (passwords come from a command or an env var)
-  sources [list], sources sync [name], sources remove <name>
-  clients add <name> --scope <sources or kinds>
-                             A token for an app that reads personal data (kinds: notes, mail, calendar, memory)
-  clients [list], clients revoke <name>
+  key, key set <key>         Your personal key for the encrypted \`me\` space; put the same on your other machines
+  skills [list], skills share <folder>, skills install|remove|rollback <id>, skills auto on|off
+                             The team's skills, installed into Claude Code once approved;
+                             auto on installs and updates the ones an admin recommends
+  servers [list], servers install|remove|rollback <id>
+                             The team's MCP servers, installed into Claude Code once approved
+  routines [list], routines on|off, routines add <file.md> [--repo <path>]
+  routines approve <id> [--mode read-only|shadow|limited|on] [--limit <actions a day>]
+  routines run <id> [--version <n>] [--task "…"], routines eval <id> [--version <n>], routines promote <id> <n>
+  routines workflow <id> [--file <path>], routines librarian
+                             The team's routines, run on idle machines that opted in; workflow prints and approves
+                             the GitHub workflow that runs one on a Grenier runner; librarian adds the
+                             built-in routine that suggests fixes to the store each day
+  machine, machine set <rule> <value>
+                             This machine's state and the rules that keep routines from disturbing you
+  clients add <name> [--scope <spaces>], clients [list], clients revoke <name>
+                             Tokens for agents and apps that use the store over MCP
   audit [--client <name>] [--since 7d]
-                             Every read of personal data
-  review, review approve <id>, review reject <id>
-                             Memories AI tools proposed with remember
-  vault init, vault join <key>, vault key, vault share <source>, vault unshare <source>, vault sync
-                             End-to-end encrypted sync, between your devices, of the sources you share
+                             Every read a client made of the store
 
 Options:
   -h, --help                 Show this help
@@ -130,45 +139,52 @@ export async function run(argv: string[], io: Io): Promise<number> {
       case "statusline":
         io.out(await statusline(rest, io));
         return 0;
-      case "budget":
-        for (const line of await budget(rest, io)) io.out(line);
-        return 0;
       case "resume":
         io.out(await resume(rest, io));
         return 0;
       case "mcp":
         if (rest[0] === "serve" && rest.length === 1) return await serve(io);
+        if (rest[0] === "share") {
+          for (const line of await shareServer(rest.slice(1), io)) io.out(line);
+          return 0;
+        }
         if (rest[0] === "install") {
           io.out(await install(rest.slice(1), io));
           return 0;
         }
-        throw new UsageError("mcp takes: install <client>, or serve");
+        throw new UsageError("mcp takes: install <client>, share <name>, or serve");
       case "ask":
         io.out(await ask(rest, io));
         return 0;
       case "hook":
         if (rest[0] === "prompt" && rest.length === 1) return await promptHook(io);
         throw new UsageError("hook takes: prompt (Claude Code's UserPromptSubmit hook)");
-      case "cache":
-        for (const line of await cache(rest, io)) io.out(line);
+      case "store":
+        for (const line of await storeCommand(rest, io)) io.out(line);
+        return 0;
+      case "key":
+        for (const line of await key(rest, io)) io.out(line);
         return 0;
       case "team":
         for (const line of await team(rest, io)) io.out(line);
         return 0;
-      case "sources":
-        for (const line of await sources(rest, io)) io.out(line);
+      case "routines":
+        for (const line of await routines(rest, io)) io.out(line);
+        return 0;
+      case "machine":
+        for (const line of await machine(rest, io)) io.out(line);
+        return 0;
+      case "skills":
+        for (const line of await sharedCommand("Skill", rest, io)) io.out(line);
+        return 0;
+      case "servers":
+        for (const line of await sharedCommand("McpServer", rest, io)) io.out(line);
         return 0;
       case "clients":
         for (const line of await clients(rest, io)) io.out(line);
         return 0;
       case "audit":
         for (const line of await audit(rest, io)) io.out(line);
-        return 0;
-      case "review":
-        for (const line of await review(rest, io)) io.out(line);
-        return 0;
-      case "vault":
-        for (const line of await vault(rest, io)) io.out(line);
         return 0;
       default:
         throw new UsageError(`unknown command "${command}"`);

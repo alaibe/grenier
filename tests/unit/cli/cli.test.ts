@@ -78,13 +78,16 @@ describe("grenier --version and help", () => {
   });
 
   it("shows only the mistaken command's own lines of help, and where the rest is", async () => {
-    const { err } = await grenier("budget", "set", "--daily", "lots");
+    const { err } = await grenier("report", "--by", "week");
     expect(err.split("\n")).toEqual([
-      'grenier: --daily takes an amount in dollars, such as 10 or 2.5, or "off", not "lots"',
+      'grenier: --by takes day, session or repo, not "week"',
       "",
-      "  budget                     Show the spending limits",
-      "  budget set [--daily <n>] [--session <n>] [--repo <name>=<n>]",
-      '                             Set limits in dollars ("off" removes one)',
+      "  report [--by day|session|repo] [--since 7d] [--json]",
+      "                             Tokens, cache hit rate, cost and savings",
+      "  report --cache [--since 7d]",
+      "                             Prompt-cache writes and reads by session, flagging churn",
+      "  report --effectiveness [--since 30d]",
+      "                             What the spend turned into: landed share, rediscovery, cost per issue",
       "",
       "Every command: grenier --help",
     ]);
@@ -101,7 +104,7 @@ describe("grenier status", () => {
     expect(result.out.split("\n")).toEqual([
       `grenier ${version}`,
       `config    ${join(home, "config.toml")} (not found, using defaults)`,
-      `database  ${join(home, "grenier.db")} (schema 11)`,
+      `database  ${join(home, "grenier.db")} (schema 2)`,
       "proxy     127.0.0.1:7788 → https://api.anthropic.com",
       "daemon    stopped",
     ]);
@@ -164,43 +167,13 @@ describe("the daemon's identity", () => {
   });
 });
 
-describe("grenier budget", () => {
-  it("shows no limit by default, then the limits set, and removes one with off", async () => {
-    expect((await grenier("budget")).out.split("\n")).toEqual(["daily           no limit", "session         no limit"]);
-
-    const set = await grenier(
-      "budget",
-      "set",
-      "--daily",
-      "10",
-      "--session",
-      "2.5",
-      "--repo",
-      "app=1",
-      "--repo",
-      "api=3",
-    );
-    expect(set.code).toBe(0);
-    expect(set.out.split("\n")).toEqual([
-      "daily           $10.00 a day",
-      "session         $2.50 a session",
-      "repo api        $3.00 a day",
-      "repo app        $1.00 a day",
-    ]);
-
-    expect((await grenier("budget", "set", "--repo", "app=off")).out).not.toContain("repo app");
-  });
-
-  it("shows the config file's limits when none is set", async () => {
+describe("an unknown config section", () => {
+  it("is refused, so a typo does not pass silently", async () => {
     await grenier("status");
-    writeFileSync(join(home, "config.toml"), "[budgets]\ndaily = 10\nsession = 3\n");
-    expect((await grenier("budget")).out).toContain("daily           $10.00 a day");
-  });
-
-  it("refuses an amount that is not one", async () => {
-    for (const args of [["--daily", "ten"], ["--daily", "-1"], ["--repo", "app"], []]) {
-      expect((await grenier("budget", "set", ...args)).code).toBe(2);
-    }
+    writeFileSync(join(home, "config.toml"), "[budgets]\ndaily = 10\n");
+    const result = await grenier("status");
+    expect(result.code).toBe(1);
+    expect(result.err).toContain('Unrecognized key: "budgets"');
   });
 });
 
@@ -369,10 +342,10 @@ describe("grenier run", () => {
     expect(err).not.toContain(ASKED_FIRST);
   });
 
-  it("tells Claude Code in a repository to ask the exploration cache first, unless it gives its own system prompt", () => {
+  it("tells Claude Code in a repository to recall first, unless it gives its own system prompt", () => {
     expect(asksFirst("/usr/local/bin/claude", ["-p", "hi"], true)).toBe(true);
     expect(agentArgs("claude", ["-p", "hi"], "y", true)).toEqual(["--append-system-prompt", ASK_FIRST, "-p", "hi"]);
-    expect(ASK_FIRST).toContain("mcp__grenier__ask_codebase");
+    expect(ASK_FIRST).toContain("mcp__grenier__recall");
     expect(asksFirst("claude", ["-p", "hi"], false)).toBe(false);
     expect(asksFirst("codex", ["exec"], true)).toBe(false);
     for (const own of ["--append-system-prompt", "--system-prompt-file=prompt.md", "--append-system-prompt-file"]) {
@@ -393,19 +366,14 @@ describe("grenier run", () => {
   });
 });
 
-describe("grenier vault share", () => {
-  it("puts a source in the vault and takes it out, one source at a time", async () => {
-    writeFileSync(join(dir, "note.md"), "# A note\n");
-    expect((await grenier("sources", "add", "markdown", "journal", dir)).code).toBe(0);
-
-    expect(await grenier("vault", "share", "journal")).toMatchObject({ code: 0 });
-    expect((await grenier("sources")).out).toMatch(/^journal\s.*in the vault$/m);
-    expect((await grenier("sources")).out).not.toMatch(/^memory\s.*in the vault$/m);
-
-    expect((await grenier("vault", "unshare", "journal")).code).toBe(0);
-    expect((await grenier("sources")).out).not.toContain("in the vault");
-
-    expect(await grenier("vault", "share", "nothing")).toMatchObject({ code: 1 });
-    expect((await grenier("vault", "share")).code).toBe(2);
+describe("grenier key", () => {
+  it("makes the personal key once, and takes the same key from another machine", async () => {
+    const first = await grenier("key");
+    expect(first.out).toMatch(/^gv1_[\w-]{43}\n/);
+    const key = first.out.split("\n")[0] as string;
+    expect((await grenier("key")).out.split("\n")[0]).toBe(key);
+    expect((await grenier("key", "set", key)).code).toBe(0);
+    expect((await grenier("key", "set", "gv1_not-a-key")).code).toBe(1);
+    expect((await grenier("key", "set", `gv1_${"A".repeat(43)}`)).err).toContain("another personal key");
   });
 });

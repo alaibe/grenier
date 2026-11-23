@@ -1,23 +1,25 @@
-import { type ComponentType, useState } from "react";
+import { type ComponentType, useEffect, useState } from "react";
 import { api, type Overview, sendPageView } from "./api.ts";
 import { useLoad } from "./ui.tsx";
 import { SCREENS, type ViewName } from "./usage/screens.ts";
 import { useUsage } from "./usage/use-usage.ts";
 import { Audit } from "./views/Audit.tsx";
-import { Budgets } from "./views/Budgets.tsx";
-import { Cache } from "./views/Cache.tsx";
 import { Clients } from "./views/Clients.tsx";
 import { Dashboard } from "./views/Dashboard.tsx";
-import { Review } from "./views/Review.tsx";
+import { Machine } from "./views/Machine.tsx";
+import { Requests } from "./views/Requests.tsx";
+import { Routines } from "./views/Routines.tsx";
 import { Settings } from "./views/Settings.tsx";
-import { Sources } from "./views/Sources.tsx";
+import { Skills } from "./views/Skills.tsx";
+import { Store } from "./views/Store.tsx";
+import { Team } from "./views/Team.tsx";
 import { Traces } from "./views/Traces.tsx";
 
 export interface ViewProps {
-  /** Shows another view; `focus` names what to show first in it, as a session for Traces. */
+  /** Shows another view; `focus` names what to show first in it: a session in Traces, a record in Store. */
   go: (view: ViewName, focus?: string) => void;
   focus?: string;
-  /** Tells the shell that something it shows (the review count) may have changed. */
+  /** Tells the shell that something it shows (the changes waiting to sync) may have changed. */
   changed: () => void;
 }
 
@@ -25,30 +27,48 @@ export type { ViewName };
 
 const VIEWS: Record<ViewName, ComponentType<ViewProps>> = {
   dashboard: Dashboard,
+  store: Store,
+  requests: Requests,
+  team: Team,
+  routines: Routines,
+  skills: Skills,
+  machine: Machine,
   traces: Traces,
-  cache: Cache,
-  budgets: Budgets,
-  sources: Sources,
   clients: Clients,
   audit: Audit,
-  review: Review,
   settings: Settings,
 };
 
 const loadOverview = () => api<Overview>("/overview");
 
+/** The screen a link names, as #store or #store/<record>, for the app opened in a browser. */
+function linked(): { view: ViewName; focus?: string } {
+  const [view = "", focus] = window.location.hash.slice(1).split("/");
+  if (!(view in SCREENS)) return { view: "dashboard" };
+  return { view: view as ViewName, ...(focus ? { focus: decodeURIComponent(focus) } : {}) };
+}
+
 export function App() {
-  const [current, setCurrent] = useState<ViewName>("dashboard");
-  const [focus, setFocus] = useState<string | undefined>();
+  const [current, setCurrent] = useState<ViewName>(() => linked().view);
+  const [focus, setFocus] = useState<string | undefined>(() => linked().focus);
   const overview = useLoad(loadOverview);
   const go = (name: ViewName, next?: string) => {
     setCurrent(name);
     setFocus(next);
     overview.reload();
   };
+  useEffect(() => {
+    const follow = () => {
+      const next = linked();
+      setCurrent(next.view);
+      setFocus(next.focus);
+    };
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
   useUsage(SCREENS[current].url, sendPageView);
   const View = VIEWS[current];
-  const pending = overview.error ? 0 : (overview.data?.pendingReview ?? 0);
+  const waiting = overview.error ? 0 : (overview.data?.waiting ?? 0);
 
   return (
     <div className="grid min-h-screen grid-cols-[176px_minmax(0,1fr)]">
@@ -66,12 +86,12 @@ export function App() {
             onClick={() => go(name)}
           >
             {SCREENS[name].title}
-            {name === "review" && pending > 0 && (
+            {name === "store" && waiting > 0 && (
               <span
                 className="min-w-5 rounded-xl bg-accent px-1.5 text-center text-2xs leading-5 font-semibold text-accent-fg"
-                title={`${pending} to review`}
+                title={`${waiting} not sent to the team yet`}
               >
-                {pending}
+                {waiting}
               </span>
             )}
           </button>
@@ -79,7 +99,7 @@ export function App() {
         {overview.data && <p className="mx-2.5 mt-auto text-xs text-muted">Version {overview.data.version}</p>}
       </nav>
       <main className="px-8 pt-7 pb-12 max-md:px-5 max-md:pt-5.5 max-md:pb-10">
-        <div className={current === "traces" ? "max-w-320" : "max-w-220"}>
+        <div className={current === "traces" || current === "store" ? "max-w-320" : "max-w-220"}>
           <View key={`${current}:${focus ?? ""}`} go={go} changed={overview.reload} {...(focus ? { focus } : {})} />
         </div>
       </main>

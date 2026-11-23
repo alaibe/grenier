@@ -103,3 +103,14 @@ export async function repoText(root: string, path: string, maxBytes = MAX_TEXT_B
     return null;
   }
 }
+
+/** A blob's text as git keeps it, or null when this clone does not have it (it was never added) or it is not text. */
+export async function blobText(root: string, blob: string): Promise<string | null> {
+  if (!/^[0-9a-f]{40,64}$/.test(blob)) return null;
+  try {
+    const text = await git(root, ["cat-file", "-p", blob]);
+    return text.slice(0, 8000).includes("\u0000") ? null : text;
+  } catch {
+    return null;
+  }
+}

@@ -1,19 +1,26 @@
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, type FSWatcher, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { syncSources, watchMarkdown } from "@grenier/connectors";
 import { repoText } from "@grenier/connectors/git";
 import { createGateway } from "@grenier/gateway";
-import { syncOnce, type TeamBudget, teamApi, vaultPull, vaultPush } from "@grenier/index";
-import { cacheSavingsOf, loadPrices } from "@grenier/log";
+import type { TeamClient } from "@grenier/index";
+import { loadPrices } from "@grenier/log";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { serve } from "@hono/node-server";
 import { version } from "../package.json";
-import { deviceId, vaultKey } from "./commands/vault.ts";
+import { computeOutcomes, effectiveness } from "./effectiveness.ts";
 import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
+import { ghToken } from "./github.ts";
+import { anchorDiffs, installs, joining, routes } from "./host.ts";
+import { autoInstall } from "./installs.ts";
 import { CommandError, environment, type Io, writeAtomically } from "./io.ts";
+import { TeamLink } from "./link.ts";
 import { desktopNotifier } from "./notify.ts";
+import { routineRoutes } from "./routines.ts";
+import { Runner } from "./runner.ts";
+import { ensureBaseSpaces, identity, storeDeps } from "./runtime.ts";
 import { teamClient } from "./team.ts";
 
 /** Where daemons before daemon.json wrote their pid. */
@@ -150,27 +157,98 @@ export async function runDaemon(io: Io): Promise<number> {
   if (current.state === "running") throw new CommandError(`the daemon is already running (pid ${current.pid})`);
 
   const store = openSqliteStore(paths.db);
+  await ensureBaseSpaces(store);
   const port = config.proxy.port;
   const prices = loadPrices(config.prices);
   const embedder = embedderLoader(config, paths, io.err);
-  const team = teamClient(config, paths, io.env);
+  const home = homedir();
+  let rules = config;
+  const notify = desktopNotifier(io.err);
+  let team = teamClient(config, paths, io.env);
+  let link: TeamLink | null = null;
+  const runner = new Runner({
+    store,
+    config: () => rules,
+    port,
+    team: () => team,
+    storeDeps: () => storeDeps(store, config, embedder),
+    tell: async (state) => {
+      await link?.tell(state);
+    },
+    sync: async () => {
+      await link?.sync();
+    },
+    log: io.err,
+    notify,
+    github: { home: paths.home, self: io.self, token: ghToken },
+  });
+  const linkTo = (client: TeamClient) => {
+    const made = new TeamLink(client, store, config, paths, embedder, io.err);
+    made.listeners.push((result) => {
+      autoInstall(store, home)
+        .then((done) => {
+          for (const line of done) io.err(`grenier: ${line}`);
+        })
+        .catch((error: Error) => io.err(`grenier: could not install the recommended skills: ${error.message}`));
+      if (result.pulled > 0) void runner.tick(true);
+    });
+    return made;
+  };
+  link = team ? linkTo(team) : null;
+  const extra = routes(
+    joining({
+      paths,
+      config,
+      store,
+      joined: (joined) => {
+        team = joined;
+        link?.stop();
+        link = linkTo(joined);
+        link.start();
+        runner.start();
+      },
+    }),
+    anchorDiffs(store),
+    installs(store, home),
+    async (method, path) =>
+      method === "GET" && path.startsWith("/effectiveness")
+        ? { status: 200, body: await effectiveness(store, Date.now() - 30 * DAY) }
+        : null,
+    routineRoutes({
+      store,
+      paths,
+      runner,
+      storeDeps: () => storeDeps(store, config, embedder),
+      team: () => team,
+      config: () => rules,
+      reloaded: (next) => {
+        rules = next;
+      },
+    }),
+  );
   const app = createGateway({
     store,
     config,
     prices,
     port,
-    notify: desktopNotifier(io.err),
+    notify,
+    runGuard: async (session) => runner.guard(session),
     log: io.err,
-    mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), version },
+    mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), me: () => identity(store, config), version },
     admin: {
       token: adminToken(paths.home),
       version,
-      log: io.err,
       readFile: repoText,
-      files: gitFiles,
       identity: { pid: process.pid, port },
+      host: {
+        storeDeps: () => storeDeps(store, config, embedder),
+        team: () => team,
+        syncNow: async () => {
+          await link?.sync();
+        },
+        extra,
+      },
     },
-    ...(team ? { teamBudget: () => teamApi<TeamBudget>(team, "/api/budget") } : {}),
   });
 
   const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
@@ -191,82 +269,8 @@ export async function runDaemon(io: Io): Promise<number> {
   writeAtomically(infoFile(paths.home), `${JSON.stringify({ pid: process.pid, port, version })}\n`);
   io.err(`grenier ${version} daemon listening on 127.0.0.1:${port} (pid ${process.pid})`);
 
-  // Team sync: push and pull on a timer; while the server cannot be reached, the local cache carries on alone.
-  let syncing = false;
-  let lastError = "";
-  const sync = async () => {
-    if (!team || syncing) return;
-    syncing = true;
-    try {
-      const resolved = await embedder();
-      const { refused } = await syncOnce({
-        store,
-        embedder: resolved,
-        team,
-        savedOf: (row) => cacheSavingsOf(row.model, row.cacheReadTokens ?? 0, prices),
-        shareAll: config.cache.share_with_team,
-        device: await deviceId(store),
-      });
-      if (refused.answers + refused.summaries > 0) {
-        io.err(
-          `grenier: the team server refused ${refused.answers} answer(s) and ${refused.summaries} summary(ies); they stay on this machine, and the desktop app's Cache page says why`,
-        );
-      }
-      const key = vaultKey(paths);
-      if (key) {
-        const device = await deviceId(store);
-        await vaultPush(store, team, key, device);
-        await vaultPull(store, team, key, device);
-      }
-      await store.team.set("last_sync", String(Date.now()));
-      if (lastError) io.err("grenier: team sync works again");
-      lastError = "";
-    } catch (error) {
-      const message = (error as Error).message;
-      if (message !== lastError) io.err(`grenier: team sync failed, will retry: ${message}`);
-      lastError = message;
-    } finally {
-      syncing = false;
-    }
-  };
-  const timer = team ? setInterval(() => void sync(), config.team.sync_interval * 1000) : undefined;
-  if (team) void sync();
-
-  // Personal-data sources: every one on a timer, and markdown folders as soon as they change.
-  let pulling = false;
-  let again = false;
-  const watchers = new Map<string, FSWatcher>();
-  const pull = async (only?: string): Promise<void> => {
-    if (pulling) {
-      again = true;
-      return;
-    }
-    pulling = true;
-    try {
-      // Watch before reading, so a change made while a folder is read is not missed until the next timer.
-      for (const source of await store.sources.list()) {
-        const path = source.config.path;
-        if (source.kind !== "markdown" || typeof path !== "string" || watchers.has(source.id)) continue;
-        try {
-          watchers.set(
-            source.id,
-            watchMarkdown(path, () => void pull(source.name)),
-          );
-        } catch (error) {
-          io.err(`grenier: cannot watch ${path}: ${(error as Error).message}`);
-        }
-      }
-      await syncSources(store, io.err, only);
-    } finally {
-      pulling = false;
-    }
-    if (again) {
-      again = false;
-      return pull();
-    }
-  };
-  const sourceTimer = setInterval(() => void pull(), config.sources.sync_interval * 1000);
-  void pull();
+  link?.start();
+  if (team) runner.start();
 
   const prune = async () => {
     const { steps_days, usage_days } = config.retention;
@@ -280,6 +284,9 @@ export async function runDaemon(io: Io): Promise<number> {
     } catch (error) {
       io.err(`grenier: could not remove old traces and usage: ${(error as Error).message}`);
     }
+    await computeOutcomes(store).catch((error: Error) =>
+      io.err(`grenier: could not work out what sessions' edits became: ${error.message}`),
+    );
   };
   const pruneTimer = setInterval(() => void prune(), PRUNE_EVERY);
   void prune();
@@ -292,10 +299,9 @@ export async function runDaemon(io: Io): Promise<number> {
   const ignore = () => {};
   process.on("SIGTERM", ignore);
   process.on("SIGINT", ignore);
-  if (timer) clearInterval(timer);
-  clearInterval(sourceTimer);
+  link?.stop();
+  runner.stop();
   clearInterval(pruneTimer);
-  for (const watcher of watchers.values()) watcher.close();
   const closed = new Promise<void>((resolve) => server.close(() => resolve()));
   // A stream still open is cut after a grace period, so stopping never waits for an agent to finish.
   const cut = setTimeout(() => (server as { closeAllConnections?: () => void }).closeAllConnections?.(), 3000);

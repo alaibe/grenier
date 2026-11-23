@@ -152,24 +152,20 @@ describe("grenier mcp install", () => {
 describe("client tokens from grenier mcp install", () => {
   it("gives each app a token with the scope asked for, and a new one replaces the old", async () => {
     const { openSqliteStore } = await import("@grenier/store/sqlite");
-    expect(await install(["claude-desktop", "--scope", "notes,calendar"], io, { home, platform: "linux" })).toContain(
-      "may read notes, calendar",
+    expect(await install(["claude-desktop", "--scope", "me"], io, { home, platform: "linux" })).toContain(
+      "may read me",
     );
     const config = JSON.parse(readFileSync(join(home, ".config", "Claude", "claude_desktop_config.json"), "utf8"));
     const first = config.mcpServers.grenier.env.GRENIER_CLIENT_TOKEN;
-    expect(await install(["claude-desktop"], io, { home, platform: "linux" })).toContain(
-      "reads no personal data; install again with --scope",
-    );
+    expect(await install(["claude-desktop"], io, { home, platform: "linux" })).toContain("may read every space");
 
     const store = openSqliteStore(join(home, ".grenier", "grenier.db"));
     try {
       const clients = await store.clients.list();
       expect(
         clients.filter((client) => client.revokedAt === null).map((client) => [client.name, client.scopes]),
-      ).toEqual([["claude-desktop", []]]);
-      expect(clients.filter((client) => client.revokedAt !== null).map((client) => client.scopes)).toEqual([
-        ["notes", "calendar"],
-      ]);
+      ).toEqual([["claude-desktop", ["*"]]]);
+      expect(clients.filter((client) => client.revokedAt !== null).map((client) => client.scopes)).toEqual([["me"]]);
       const { createHash } = await import("node:crypto");
       expect(await store.clients.findActive(createHash("sha256").update(first).digest("hex"))).toBeUndefined();
     } finally {
@@ -200,7 +196,7 @@ describe("client tokens from grenier mcp install", () => {
   });
 
   it("refuses a scope that names nothing", async () => {
-    await expect(install(["cursor", "--scope", "secrets"], io, { home })).rejects.toThrow("unknown scope secrets");
+    await expect(install(["cursor", "--scope", "secrets"], io, { home })).rejects.toThrow("unknown space secrets");
   });
 });
 

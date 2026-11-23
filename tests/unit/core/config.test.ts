@@ -6,19 +6,19 @@ const EXAMPLE = `
 port = 7788
 upstream_anthropic = "https://api.anthropic.com"
 
-[budgets]
-daily = 10
-session = 3
-unpriced = "allow"
-
 [guards]
 loop_repeat_threshold = 3
 loop_window = 10
 on_loop = "notify"
 
-[cache]
+[store]
 embeddings = "local"
-share_with_team = false
+
+[machine]
+name = "build-mini"
+routines = true
+idle_minutes = 0
+hours = "22-7"
 
 [team]
 url = ""
@@ -36,7 +36,7 @@ function errorOf(text: string): ConfigError {
 }
 
 describe("defaultConfig", () => {
-  it("fills every section with its defaults and sets no budget", () => {
+  it("fills every section with its defaults", () => {
     expect(defaultConfig()).toEqual({
       proxy: {
         port: 7788,
@@ -44,11 +44,18 @@ describe("defaultConfig", () => {
         upstream_openai: "https://api.openai.com",
         inject_cache_control: false,
       },
-      budgets: { unpriced: "block" },
       guards: { loop_repeat_threshold: 3, loop_window: 10, on_loop: "notify", pause_timeout: 600 },
-      cache: { embeddings: "local", share_with_team: false },
+      store: { embeddings: "local" },
       team: { url: "", token_env: "GRENIER_TEAM_TOKEN", sync_interval: 20 },
-      sources: { sync_interval: 300 },
+      machine: {
+        routines: false,
+        plugged_in: true,
+        idle_minutes: 10,
+        cpu_max: 0.5,
+        memory_max: 0.85,
+        hours: "0-24",
+        agent: "claude",
+      },
       retention: { steps_days: 90, usage_days: 0 },
       prices: {},
     });
@@ -58,8 +65,14 @@ describe("defaultConfig", () => {
 describe("parseConfig", () => {
   it("reads a full example config", () => {
     const config = parseConfig(EXAMPLE, "config.toml");
-    expect(config.budgets).toEqual({ daily: 10, session: 3, unpriced: "allow" });
+    expect(config.store.embeddings).toBe("local");
+    expect(config.machine).toMatchObject({ name: "build-mini", routines: true, idle_minutes: 0, hours: "22-7" });
     expect(config.guards.on_loop).toBe("notify");
+  });
+
+  it("refuses a machine name or hours it cannot use", () => {
+    expect(errorOf('[machine]\nname = "my mac"\n').message).toContain("machine.name:");
+    expect(errorOf('[machine]\nhours = "nights"\n').message).toContain("machine.hours:");
   });
 
   it("treats an empty file as all defaults", () => {
@@ -96,7 +109,6 @@ describe("parseConfig", () => {
   it("names the key of a value of the wrong type or range", () => {
     expect(errorOf('[proxy]\nport = "7788"\n').message).toContain("proxy.port:");
     expect(errorOf("[proxy]\nport = 70000\n").message).toContain("proxy.port:");
-    expect(errorOf("[budgets]\ndaily = -1\n").message).toContain("budgets.daily:");
     expect(errorOf('[guards]\non_loop = "kill"\n').message).toContain("guards.on_loop:");
   });
 

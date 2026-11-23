@@ -2,7 +2,7 @@
   "name": "@grenier/desktop",
   "version": "0.1.5",
   "private": true,
-  "description": "Grenier's desktop app: usage, traces of agents' sessions, sources, clients and scopes, the audit log and the review queue. A Tauri shell that runs the daemon as a sidecar.",
+  "description": "Grenier's desktop app: the team store and its editor, requests, the team and its machines, routines, shared skills and MCP servers, usage and traces. A Tauri shell that runs the daemon as a sidecar.",
   "license": "MIT",
   "type": "module",
   "scripts": {

@@ -79,7 +79,7 @@ export function folderName(path: string): string {
 }
 
 /**
- * The project a session's spending is grouped under, everywhere (reports, the dashboard, the menu bar, repo budgets):
+ * The project a session's spending is grouped under, everywhere (reports, the dashboard, the menu bar):
  * the folder name of its repository, else of the folder it started in; null for neither.
  */
 export function projectOf(session: { repoRoot: string | null; cwd: string | null }): string | null {

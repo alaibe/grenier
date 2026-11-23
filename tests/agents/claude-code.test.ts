@@ -93,22 +93,4 @@ describe.skipIf(claude === null)("Claude Code through grenier run", () => {
     const report = await grenier("report", "--by", "session");
     expect(report.stdout).toMatch(/^total\s+\d+/m);
   }, 120_000);
-
-  it("shows the budget error and does not retry it", async () => {
-    await grenier("budget", "set", "--daily", "0");
-    const before = messages.length;
-    const run = await grenier("run", "--", claude as string, "-p", "Reply with one word.");
-    await grenier("budget", "set", "--daily", "off");
-
-    expect(run.code).not.toBe(0);
-    expect(`${run.stdout}${run.stderr}`).toContain("grenier budget set --daily");
-    expect(messages.length).toBe(before);
-
-    const db = join(dir, ".grenier", "grenier.db");
-    const blocked = execFileSync("sqlite3", [db, "SELECT count(*) FROM events WHERE kind = 'budget'"], {
-      encoding: "utf8",
-    }).trim();
-    // One blocked request per call Claude Code makes, not a retry loop.
-    expect(Number(blocked)).toBeLessThanOrEqual(2);
-  }, 120_000);
 });

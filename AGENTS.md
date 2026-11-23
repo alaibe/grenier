@@ -7,9 +7,9 @@ Hard rules: a failing test is never a reason to relax one.
 - The daemon binds to `127.0.0.1` only. Its HTTP endpoints need a client token, except the proxy path `grenier run`
   uses. Client tokens are stored hashed, and a revoked one fails on its next call.
 - API keys and auth headers (`x-api-key`, `authorization`) are forwarded, never stored, logged or sent to the team
-  server.
-- Nothing of the user's leaves the machine by default: team sharing and sync are opt-in, per repository and per
-  source. The one exception, on by default, is the desktop app's usage statistics below.
+  store.
+- Nothing of the user's leaves the machine by default: the team store is opt-in (`grenier team deploy`, or joining from
+  an invite). The one exception, on by default, is the desktop app's usage statistics below.
 - The desktop app's usage statistics (`apps/desktop/src-tauri/src/usage.rs`) are page views to Umami at
   stats.laibe.cc, from release builds only, until turned off in its Settings. The page passes only a screen's url, from
   the fixed list, and the display's size; Rust refuses any other url or field and builds the hit itself, so no
@@ -26,15 +26,30 @@ Hard rules: a failing test is never a reason to relax one.
   - Shared with Kestrel and Statim, byte for byte: `src/usage/tracker.ts`, `src/usage/use-usage.ts` and
     `src-tauri/src/usage-vectors.json`. `usage.rs`'s core is the same text as Kestrel's. Change all three apps
     together.
-  - The CLI, the daemon and the team server send none.
-- The team server never stores file contents, prompts or keys, and a summary quotes at most a short snippet of code:
-  answers and summaries pass `unshareable` (`@grenier/core/policy`) on both sides, and usage goes up as numbers.
-- The vault key never leaves the user's devices: `seal`/`open` (`@grenier/core/vault`) run locally; the server stores
-  bytes it cannot read.
-- Personal data leaves the daemon only through `packages/index/src/personal.ts`: the client's scope filters it, the
-  audit row is written first (no row, no read), and every item is redacted (`redact` in `@grenier/core/policy`) and
-  wrapped in an untrusted-data block. A new read path goes through `deliver` there, and its test belongs in
-  `tests/unit/personal/scopes.test.ts`, against every scope.
+  - The CLI, the daemon and the team store send none.
+- The team store, in the team's own Cloudflare account, reads the records of shared spaces; it never holds file
+  contents, prompts or keys. Every record passes `recordProblem` (`@grenier/core/records`) on both sides: no secret,
+  and a memory quotes at most a short snippet of code. Usage goes up as numbers by day and repository folder name.
+- A `me` record is sealed with the person's key before it leaves (`seal`/`open` in `@grenier/core/vault`, key in
+  `personal.key`); the store keeps bytes it cannot read. Effectiveness (`outcomes`, steps, line hashes) never leaves.
+- Before an agent's record leaves the machine, the person is asked through MCP elicitation (`remember` in
+  `packages/index/src/records.ts`); answers and summaries anchored only to git are checked by their files instead, and
+  a client that cannot ask keeps the record in `me`. Only a routine's run writes without asking.
+- Records reach an MCP client only through `deliver` (`packages/index/src/records.ts`): the client's scopes pick the
+  spaces (repository spaces always), the audit row is written first (no row, no read), and every item is redacted
+  (`redact` in `@grenier/core/policy`) and wrapped in an untrusted-data block. A new read path goes through `deliver`,
+  and its test belongs in `tests/unit/personal/scopes.test.ts`, against every scope.
+- A shared skill or MCP server is installed only once this machine's person approved its hash, or it is recommended
+  and they turned on `skills auto`; a skill's files land only inside `~/.claude/skills/grenier-<name>`, a server under
+  `grenier-<name>` in Claude Code's config. A shared server carries the names of its credentials, never their values
+  (`shareableServer` in `apps/cli/src/installs.ts`).
+- A routine runs on a machine only once its person approved its hash (`routineHash`), in a clean checkout, at the
+  lowest priority. With Claude Code, read-only is enforced twice: `--tools` offers only the built-in tools the mode
+  allows, and the proxy's `RunGuard` cuts the answer off before any other tool call, an MCP tool included, and stops
+  the agent (`packages/gateway/src/proxy.ts`). Codex runs in its own read-only sandbox, which the proxy cannot check.
+  Only an admin marks a skill or MCP server recommended, or changes what a recommended one installs (`#apply` in
+  `apps/server/src/team.ts`). A GitHub job runs only in a private repository, on the runner pinned by SHA-256 in
+  `apps/cli/src/github.ts`, and its hook refuses a workflow that is not the approved one.
 - The proxy changes a request body only when an opt-in flag is on, and logs every change.
 - Dependencies are exact versions and CI audits them; pnpm refuses releases younger than 7 days
   (`pnpm-workspace.yaml`), and install scripts run only for the packages listed there.
@@ -60,12 +75,16 @@ code.
 ## Layout
 
 - `packages/*` are libraries, `apps/*` are what runs: `apps/cli` is the `grenier` command and the daemon.
-  `core` holds config and policy (budgets, loop detection), `store` the schema and SQLite, `log` prices, cost and
-  reports, `index` the exploration cache, embeddings and team sync, `gateway` the proxy (Anthropic, and OpenAI under
-  `/openai/`) and the MCP server (Hono), `connectors` the sources (git, markdown, IMAP, CalDAV/ICS). `apps/server` is
-  the team server, a Cloudflare Worker (D1, a Durable Object per team), typechecked on its own
-  (`apps/server/tsconfig.json`) and bundled into the CLI's
-  `dist/server` for `grenier team deploy`. `apps/desktop` is the Tauri app (React UI in `src`, Rust shell in
+  `core` holds config, policy (loop detection, redaction, what may be shared), record types and their rules, and
+  routines' modes, versions and schedules; `store` the schema and SQLite; `log` prices, cost and reports; `index` the
+  records (`recall`, `remember`, `query`, `deliver`), embeddings and sync with the team store; `gateway` the proxy
+  (Anthropic, and OpenAI under `/openai/`), the MCP server and the admin API (Hono); `connectors` reads git
+  repositories. In `apps/cli`, the daemon's link to the team store is `link.ts`, routine runs `runner.ts`, the
+  machine's rules `machine.ts`, GitHub runners `github.ts`, shared skills and servers `installs.ts`, and the admin
+  API's daemon-side pages `host.ts` and `routines.ts`. `apps/server` is the team store, a Cloudflare Worker with one
+  Durable Object per team (its SQLite schema is `TeamStore`'s migrate, its alarm files scheduled requests), plus the
+  web view and the remote MCP server; it is typechecked on its own (`apps/server/tsconfig.json`) and bundled into the
+  CLI's `dist/server` for `grenier team deploy`. `apps/desktop` is the Tauri app (React UI in `src`, Rust shell in
   `src-tauri`), talking to the daemon's admin API (`packages/gateway/src/admin.ts`). The UI is styled with Tailwind
   utilities; its theme (colours, light and dark, type scale, breakpoints) and the few element defaults are
   `src/styles.css`, and the shared pieces (`Button`, `Field`, `Table`…) are in `src/ui.tsx`. Its screens are listed in
@@ -112,9 +131,12 @@ code.
 - The embedding model is downloaded on first use and checked against the SHA-256 pinned in
   `packages/index/src/node.ts`; a new model or revision is a new pin, and its vectors never mix with the old ones'
   (they are stored with the model's name). `tests/e2e/embeddings.test.ts` keeps its copy in `node_modules/.cache`.
-- The team server's own migrations are in `apps/server/migrations`, applied by Wrangler.
-- No test touches the real `~/.grenier`: set `GRENIER_HOME` to a temporary directory. As a backstop, the unit tests
-  run with `HOME` pointed at a throwaway folder (`tests/support/home.ts`).
+- The team store applies a change field by field, in the order it receives them, and numbers each one; the editor's
+  save sends `check`, so a field someone changed since `baseVersion` comes back as a conflict for the person to settle.
+  The store names the sender as a record's author and stamps its time.
+- No test touches the real `~/.grenier` or `~/.claude`: set `GRENIER_HOME` to a temporary directory, and pass a
+  temporary home to what installs skills and servers. As a backstop, the unit tests run with `HOME` pointed at a
+  throwaway folder (`tests/support/home.ts`).
 - Prices live only in `packages/log/prices.toml` (overridable under `[prices]` in config.toml). Never write a price
   anywhere else.
 - Every package is private until the release workflow publishes it; the name is settled (Grenier).

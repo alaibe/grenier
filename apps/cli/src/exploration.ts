@@ -2,27 +2,27 @@ import { join, resolve } from "node:path";
 import { blobHashes, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/connectors/git";
 import type { Config } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
-import { CacheError, type Embedder, type Repo, type RepoFiles } from "@grenier/index";
+import { type Embedder, type Repo, type RepoFiles, StoreUseError } from "@grenier/index";
 import { loadLocalEmbedder } from "@grenier/index/node";
 
 export const gitFiles: RepoFiles = { hashes: blobHashes, tracked: trackedFiles, relative: repoPath, text: repoText };
 
 /**
- * Finds the repository for a tool call: `repo` resolved against `base`, or `base` itself. With no base (the daemon,
- * which serves many repositories), `repo` is required.
+ * Finds the repository for a tool call: `repo` resolved against `base`, or `base` itself; null outside a repository.
+ * An explicit `repo` that is not one is an error.
  */
-export function repoResolver(base: string | null): (repo: string | undefined) => Promise<Repo> {
-  const known = new Map<string, Repo>();
+export function repoResolver(base: string | null): (repo: string | undefined) => Promise<Repo | null> {
+  const known = new Map<string, Repo | null>();
   return async (repo) => {
     const path = repo ? resolve(base ?? "/", repo) : base;
-    if (path === null) throw new CacheError("pass repo: the path of the repository");
-    const cached = known.get(path);
-    if (cached) return cached;
+    if (path === null) return null;
+    if (known.has(path)) return known.get(path) ?? null;
     const root = await repoRoot(path);
-    if (!root) throw new CacheError(`not inside a git repository: ${path}`);
-    const id = await repoId(root);
-    if (!id) throw new CacheError(`${root} has no commit yet; the cache needs one to identify the repository`);
-    const found = { root, id };
+    const id = root ? await repoId(root) : null;
+    if (repo && !root) throw new StoreUseError(`not inside a git repository: ${path}`);
+    if (repo && !id)
+      throw new StoreUseError(`${root} has no commit yet; the store needs one to identify the repository`);
+    const found = root && id ? { root, id } : null;
     known.set(path, found);
     return found;
   };
@@ -53,7 +53,7 @@ export function embedderLoader(
       failedAt = null;
     }
     loading ??=
-      config.cache.embeddings === "off"
+      config.store.embeddings === "off"
         ? Promise.resolve(null)
         : load(join(paths.home, "models"), options).catch((error: unknown) => {
             failedAt = now();

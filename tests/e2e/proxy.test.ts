@@ -96,20 +96,6 @@ describe("the daemon and grenier run", () => {
     expect(report.stdout).toMatch(new RegExp(`^${session}\\s+1\\s+12\\s+2048\\s+30k\\s+87\\s`, "m"));
   });
 
-  it("stops a request over budget before it reaches the upstream, with a status the agent does not retry", async () => {
-    const before = received.length;
-    await grenier("budget", "set", "--daily", "0");
-
-    expect((await grenier("run", "--", process.execPath, "client.mjs", "blocked.json")).code).toBe(0);
-
-    expect(readFileSync(join(dir, "blocked.json.status"), "utf8")).toBe("429 false");
-    expect(JSON.parse(readFileSync(join(dir, "blocked.json"), "utf8")).error.message).toContain(
-      "grenier budget set --daily <amount>",
-    );
-    expect(received.length).toBe(before);
-    await grenier("budget", "set", "--daily", "off");
-  });
-
   it("passes the command's exit code through", async () => {
     expect((await grenier("run", "--", process.execPath, "-e", "process.exit(4)")).code).toBe(4);
   });

@@ -1,5 +1,4 @@
-// Bundles the Worker into dist/server.js, which `grenier team deploy` uploads, with its migrations beside it.
-import { cp } from "node:fs/promises";
+// Bundles the Worker into dist/server.js, which `grenier team deploy` uploads.
 import { build } from "esbuild";
 
 await build({
@@ -14,4 +13,3 @@ await build({
   mainFields: ["module", "main"],
   logLevel: "warning",
 });
-await cp("migrations", "dist/migrations", { recursive: true });

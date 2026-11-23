@@ -319,12 +319,12 @@ export function shellSteps(where: Where, command: string | readonly string[]): D
   return exists ? drafts.filter((draft) => draft.path === null || exists(draft.path)) : drafts;
 }
 
-/** The step a tool of Grenier's own MCP server stands for: the exploration cache, asked instead of the code. */
+/** The step a tool of Grenier's own MCP server stands for: the store, asked instead of the code. */
 function cacheStep(where: Where, name: string, use: ToolUse): Draft[] | null {
-  const outcome = /"status":\s*"(hit|stale|miss)"/.exec(use.result?.text ?? "")?.[1];
+  const outcome = /"status":\s*"(hit|stale|unchecked|miss)"/.exec(use.result?.text ?? "")?.[1];
   const base = { kind: "ask" as const, ...(outcome ? { outcome } : {}) };
-  if (name.endsWith("ask_codebase")) {
-    const question = label(text(use.input, "question"));
+  if (name.endsWith("recall")) {
+    const question = label(text(use.input, "query"));
     return [{ ...base, path: null, ...(question ? { label: question } : {}) }];
   }
   if (name.endsWith("file_summary")) return at(where, text(use.input, "path"), base, true);
@@ -436,6 +436,27 @@ const lineOf = (text: string, index: number) => text.slice(0, index).split("\n")
  * Puts each edit whose result showed no line numbers (Claude Code's Edit says only that the file was updated) on the
  * lines its new text holds in the file now. An edit whose text is not found keeps no lines.
  */
+/**
+ * A short hash of each line worth tracking in a text: trimmed, without lines too plain to tell apart ("}", "") so
+ * that a common line elsewhere does not count as landed.
+ */
+export function lineHashes(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if ((line.match(/[\p{L}\p{N}]/gu)?.length ?? 0) < 3) continue;
+    let a = 0x811c9dc5;
+    let b = 0x01000193;
+    for (let i = 0; i < line.length; i++) {
+      const code = line.charCodeAt(i);
+      a = Math.imul(a ^ code, 0x01000193) >>> 0;
+      b = Math.imul(b ^ code, 0x5bd1e995) >>> 0;
+    }
+    out.push(a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0"));
+  }
+  return out;
+}
+
 export async function placeEdits(
   root: string,
   rows: NewStep[],
@@ -444,9 +465,16 @@ export async function placeEdits(
 ): Promise<void> {
   const inputs = new Map(uses.map((use) => [use.id, use.input]));
   for (const row of rows) {
-    if (row.kind !== "edit" || row.startLine != null || !row.path || row.outcome === "error") continue;
+    if (row.kind !== "edit" || !row.path || row.outcome === "error") continue;
     const input = inputs.get(row.callId);
     const edits = field(input, "edits");
+    const written = [
+      field(input, "new_string"),
+      field(input, "content"),
+      ...(Array.isArray(edits) ? edits.map((edit) => field(edit, "new_string")) : []),
+    ].filter((text): text is string => typeof text === "string" && text.trim() !== "");
+    if (written.length > 0 && !row.lineHashes) row.lineHashes = lineHashes(written.join("\n"));
+    if (row.startLine != null) continue;
     const needles = [
       field(input, "new_string"),
       ...(Array.isArray(edits) ? edits.map((edit) => field(edit, "new_string")) : []),

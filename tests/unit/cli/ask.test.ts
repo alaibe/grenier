@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { blobHashes, repoId, repoPath, trackedFiles } from "@grenier/connectors/git";
-import { type Embedder, recordAnswer } from "@grenier/index";
+import { type Embedder, remember } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { run } from "../../../apps/cli/src/cli.ts";
@@ -15,7 +15,10 @@ class TableEmbedder implements Embedder {
   readonly dimensions = 2;
   constructor(readonly table: Record<string, [number, number]>) {}
   async embed(texts: readonly string[]) {
-    return texts.map((text) => Float32Array.from(this.table[text] ?? [0, 0]));
+    return texts.map((text) => {
+      const key = Object.keys(this.table).find((entry) => text === entry || text.startsWith(`${entry}\n`));
+      return Float32Array.from(key ? (this.table[key] as [number, number]) : [0, 0]);
+    });
   }
 }
 
@@ -42,9 +45,10 @@ async function record(embedder: Embedder | null) {
   try {
     const repo = { root: dir, id: (await repoId(dir)) as string };
     const files = { hashes: blobHashes, tracked: trackedFiles, relative: repoPath };
-    ({ id } = await recordAnswer({ store, embedder, files }, repo, {
-      question: QUESTION,
-      answer: ANSWER,
+    ({ id } = await remember({ store, embedder, files, me: { member: "ada", device: "mbp" } }, null, repo, {
+      kind: "answer",
+      title: QUESTION,
+      body: ANSWER,
       files: ["src/proxy.ts"],
     }));
   } finally {
@@ -55,7 +59,7 @@ async function record(embedder: Embedder | null) {
 async function hits() {
   const store = openSqliteStore(join(home, "grenier.db"));
   try {
-    return (await store.answers.get(id))?.hits;
+    return (await store.records.get(id))?.hits;
   } finally {
     await store.close();
   }
@@ -65,7 +69,7 @@ beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "grenier-ask-")));
   home = join(dir, ".home");
   mkdirSync(home);
-  writeFileSync(join(home, "config.toml"), '[cache]\nembeddings = "off"\n');
+  writeFileSync(join(home, "config.toml"), '[store]\nembeddings = "off"\n');
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src", "proxy.ts"), "export function proxy() {}\n");
   writeFileSync(join(dir, ".gitignore"), ".home\n");
@@ -92,9 +96,9 @@ describe("grenier ask", () => {
       [
         ANSWER,
         "",
-        `Recorded for: ${QUESTION}`,
+        `Memory (answer): ${QUESTION}`,
         "From: src/proxy.ts",
-        `Id: ${id} (grenier cache forget ${id} removes it)`,
+        `By ada, in repo:${await repoId(dir)}. Id: ${id} (grenier store retire ${id} retires it)`,
       ].join("\n"),
     );
     expect(await hits()).toBe(0);
@@ -105,7 +109,7 @@ describe("grenier ask", () => {
     writeFileSync(join(dir, "src", "proxy.ts"), "changed\n");
     const out: string[] = [];
     await run(["ask", QUESTION], io(out));
-    expect(out[0]).toMatch(/^Stale: src\/proxy.ts changed since it was recorded/);
+    expect(out[0]).toMatch(/^Stale: src\/proxy.ts changed since it was written/);
 
     const none: string[] = [];
     await run(["ask", "What licence is it under?"], io(none));
@@ -119,12 +123,15 @@ describe("grenier ask", () => {
     expect(err.join("\n")).toMatch(/^grenier: not inside a git repository: /);
   });
 
-  it("forgets an answer by its id", async () => {
+  it("retires a record by its id", async () => {
     await record(null);
     const out: string[] = [];
-    expect(await run(["cache", "forget", id], io(out))).toBe(0);
-    expect(out).toEqual([`Forgot answer ${id}.`]);
-    expect(await run(["cache", "forget", id], io([]))).toBe(1);
+    expect(await run(["store", "retire", id], io(out))).toBe(0);
+    expect(out[0]).toMatch(/^Retired /);
+    expect(await run(["store", "retire", id], io([]))).toBe(1);
+    const none: string[] = [];
+    await run(["ask", QUESTION], io(none));
+    expect(none).toEqual(["Nothing is recorded for this question yet."]);
   });
 });
 

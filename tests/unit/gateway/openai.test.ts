@@ -62,18 +62,6 @@ describe("OpenAI-compatible endpoints", () => {
     expect((await gateway.store.usage.list())[0]?.cost).toBeNull();
   });
 
-  it("applies budgets to OpenAI requests too", async () => {
-    const upstream = fakeUpstream(() => sse(RESPONSES));
-    gateway = testGateway(upstream, (config) => {
-      config.budgets.daily = 1;
-    });
-    await gateway.store.usage.add({ sessionId: "s0", ts: gateway.clock.now, model: "m", cost: 1 });
-    const response = await gateway.request("/s/s1/openai/v1/responses", openaiRequest({ model: "gpt-5.1-codex" }));
-    expect(response.status).toBe(429);
-    expect(response.headers.get("x-should-retry")).toBe("false");
-    expect(upstream.requests).toEqual([]);
-  });
-
   it("refuses a ChatGPT sign-in bound for OpenAI's API with a message saying what to do, without forwarding it", async () => {
     const upstream = fakeUpstream(() => sse(RESPONSES));
     gateway = testGateway(upstream);

@@ -9,11 +9,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { version } from "../../package.json";
 import { embedderLoader, gitFiles, repoResolver } from "../exploration.ts";
 import { CommandError, environment, type Io, UsageError, withStore, writeAtomically } from "../io.ts";
+import { ensureBaseSpaces, identity } from "../runtime.ts";
 
 /** `grenier mcp serve`: the MCP server over stdio, for an agent that launches it in its working directory. */
 export async function serve(io: Io): Promise<number> {
   const { paths, config } = environment(io);
   const store = openSqliteStore(paths.db);
+  await ensureBaseSpaces(store);
   const server = createMcpServer({
     store,
     files: gitFiles,
@@ -21,7 +23,10 @@ export async function serve(io: Io): Promise<number> {
     resolveRepo: repoResolver(io.cwd),
     // The client token `grenier mcp install` wrote into the app's config, looked up at each call.
     reader: () => readerFor(store, io.env.GRENIER_CLIENT_TOKEN),
+    me: () => identity(store, config),
     version,
+    ...(io.env.GRENIER_SESSION ? { sessionId: io.env.GRENIER_SESSION } : {}),
+    ...(io.env.GRENIER_RUN_SPACE ? { runSpace: io.env.GRENIER_RUN_SPACE } : {}),
   });
   const transport = new StdioServerTransport();
   const closed = new Promise<void>((resolve) => {
@@ -165,7 +170,7 @@ export function withPromptHook(text: string, command: string): string {
 
 /**
  * `grenier mcp install <client> [--scope …] [--hook]`: adds Grenier's MCP server (over stdio) to that client's
- * config, with a client token of its own whose scope says which personal data it may read (none by default).
+ * config, with a client token of its own whose scope says which spaces it may read (every space by default).
  * Installing again revokes the previous token. `--hook`, for Claude Code only, also adds the prompt hook.
  */
 export async function install(
@@ -178,7 +183,7 @@ export async function install(
   const { values } = parseArgs({
     args: rest,
     strict: true,
-    options: { scope: { type: "string", default: "" }, hook: { type: "boolean", default: false } },
+    options: { scope: { type: "string", default: "*" }, hook: { type: "boolean", default: false } },
   });
   if (values.hook && client !== "claude-code") throw new UsageError("--hook is for claude-code only");
   const scopes = values.scope
@@ -212,6 +217,7 @@ export async function install(
   const hooked = values.hook ? withPromptHook(settingsText, hook) : null;
 
   const token = await withStore(paths, async (store) => {
+    await ensureBaseSpaces(store);
     // Checked before the old token goes, so a mistyped scope leaves the client working.
     await resolveScopes(store, scopes).catch((error: Error) => {
       throw new CommandError(error.message);
@@ -220,10 +226,11 @@ export async function install(
     return addClient(store, client as string, scopes);
   });
   writeAtomically(path, configFor(token));
-  const reads =
-    scopes.length > 0
+  const reads = scopes.includes("*")
+    ? "may read every space; install again with --scope <spaces> to narrow it"
+    : scopes.length > 0
       ? `may read ${scopes.join(", ")}`
-      : "reads no personal data; install again with --scope notes,calendar (or mail, memory, a source's name) to change that";
+      : "reads the repositories' spaces only";
   const added = `Added Grenier's MCP server to ${path}, with a client token of its own that ${reads}.`;
   if (!values.hook) return `${added} Restart ${client} to load it.`;
 

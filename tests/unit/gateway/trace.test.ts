@@ -186,16 +186,16 @@ describe("the steps of other agents' tools", () => {
     ]);
   });
 
-  it("marks Grenier's cache lookups with what they found", () => {
+  it("marks Grenier's lookups with what they found", () => {
     expect(
       steps(
         use(
-          "mcp__grenier__ask_codebase",
-          { question: "How does the proxy record usage?" },
+          "mcp__grenier__recall",
+          { query: "How does the proxy record usage?" },
           { error: false, text: '{\n  "status": "hit",\n  "answer": "…"\n}' },
         ),
         use("mcp__grenier__file_summary", { path: "src/proxy.ts" }, { error: false, text: '{"status":"miss"}' }),
-        use("mcp__grenier__record_answer", { question: "q", answer: "a", files: ["src/a.ts"] }),
+        use("mcp__grenier__remember", { kind: "answer", title: "q", body: "a", files: ["src/a.ts"] }),
       ),
     ).toEqual([
       { kind: "ask", path: null, label: "How does the proxy record usage?", outcome: "hit" },

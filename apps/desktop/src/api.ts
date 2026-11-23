@@ -31,6 +31,13 @@ function connect(): Promise<Connection> {
 
 export class ApiError extends Error {
   override name = "ApiError";
+  constructor(
+    message: string,
+    readonly status = 0,
+    readonly body: unknown = null,
+  ) {
+    super(message);
+  }
 }
 
 /** One call to the daemon's admin API. Throws ApiError with the daemon's own message. */
@@ -54,7 +61,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     );
   }
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`);
+  if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`, response.status, body);
   return body;
 }
 
@@ -100,55 +107,155 @@ export interface SessionRow extends ReportRow {
 
 export interface Overview {
   version: string;
+  /** Who writes from this machine: the member's name in the team, else this computer's user. */
+  me: string | null;
   days: ReportRow[];
   /** The most spent first. */
   projects: ReportRow[];
   /** The newest first. */
   sessions: SessionRow[];
-  /** Today's daily and project limits that spending has passed 80% of, or reached. */
-  limits?: { scope: "daily" | "repo"; key: string; limit: number; spent: number; reached: boolean }[];
-  cache: { repoId: string; answers: number; hits: number }[];
-  sources: number;
-  items: number;
+  records: number;
+  hits: number;
+  /** Changes made here that the team store has not taken yet. */
+  waiting: number;
+  team: { url: string; lastSync: number | null } | null;
   clients: number;
-  pendingReview: number;
   /** Sessions the loop guard paused, waiting to be resumed. */
   paused: number;
 }
 
-export interface CacheRepo {
+export interface Space {
   id: string;
   name: string;
-  answers: number;
-  hits: number;
-  summaries: number;
-  shared: boolean;
+  kind: "me" | "repo" | "team" | "custom";
+  repoId: string | null;
+  root: string | null;
+  records: number;
 }
 
-export interface CachedAnswer {
+export interface FieldDef {
+  name: string;
+  kind: "text" | "number" | "date" | "person" | "record" | "select" | "list" | "json";
+  required?: boolean;
+  options?: readonly string[];
+  type?: string;
+}
+
+export interface TypeDef {
+  name: string;
+  description: string;
+  fields: readonly FieldDef[];
+  body: boolean;
+  maxBody: number;
+}
+
+export interface Anchor {
+  kind: "git" | "item";
+  repoId: string | null;
+  ref: string;
+  version: string;
+}
+
+export interface Link {
+  kind: "record" | "person" | "repo" | "path" | "issue";
+  ref: string;
+}
+
+/** A record as lists show it. */
+export interface RecordRow {
   id: string;
-  question: string;
-  answer: string;
+  space: string;
+  type: string;
+  kind: string | null;
+  title: string;
+  body: string;
+  fields: Record<string, unknown>;
   author: string;
-  createdAt: number;
-  hits: number;
-  shared: boolean;
-  /** Why the team server refused it, when it did. */
-  shareError: string | null;
-  files: string[];
-  /** The files changed since it was recorded; null when the repository is not on this machine. */
-  changed: string[] | null;
+  updatedAt: number;
+  /** Whether the code it was written from is unchanged: stale when a file it names changed since. */
+  status: "hit" | "stale" | "unchecked";
+  changed: string[];
+  anchors: Anchor[];
+  links: Link[];
 }
 
-export interface BudgetsView {
-  daily: number | null;
-  session: number | null;
-  /** Whether the limit shown comes from config.toml, as no limit was set here or with the command. */
-  fromConfig: { daily: boolean; session: boolean };
-  repos: { name: string; limit: number }[];
-  /** The projects Grenier has seen a session in, for a new project limit. */
-  known: string[];
-  spentToday: number;
+export interface RecordFull extends RecordRow {
+  device: string;
+  createdAt: number;
+  version: number;
+  retiredAt: number | null;
+  hits: number;
+  linksTo: { id: string; title: string; type: string }[];
+  linkedFrom: { id: string; title: string; type: string }[];
+}
+
+export interface HistoryEntry {
+  version: number;
+  author: string;
+  device: string | null;
+  ts: number;
+  snapshot: Partial<RecordFull>;
+}
+
+export interface Member {
+  name: string;
+  role: "admin" | "member";
+  createdAt: number;
+  devices: { id: string; name: string; state: string; lastSeen: number | null }[];
+}
+
+export interface Invite {
+  id: string;
+  member: string;
+  role: string;
+  expiresAt: number;
+  device: string | null;
+  /** The six digits the joining device shows, once it asked to join. */
+  code: string | null;
+}
+
+export interface Machine {
+  id: string;
+  name: string;
+  member: string;
+  state: string;
+  lastSeen: number | null;
+  runs: number;
+}
+
+export interface TeamUsage {
+  day: string;
+  repo: string;
+  member: string;
+  machine: string;
+  requests: number;
+  cost: number;
+  routine_minutes: number;
+}
+
+export interface Run {
+  id: string;
+  routine_id: string;
+  task_id: string | null;
+  machine: string;
+  version: number;
+  kind: "run" | "eval";
+  status: string;
+  started_at: number;
+  ended_at: number | null;
+  actions: number;
+  cost: number;
+  landed: number | null;
+  score: number | null;
+  thumbs: number | null;
+}
+
+export interface Joining {
+  state: "idle" | "waiting" | "joined" | "failed";
+  code?: string;
+  error?: string;
+  url?: string;
+  member?: string;
 }
 
 export interface PausedSession {
@@ -156,21 +263,6 @@ export interface PausedSession {
   client: string | null;
   repo: string | null;
   pausedAt: number | null;
-}
-
-export interface SourceView {
-  name: string;
-  kind: string;
-  config: Record<string, unknown>;
-  items: number;
-  lastSync: number | null;
-}
-
-export interface SourceSync {
-  name: string;
-  added: number;
-  removed: number;
-  error?: string;
 }
 
 export interface ClientView {
@@ -186,12 +278,4 @@ export interface AuditEntry {
   tool: string;
   args: Record<string, unknown>;
   itemIds: string[];
-}
-
-export interface ReviewEntry {
-  id: string;
-  client: string;
-  text: string;
-  tags: string[];
-  ts: number;
 }

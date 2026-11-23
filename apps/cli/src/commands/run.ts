@@ -17,7 +17,7 @@ export function newSessionId(): string {
 }
 
 export const ASKED_FIRST =
-  "grenier: asked Claude Code to call ask_codebase before exploring (--append-system-prompt; pass your own to skip it)";
+  "grenier: asked Claude Code to call recall before exploring (--append-system-prompt; pass your own to skip it)";
 
 const SYSTEM_PROMPT_FLAG = /^--(append-)?system-prompt(-file)?(=|$)/;
 

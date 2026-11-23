@@ -2,7 +2,7 @@
   "name": "@grenier/index",
   "version": "0.0.0",
   "private": true,
-  "description": "The exploration cache: answers and file summaries keyed by blob hash, full-text and vector search, embeddings.",
+  "description": "The records: recall, remember and query over typed, linked records anchored to blob hashes, full-text and vector search, embeddings, and sync with the team store.",
   "license": "MIT",
   "type": "module",
   "exports": {

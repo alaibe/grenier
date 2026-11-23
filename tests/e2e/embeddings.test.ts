@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { blobHashes, repoPath, trackedFiles } from "@grenier/connectors/git";
-import { askCodebase, type CacheDeps, cosine, type Embedder, recordAnswer } from "@grenier/index";
+import { cosine, type Embedder, recall, remember, type StoreDeps } from "@grenier/index";
 import { DEFAULT_MODEL, loadLocalEmbedder } from "@grenier/index/node";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -61,29 +61,32 @@ describe("the default embedding model", () => {
 
   it("lets hybrid search find a reworded question that full text alone misses", async () => {
     const store = openSqliteStore(":memory:");
+    await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
     const repo = { root: dir, id: "r" };
-    const deps = (withVectors: boolean): CacheDeps => ({
+    const deps = (withVectors: boolean): StoreDeps => ({
       store,
       embedder: withVectors ? embedder : null,
       files: { hashes: blobHashes, tracked: trackedFiles, relative: repoPath },
+      me: { member: "ada", device: "mbp" },
     });
-    await recordAnswer(deps(true), repo, {
-      question: "How is the database migrated on start?",
-      answer: "migrate.ts applies the SQL files in one transaction when the store opens.",
+    await remember(deps(true), null, repo, {
+      kind: "answer",
+      title: "How is the database migrated on start?",
+      body: "migrate.ts applies the SQL files in one transaction when the store opens.",
       files: ["migrate.ts"],
     });
-    await recordAnswer(deps(true), repo, {
-      question: "How does the proxy stream responses back to the client?",
-      answer: "proxy.ts pipes the upstream body through a TransformStream.",
+    await remember(deps(true), null, repo, {
+      kind: "answer",
+      title: "How does the proxy stream responses back to the client?",
+      body: "proxy.ts pipes the upstream body through a TransformStream.",
       files: ["proxy.ts"],
     });
 
     const reworded = "What runs the schema migrations when the app starts?";
-    expect((await askCodebase(deps(false), repo, { question: reworded })).status).toBe("miss");
-    expect(await askCodebase(deps(true), repo, { question: reworded })).toMatchObject({
-      status: "hit",
-      question: "How is the database migrated on start?",
-    });
+    expect((await recall(deps(false), null, { query: reworded, repo })).status).toBe("miss");
+    const found = await recall(deps(true), null, { query: reworded, repo });
+    expect(found.status).toBe("hit");
+    expect(found.results[0]?.title).toBe("How is the database migrated on start?");
     await store.close();
   });
 });

@@ -1,10 +1,10 @@
 import { closeSync, openSync } from "node:fs";
 import Database from "better-sqlite3";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, type SQL, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, sql, sum } from "drizzle-orm";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { migrations as allMigrations, type Migration, StoreError } from "./index.ts";
 import * as schema from "./schema.ts";
-import type { BudgetScope, ItemFilter, SpendFilter, Store } from "./store.ts";
+import type { FullRecord, RecordFilter, Store } from "./store.ts";
 
 type Db = BetterSQLite3Database<typeof schema>;
 
@@ -32,22 +32,11 @@ function useWal(sqlite: Database.Database): void {
   }
 }
 
-/** Lower case without accents, so a name matches however it was typed. */
-function foldText(text: string): string {
-  const lower = text.toLowerCase();
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: the ASCII range, which has no accent to drop.
-  return /^[\x00-\x7f]*$/.test(lower) ? lower : lower.normalize("NFD").replace(/\p{M}/gu, "");
-}
-
 /** Opens (or creates, readable by this user only) the database at `file` and brings its schema up to date. */
 export function openSqliteStore(file: string, options: SqliteStoreOptions = {}): Store {
   if (file !== ":memory:") closeSync(openSync(file, "a", 0o600));
 
   const sqlite = new Database(file);
-  // SQLite's lower() folds ASCII only.
-  sqlite.function("fold", { deterministic: true }, (text: unknown) =>
-    typeof text === "string" ? foldText(text) : text,
-  );
   const db = drizzle(sqlite, { schema });
   try {
     sqlite.pragma(`busy_timeout = ${BUSY_TIMEOUT}`);
@@ -64,41 +53,67 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     usage,
     events,
     steps,
-    budgets,
-    answers,
-    answerSources,
-    answerEmbeddings,
-    fileSummaries,
+    state,
+    spaces,
+    records,
+    anchors,
+    links,
+    recordEmbeddings,
+    history,
+    outbox,
+    approvals,
+    runs,
+    outcomes,
     clients,
-    teamRepos,
-    syncState,
-    sources,
-    items,
     audit,
-    reviewQueue,
   } = schema;
 
-  const itemConditions = (filter: ItemFilter) =>
-    and(
-      filter.sourceIds.length === 0 ? sql`0` : inArray(items.sourceId, [...filter.sourceIds]),
-      filter.from === undefined ? undefined : gte(items.ts, filter.from),
-      filter.to === undefined ? undefined : lte(items.ts, filter.to),
-    );
   const ftsQuery = (terms: readonly string[]) =>
     terms
       .filter((term) => term.trim() !== "")
       .map((term) => `"${term.replace(/"/g, '""')}"`)
       .join(" OR ");
-  const withSources = (rows: (typeof answers.$inferSelect)[]) =>
-    rows.map((answer) => ({
-      ...answer,
-      sources: db
-        .select({ path: answerSources.path, blobHash: answerSources.blobHash })
-        .from(answerSources)
-        .where(eq(answerSources.answerId, answer.id))
-        .orderBy(asc(answerSources.path))
-        .all(),
+
+  const full = (rows: (typeof records.$inferSelect)[]): FullRecord[] => {
+    if (rows.length === 0) return [];
+    const ids = rows.map((row) => row.id);
+    const anchorRows = db
+      .select()
+      .from(anchors)
+      .where(inArray(anchors.recordId, ids))
+      .orderBy(asc(anchors.kind), asc(anchors.ref))
+      .all();
+    const linkRows = db
+      .select()
+      .from(links)
+      .where(inArray(links.recordId, ids))
+      .orderBy(asc(links.kind), asc(links.ref))
+      .all();
+    return rows.map((row) => ({
+      ...row,
+      anchors: anchorRows
+        .filter((anchor) => anchor.recordId === row.id)
+        .map(({ kind, repoId, ref, version }) => ({ kind, repoId, ref, version })),
+      links: linkRows.filter((link) => link.recordId === row.id).map(({ kind, ref }) => ({ kind, ref })),
     }));
+  };
+
+  const recordConditions = (filter: RecordFilter) =>
+    and(
+      filter.spaces.length === 0 ? sql`0` : inArray(records.space, [...filter.spaces]),
+      filter.type === undefined ? undefined : eq(records.type, filter.type),
+      filter.kind === undefined ? undefined : eq(records.kind, filter.kind),
+      filter.retired ? undefined : isNull(records.retiredAt),
+      filter.linkedTo === undefined
+        ? undefined
+        : inArray(
+            records.id,
+            db
+              .select({ id: links.recordId })
+              .from(links)
+              .where(and(eq(links.kind, filter.linkedTo.kind), eq(links.ref, filter.linkedTo.ref))),
+          ),
+    );
 
   return {
     schemaVersion: async () => schemaVersion(db),
@@ -132,26 +147,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       add: async (row) => {
         db.insert(usage).values(row).run();
       },
-      spend: async (filter) => {
-        const row = db
-          .select({ total: sql<number | null>`sum(${usage.cost})` })
-          .from(usage)
-          .where(spendConditions(filter))
-          .get();
-        return row?.total ?? 0;
-      },
-      spendByFolder: async (since) =>
-        db
-          .select({
-            repoRoot: sessions.repoRoot,
-            cwd: sessions.cwd,
-            spent: sql<number>`coalesce(sum(${usage.cost}), 0)`,
-          })
-          .from(usage)
-          .leftJoin(sessions, eq(sessions.id, usage.sessionId))
-          .where(gte(usage.ts, since))
-          .groupBy(sessions.repoRoot, sessions.cwd)
-          .all(),
       list: async (filter = {}) =>
         db
           .select({
@@ -183,14 +178,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .all(),
       after: async (id, limit) =>
         db.select().from(usage).where(gt(usage.id, id)).orderBy(asc(usage.id)).limit(limit).all(),
-      lastCost: async (sessionId) =>
-        db
-          .select({ cost: usage.cost })
-          .from(usage)
-          .where(and(eq(usage.sessionId, sessionId), gt(usage.cost, 0)))
-          .orderBy(desc(usage.ts), desc(usage.id))
-          .limit(1)
-          .get()?.cost ?? null,
       prune: async (before) => db.delete(usage).where(lt(usage.ts, before)).run().changes,
     },
 
@@ -246,139 +233,238 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       prune: async (before) => db.delete(steps).where(lt(steps.ts, before)).run().changes,
     },
 
-    budgets: {
-      set: async (scope, key, limit) => {
-        db.insert(budgets)
-          .values({ scope, key, period: periodOf(scope), limitAmount: limit })
+    state: {
+      get: async (key) => db.select().from(state).where(eq(state.key, key)).get()?.value,
+      set: async (key, value) => {
+        db.insert(state).values({ key, value }).onConflictDoUpdate({ target: state.key, set: { value } }).run();
+      },
+      remove: async (key) => {
+        db.delete(state).where(eq(state.key, key)).run();
+      },
+    },
+
+    spaces: {
+      put: async (space) => {
+        db.insert(spaces)
+          .values(space)
           .onConflictDoUpdate({
-            target: [budgets.scope, budgets.key, budgets.period],
-            set: { limitAmount: limit },
+            target: spaces.id,
+            set: { name: space.name, ...(space.root === null ? {} : { root: space.root }) },
           })
           .run();
       },
-      remove: async (scope, key) => {
-        db.delete(budgets)
-          .where(and(eq(budgets.scope, scope), eq(budgets.key, key), eq(budgets.period, periodOf(scope))))
-          .run();
-      },
-      list: async () => db.select().from(budgets).orderBy(asc(budgets.scope), asc(budgets.key)).all(),
-    },
-
-    answers: {
-      add: async (answer, sources, embedding) => {
+      get: async (id) => db.select().from(spaces).where(eq(spaces.id, id)).get(),
+      list: async () => db.select().from(spaces).orderBy(asc(spaces.kind), asc(spaces.name)).all(),
+      remove: async (id) => {
         sqlite
           .transaction(() => {
-            db.delete(answers)
-              .where(
-                and(
-                  eq(answers.repoId, answer.repoId),
-                  sql`fold(trim(${answers.question})) = fold(trim(${answer.question}))`,
-                ),
-              )
-              .run();
-            db.insert(answers).values(answer).run();
-            if (sources.length > 0) {
-              db.insert(answerSources)
-                .values(
-                  sources.map((source) => ({ answerId: answer.id, path: source.path, blobHash: source.blobHash })),
-                )
+            db.delete(records).where(eq(records.space, id)).run();
+            db.delete(spaces).where(eq(spaces.id, id)).run();
+          })
+          .immediate();
+      },
+    },
+
+    records: {
+      put: async (record, embedding) => {
+        const { anchors: anchorList, links: linkList, ...row } = record;
+        sqlite
+          .transaction(() => {
+            const before = db
+              .select({ title: records.title, body: records.body })
+              .from(records)
+              .where(eq(records.id, row.id))
+              .get();
+            db.insert(records).values(row).onConflictDoUpdate({ target: records.id, set: row }).run();
+            db.delete(anchors).where(eq(anchors.recordId, row.id)).run();
+            db.delete(links).where(eq(links.recordId, row.id)).run();
+            if (anchorList.length > 0) {
+              db.insert(anchors)
+                .values(anchorList.map((anchor) => ({ ...anchor, recordId: row.id })))
+                .onConflictDoNothing()
+                .run();
+            }
+            if (linkList.length > 0) {
+              db.insert(links)
+                .values(linkList.map((link) => ({ ...link, recordId: row.id })))
+                .onConflictDoNothing()
                 .run();
             }
             if (embedding) {
-              db.insert(answerEmbeddings)
-                .values({ answerId: answer.id, model: embedding.model, vector: toBlob(embedding.vector) })
+              db.insert(recordEmbeddings)
+                .values({ recordId: row.id, model: embedding.model, vector: toBlob(embedding.vector) })
+                .onConflictDoUpdate({
+                  target: recordEmbeddings.recordId,
+                  set: { model: embedding.model, vector: toBlob(embedding.vector) },
+                })
                 .run();
+            } else if (before && (before.title !== row.title || before.body !== row.body)) {
+              db.delete(recordEmbeddings).where(eq(recordEmbeddings.recordId, row.id)).run();
             }
           })
           .immediate();
       },
-      get: async (id) => {
-        const answer = db.select().from(answers).where(eq(answers.id, id)).get();
-        if (!answer) return undefined;
-        const sources = db
-          .select({ path: answerSources.path, blobHash: answerSources.blobHash })
-          .from(answerSources)
-          .where(eq(answerSources.answerId, id))
-          .orderBy(asc(answerSources.path))
-          .all();
-        return { ...answer, sources };
-      },
-      search: async (repoId, terms, limit) => {
-        const query = terms
-          .filter((term) => term.trim() !== "")
-          .map((term) => `"${term.replace(/"/g, '""')}"`)
-          .join(" OR ");
-        if (query === "") return [];
-        return db.all<{ id: string; score: number }>(sql`
-          SELECT ${answers.id} AS id, bm25(answers_fts) AS score
-          FROM answers_fts JOIN ${answers} ON ${answers.seq} = answers_fts.rowid
-          WHERE answers_fts MATCH ${query} AND ${answers.repoId} = ${repoId}
-          ORDER BY score LIMIT ${limit}`);
-      },
-      vectors: async (repoId, model) =>
-        db
-          .select({ id: answerEmbeddings.answerId, vector: answerEmbeddings.vector })
-          .from(answerEmbeddings)
-          .innerJoin(answers, eq(answers.id, answerEmbeddings.answerId))
-          .where(and(eq(answers.repoId, repoId), eq(answerEmbeddings.model, model)))
-          .all()
-          .map((row) => ({ id: row.id, vector: fromBlob(row.vector) })),
-      hit: async (id) => {
-        db.update(answers)
-          .set({ hits: sql`${answers.hits} + 1` })
-          .where(eq(answers.id, id))
-          .run();
-      },
-      totalHits: async () =>
-        Number(
-          db
-            .select({ total: sql<number>`coalesce(sum(${answers.hits}), 0)` })
-            .from(answers)
-            .get()?.total ?? 0,
-        ),
-      list: async (repoId) =>
-        withSources(db.select().from(answers).where(eq(answers.repoId, repoId)).orderBy(desc(answers.createdAt)).all()),
-      unshared: async (repoIds, limit) => {
-        if (repoIds.length === 0) return [];
-        return withSources(
+      get: async (id) => full(db.select().from(records).where(eq(records.id, id)).all())[0],
+      list: async (filter) =>
+        full(
           db
             .select()
-            .from(answers)
-            .where(and(inArray(answers.repoId, [...repoIds]), eq(answers.shared, false), isNull(answers.shareError)))
-            .orderBy(asc(answers.createdAt))
-            .limit(limit)
+            .from(records)
+            .where(recordConditions(filter))
+            .orderBy(desc(records.updatedAt), desc(records.seq))
+            .limit(filter.limit ?? 1000)
             .all(),
-        );
+        ),
+      search: async (terms, spaceIds, limit) => {
+        const query = ftsQuery(terms);
+        if (query === "" || spaceIds.length === 0) return [];
+        return db
+          .select({ id: records.id, score: sql<number>`bm25(records_fts)` })
+          .from(sql`records_fts`)
+          .innerJoin(records, sql`${records.seq} = records_fts.rowid`)
+          .where(and(sql`records_fts MATCH ${query}`, inArray(records.space, [...spaceIds]), isNull(records.retiredAt)))
+          .orderBy(sql`bm25(records_fts)`)
+          .limit(limit)
+          .all();
       },
-      markShared: async (ids) => {
-        if (ids.length > 0)
-          db.update(answers)
-            .set({ shared: true })
-            .where(inArray(answers.id, [...ids]))
-            .run();
+      vectors: async (spaceIds, model) =>
+        spaceIds.length === 0
+          ? []
+          : db
+              .select({ id: recordEmbeddings.recordId, vector: recordEmbeddings.vector })
+              .from(recordEmbeddings)
+              .innerJoin(records, eq(records.id, recordEmbeddings.recordId))
+              .where(
+                and(
+                  inArray(records.space, [...spaceIds]),
+                  eq(recordEmbeddings.model, model),
+                  isNull(records.retiredAt),
+                ),
+              )
+              .all()
+              .map((row) => ({ id: row.id, vector: fromBlob(row.vector) })),
+      hit: async (id) => {
+        db.update(records)
+          .set({ hits: sql`${records.hits} + 1` })
+          .where(eq(records.id, id))
+          .run();
       },
-      unshareAll: async () => {
-        db.update(answers).set({ shared: false, shareError: null }).run();
-      },
-      refuse: async (id, reason) => {
-        db.update(answers).set({ shareError: reason }).where(eq(answers.id, id)).run();
+      setVersion: async (id, version) => {
+        db.update(records).set({ version }).where(eq(records.id, id)).run();
       },
       remove: async (id) => {
-        db.delete(answers).where(eq(answers.id, id)).run();
+        db.delete(records).where(eq(records.id, id)).run();
       },
-      clear: async (repoId) =>
-        db
-          .delete(answers)
-          .where(repoId === undefined ? undefined : eq(answers.repoId, repoId))
-          .run().changes,
       stats: async () =>
         db
-          .select({ repoId: answers.repoId, answers: count(), hits: sql<number>`coalesce(${sum(answers.hits)}, 0)` })
-          .from(answers)
-          .groupBy(answers.repoId)
-          .orderBy(asc(answers.repoId))
+          .select({
+            space: records.space,
+            type: records.type,
+            records: count(),
+            hits: sql<number>`coalesce(${sum(records.hits)}, 0)`,
+          })
+          .from(records)
+          .where(isNull(records.retiredAt))
+          .groupBy(records.space, records.type)
+          .orderBy(asc(records.space), asc(records.type))
           .all()
           .map((row) => ({ ...row, hits: Number(row.hits) })),
+    },
+
+    history: {
+      add: async (entry) => {
+        db.insert(history).values(entry).onConflictDoNothing().run();
+      },
+      list: async (recordId) =>
+        db.select().from(history).where(eq(history.recordId, recordId)).orderBy(asc(history.version)).all(),
+    },
+
+    outbox: {
+      add: async (entry) => {
+        const next =
+          (db
+            .select({ last: sql<number | null>`max(${outbox.seq})` })
+            .from(outbox)
+            .get()?.last ?? 0) + 1;
+        db.insert(outbox)
+          .values({ ...entry, seq: next })
+          .run();
+      },
+      pending: async (limit) =>
+        db.select().from(outbox).where(isNull(outbox.refused)).orderBy(asc(outbox.seq)).limit(limit).all(),
+      list: async () => db.select().from(outbox).orderBy(asc(outbox.seq)).all(),
+      remove: async (ids) => {
+        if (ids.length > 0)
+          db.delete(outbox)
+            .where(inArray(outbox.id, [...ids]))
+            .run();
+      },
+      refuse: async (id, reason) => {
+        db.update(outbox).set({ refused: reason }).where(eq(outbox.id, id)).run();
+      },
+    },
+
+    approvals: {
+      get: async (recordId, kind) =>
+        db
+          .select()
+          .from(approvals)
+          .where(and(eq(approvals.recordId, recordId), eq(approvals.kind, kind)))
+          .get(),
+      list: async (kind) =>
+        db
+          .select()
+          .from(approvals)
+          .where(kind === undefined ? undefined : eq(approvals.kind, kind))
+          .orderBy(asc(approvals.approvedAt))
+          .all(),
+      put: async (approval) => {
+        db.insert(approvals)
+          .values(approval)
+          .onConflictDoUpdate({ target: [approvals.recordId, approvals.kind], set: approval })
+          .run();
+      },
+      remove: async (recordId, kind) => {
+        db.delete(approvals)
+          .where(and(eq(approvals.recordId, recordId), eq(approvals.kind, kind)))
+          .run();
+      },
+    },
+
+    runs: {
+      add: async (run) => {
+        db.insert(runs).values(run).run();
+      },
+      update: async (id, change) => {
+        db.update(runs).set(change).where(eq(runs.id, id)).run();
+      },
+      get: async (id) => db.select().from(runs).where(eq(runs.id, id)).get(),
+      list: async (filter = {}) =>
+        db
+          .select()
+          .from(runs)
+          .where(
+            and(
+              filter.routineId === undefined ? undefined : eq(runs.routineId, filter.routineId),
+              filter.since === undefined ? undefined : gte(runs.startedAt, filter.since),
+            ),
+          )
+          .orderBy(desc(runs.startedAt))
+          .limit(filter.limit ?? 200)
+          .all(),
+    },
+
+    outcomes: {
+      put: async (outcome) => {
+        db.insert(outcomes).values(outcome).onConflictDoUpdate({ target: outcomes.sessionId, set: outcome }).run();
+      },
+      list: async (filter = {}) =>
+        db
+          .select()
+          .from(outcomes)
+          .where(filter.since === undefined ? undefined : gte(outcomes.computedAt, filter.since))
+          .orderBy(asc(outcomes.computedAt))
+          .all(),
     },
 
     clients: {
@@ -400,92 +486,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .run().changes > 0,
     },
 
-    sources: {
-      add: async (source) => {
-        db.insert(sources).values(source).run();
-      },
-      list: async () => db.select().from(sources).orderBy(asc(sources.name)).all(),
-      get: async (name) => db.select().from(sources).where(eq(sources.name, name)).get(),
-      remove: async (name) => db.delete(sources).where(eq(sources.name, name)).run().changes > 0,
-      saveState: async (id, state, at) => {
-        db.update(sources).set({ state, lastSync: at }).where(eq(sources.id, id)).run();
-      },
-      setVault: async (name, on) =>
-        db.update(sources).set({ vault: on }).where(eq(sources.name, name)).run().changes > 0,
-    },
-
-    items: {
-      put: async (item) => {
-        const existing = db.select({ contentHash: items.contentHash }).from(items).where(eq(items.id, item.id)).get();
-        if (existing?.contentHash === item.contentHash) return false;
-        const { seq: _seq, ...values } = item;
-        db.insert(items).values(values).onConflictDoUpdate({ target: items.id, set: values }).run();
-        return true;
-      },
-      get: async (id) => db.select().from(items).where(eq(items.id, id)).get(),
-      remove: async (ids) =>
-        ids.length === 0
-          ? 0
-          : db
-              .delete(items)
-              .where(inArray(items.id, [...ids]))
-              .run().changes,
-      ids: async (sourceId) =>
-        db
-          .select({ id: items.id })
-          .from(items)
-          .where(eq(items.sourceId, sourceId))
-          .all()
-          .map((row) => row.id),
-      search: async (terms, filter, limit) => {
-        const query = ftsQuery(terms);
-        if (query === "" || filter.sourceIds.length === 0) return [];
-        return db
-          .select({ item: items })
-          .from(sql`items_fts`)
-          .innerJoin(items, sql`${items.seq} = items_fts.rowid`)
-          .where(and(sql`items_fts MATCH ${query}`, itemConditions(filter)))
-          .orderBy(sql`bm25(items_fts)`)
-          .limit(limit)
-          .all()
-          .map((row) => row.item);
-      },
-      timeline: async (terms, filter, limit) => {
-        if (filter.sourceIds.length === 0) return [];
-        const query = ftsQuery(terms);
-        if (query === "") {
-          return db.select().from(items).where(itemConditions(filter)).orderBy(asc(items.ts)).limit(limit).all();
-        }
-        return db
-          .select({ item: items })
-          .from(sql`items_fts`)
-          .innerJoin(items, sql`${items.seq} = items_fts.rowid`)
-          .where(and(sql`items_fts MATCH ${query}`, itemConditions(filter)))
-          .orderBy(asc(items.ts))
-          .limit(limit)
-          .all()
-          .map((row) => row.item);
-      },
-      withPerson: async (name, filter, limit) => {
-        if (filter.sourceIds.length === 0 || name.trim() === "") return [];
-        const pattern = `%${foldText(name.trim()).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-        return db
-          .select()
-          .from(items)
-          .where(and(sql`fold(${items.people}) LIKE ${pattern} ESCAPE '\\'`, itemConditions(filter)))
-          .orderBy(desc(items.ts))
-          .limit(limit)
-          .all();
-      },
-      count: async () =>
-        db
-          .select({ sourceId: items.sourceId, items: count() })
-          .from(items)
-          .groupBy(items.sourceId)
-          .orderBy(asc(items.sourceId))
-          .all(),
-    },
-
     audit: {
       add: async (entry) => {
         db.insert(audit).values(entry).run();
@@ -504,134 +504,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .limit(filter.limit ?? 1000)
           .all(),
     },
-
-    review: {
-      add: async (entry) => {
-        db.insert(reviewQueue).values(entry).run();
-      },
-      get: async (id) => db.select().from(reviewQueue).where(eq(reviewQueue.id, id)).get(),
-      list: async (state) =>
-        db
-          .select()
-          .from(reviewQueue)
-          .where(state === undefined ? undefined : eq(reviewQueue.state, state))
-          .orderBy(asc(reviewQueue.ts))
-          .all(),
-      decide: async (id, state, at) =>
-        db
-          .update(reviewQueue)
-          .set({ state, decidedAt: at })
-          .where(and(eq(reviewQueue.id, id), eq(reviewQueue.state, "pending")))
-          .run().changes > 0,
-    },
-
-    team: {
-      repos: async () => db.select().from(teamRepos).orderBy(asc(teamRepos.root)).all(),
-      share: async (repoId, root, at) => {
-        db.insert(teamRepos)
-          .values({ repoId, root, addedAt: at })
-          .onConflictDoUpdate({ target: teamRepos.repoId, set: { root } })
-          .run();
-      },
-      unshare: async (repoId) => db.delete(teamRepos).where(eq(teamRepos.repoId, repoId)).run().changes > 0,
-      get: async (key) => db.select().from(syncState).where(eq(syncState.key, key)).get()?.value,
-      set: async (key, value) => {
-        db.insert(syncState).values({ key, value }).onConflictDoUpdate({ target: syncState.key, set: { value } }).run();
-      },
-    },
-
-    summaries: {
-      put: async (summary) => {
-        db.insert(fileSummaries)
-          .values(summary)
-          .onConflictDoUpdate({
-            target: [fileSummaries.repoId, fileSummaries.path, fileSummaries.blobHash],
-            set: {
-              summary: summary.summary,
-              createdAt: summary.createdAt,
-              shared: summary.shared ?? false,
-              shareError: summary.shareError ?? null,
-            },
-          })
-          .run();
-      },
-      get: async (repoId, path, blobHash) =>
-        db
-          .select()
-          .from(fileSummaries)
-          .where(
-            and(eq(fileSummaries.repoId, repoId), eq(fileSummaries.path, path), eq(fileSummaries.blobHash, blobHash)),
-          )
-          .get(),
-      latest: async (repoId) => {
-        const rows = db
-          .select()
-          .from(fileSummaries)
-          .where(eq(fileSummaries.repoId, repoId))
-          .orderBy(asc(fileSummaries.path), desc(fileSummaries.createdAt))
-          .all();
-        const newest = new Map<string, (typeof rows)[number]>();
-        for (const row of rows) if (!newest.has(row.path)) newest.set(row.path, row);
-        return [...newest.values()];
-      },
-      unshared: async (repoIds, limit) =>
-        repoIds.length === 0
-          ? []
-          : db
-              .select()
-              .from(fileSummaries)
-              .where(
-                and(
-                  inArray(fileSummaries.repoId, [...repoIds]),
-                  eq(fileSummaries.shared, false),
-                  isNull(fileSummaries.shareError),
-                ),
-              )
-              .orderBy(asc(fileSummaries.createdAt))
-              .limit(limit)
-              .all(),
-      unshareAll: async () => {
-        db.update(fileSummaries).set({ shared: false, shareError: null }).run();
-      },
-      markShared: async (keys) => {
-        for (const key of keys) {
-          db.update(fileSummaries)
-            .set({ shared: true })
-            .where(
-              and(
-                eq(fileSummaries.repoId, key.repoId),
-                eq(fileSummaries.path, key.path),
-                eq(fileSummaries.blobHash, key.blobHash),
-              ),
-            )
-            .run();
-        }
-      },
-      refuse: async (key, reason) => {
-        db.update(fileSummaries)
-          .set({ shareError: reason })
-          .where(
-            and(
-              eq(fileSummaries.repoId, key.repoId),
-              eq(fileSummaries.path, key.path),
-              eq(fileSummaries.blobHash, key.blobHash),
-            ),
-          )
-          .run();
-      },
-      clear: async (repoId) =>
-        db
-          .delete(fileSummaries)
-          .where(repoId === undefined ? undefined : eq(fileSummaries.repoId, repoId))
-          .run().changes,
-      stats: async () =>
-        db
-          .select({ repoId: fileSummaries.repoId, summaries: count() })
-          .from(fileSummaries)
-          .groupBy(fileSummaries.repoId)
-          .orderBy(asc(fileSummaries.repoId))
-          .all(),
-    },
   };
 }
 
@@ -642,18 +514,6 @@ function toBlob(vector: Float32Array): Buffer {
 function fromBlob(blob: Buffer): Float32Array {
   const copy = new Uint8Array(blob);
   return new Float32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4);
-}
-
-function periodOf(scope: BudgetScope): string {
-  return scope === "session" ? "session" : "day";
-}
-
-function spendConditions(filter: SpendFilter): SQL | undefined {
-  const { usage } = schema;
-  return and(
-    filter.since === undefined ? undefined : gte(usage.ts, filter.since),
-    filter.sessionId === undefined ? undefined : eq(usage.sessionId, filter.sessionId),
-  );
 }
 
 function migrate(sqlite: Database.Database, db: Db, file: string, migrations: readonly Migration[]): void {

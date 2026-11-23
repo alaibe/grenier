@@ -25,7 +25,7 @@ export function newTeamToken(): { token: string; hash: string } {
 }
 
 /** Sets `key = "value"` in a TOML table, editing the text so comments and other settings stay as they were. */
-export function withTomlValue(text: string, table: string, key: string, value: string): string {
+export function withTomlValue(text: string, table: string, key: string, value: string | number | boolean): string {
   const line = `${key} = ${JSON.stringify(value)}`;
   const lines = text.split("\n");
   const start = lines.findIndex((entry) => entry.trim() === `[${table}]`);

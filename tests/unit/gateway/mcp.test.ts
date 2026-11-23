@@ -1,56 +1,56 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { blobHashes, repoPath, trackedFiles } from "@grenier/connectors/git";
 import { defaultConfig, sha256 } from "@grenier/core";
 import { createGateway, createMcpServer, INSTRUCTIONS } from "@grenier/gateway";
-import { CacheError } from "@grenier/index";
+import { type Reader, StoreUseError } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ADA, gitFiles, TestRepo } from "../../support/repo.ts";
 
-let dir: string;
 let store: Store;
+let repo: TestRepo;
 
-beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), "grenier-mcp-")));
-  const git = (...args: string[]) =>
-    execFileSync("git", ["-C", dir, ...args], {
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: "t",
-        GIT_AUTHOR_EMAIL: "t@x.invalid",
-        GIT_COMMITTER_NAME: "t",
-        GIT_COMMITTER_EMAIL: "t@x.invalid",
-      },
-    });
-  git("init", "-q");
-  writeFileSync(join(dir, "proxy.ts"), "export const proxy = 1;\n");
-  git("add", ".");
-  git("commit", "-q", "-m", "first");
+beforeEach(async () => {
+  repo = new TestRepo({ "proxy.ts": "export const proxy = 1;\n" });
+  await repo.ready();
   store = openSqliteStore(":memory:");
+  await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
+  await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
 });
 
 afterEach(async () => {
   await store.close();
-  rmSync(dir, { recursive: true, force: true });
+  repo.remove();
 });
 
-const files = { hashes: blobHashes, tracked: trackedFiles, relative: repoPath };
-const resolveRepo = async (repo: string | undefined) => {
-  if (repo !== undefined && repo !== dir) throw new CacheError(`not inside a git repository: ${repo}`);
-  return { root: dir, id: "repo-1" };
+const resolveRepo = async (path: string | undefined) => {
+  if (path !== undefined && path !== repo.dir) throw new StoreUseError(`not inside a git repository: ${path}`);
+  return repo.repo;
 };
 
-async function connect() {
-  const server = createMcpServer({ store, files, embedder: async () => null, resolveRepo, version: "test" });
+async function connect(options: { reader?: Reader | null; elicit?: (message: string) => unknown } = {}) {
+  const server = createMcpServer({
+    store,
+    files: gitFiles,
+    embedder: async () => null,
+    resolveRepo,
+    reader: async () => options.reader ?? { id: "c", name: "claude", scopes: ["*"] },
+    me: async () => ADA,
+    version: "test",
+  });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
-  const client = new Client({ name: "test", version: "1" });
+  const client = new Client(
+    { name: "test", version: "1" },
+    options.elicit ? { capabilities: { elicitation: {} } } : {},
+  );
+  if (options.elicit) {
+    const elicit = options.elicit;
+    client.setRequestHandler(ElicitRequestSchema, async (request) => elicit(request.params.message) as never);
+  }
   await client.connect(clientSide);
   return client;
 }
@@ -60,48 +60,94 @@ function structured(result: unknown): Record<string, unknown> {
 }
 
 describe("the MCP server", () => {
-  it("tells the agent to ask before exploring and to record after", async () => {
+  it("tells the agent to recall before exploring and to remember after", async () => {
     const client = await connect();
     expect(client.getInstructions()).toBe(INSTRUCTIONS);
-    expect(INSTRUCTIONS).toContain("call ask_codebase");
-    expect(INSTRUCTIONS).toContain("call record_answer");
+    expect(INSTRUCTIONS).toContain("call recall");
+    expect(INSTRUCTIONS).toContain("call remember");
     expect((await client.listTools()).tools.map((tool) => tool.name).sort()).toEqual([
-      "ask_codebase",
       "file_summary",
-      "get",
-      "people",
-      "record_answer",
-      "record_summary",
+      "query",
+      "recall",
       "remember",
       "repo_map",
-      "search",
-      "timeline",
+      "request",
     ]);
   });
 
-  it("answers ask_codebase from what record_answer kept", async () => {
+  it("answers recall from what remember kept", async () => {
     const client = await connect();
     const question = "Where is the proxy defined?";
-    expect(structured(await client.callTool({ name: "ask_codebase", arguments: { question } }))).toMatchObject({
+    expect(structured(await client.callTool({ name: "recall", arguments: { query: question } }))).toMatchObject({
       status: "miss",
     });
-
-    const recorded = structured(
+    const kept = structured(
       await client.callTool({
-        name: "record_answer",
-        arguments: { question, answer: "In proxy.ts.", files: ["proxy.ts"] },
+        name: "remember",
+        arguments: { kind: "answer", title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
       }),
     );
-    expect(recorded.id).toEqual(expect.any(String));
-
-    const asked = await client.callTool({ name: "ask_codebase", arguments: { question } });
-    expect(structured(asked)).toMatchObject({ status: "hit", answer: "In proxy.ts.", changed: [] });
-    expect(JSON.parse((asked as { content: { text: string }[] }).content[0]?.text ?? "{}").status).toBe("hit");
+    expect(kept).toMatchObject({ status: "kept", space: `repo:${repo.repo.id}` });
+    const recalled = structured(await client.callTool({ name: "recall", arguments: { query: question } }));
+    expect(recalled).toMatchObject({ status: "hit", results: [{ title: question, changed: [] }] });
   });
 
-  it("records and reads summaries, and maps the repository", async () => {
+  it("asks the person before a decision leaves this machine, and keeps it in me when they say so", async () => {
+    const asked: string[] = [];
+    const client = await connect({
+      elicit: (message) => {
+        asked.push(message);
+        return { action: "accept", content: { choice: "me" } };
+      },
+    });
+    const kept = structured(
+      await client.callTool({
+        name: "remember",
+        arguments: {
+          type: "Decision",
+          title: "Use SQLite",
+          fields: { owner: "ada", date: "2026-11-20", reason: "One file." },
+        },
+      }),
+    );
+    expect(asked[0]).toContain("Share this Decision with the whole team?");
+    expect(kept).toMatchObject({ space: "me", status: "kept in me" });
+  });
+
+  it("keeps a record in me when the client cannot ask", async () => {
     const client = await connect();
-    await client.callTool({ name: "record_summary", arguments: { path: "proxy.ts", summary: "Exports the proxy." } });
+    const kept = structured(
+      await client.callTool({ name: "remember", arguments: { kind: "convention", title: "Tabs" } }),
+    );
+    expect(kept).toMatchObject({ space: "me" });
+  });
+
+  it("files a request for a routine, by its title", async () => {
+    const client = await connect({ elicit: () => ({ action: "accept", content: { choice: "share" } }) });
+    await client.callTool({
+      name: "remember",
+      arguments: {
+        type: "Routine",
+        title: "Update dependencies",
+        fields: { versions: [{ version: 1, prompt: "Update.", status: "production" }], trigger: "request" },
+        space: "team",
+      },
+    });
+    const filed = structured(
+      await client.callTool({ name: "request", arguments: { routine: "update dependencies", title: "Bump hono" } }),
+    );
+    expect(filed).toMatchObject({ routine: "Update dependencies", status: "to-do" });
+    expect((await store.records.get(String(filed.id)))?.fields).toMatchObject({ status: "to-do" });
+    const unknown = await client.callTool({ name: "request", arguments: { routine: "nothing", title: "x" } });
+    expect(unknown.isError).toBe(true);
+  });
+
+  it("keeps summaries and maps the repository", async () => {
+    const client = await connect();
+    await client.callTool({
+      name: "remember",
+      arguments: { kind: "summary", title: "proxy.ts", body: "Exports the proxy.", files: ["proxy.ts"] },
+    });
     expect(structured(await client.callTool({ name: "file_summary", arguments: { path: "proxy.ts" } }))).toEqual({
       status: "hit",
       path: "proxy.ts",
@@ -112,16 +158,15 @@ describe("the MCP server", () => {
     });
   });
 
-  it("returns the cache's refusals as tool errors, not crashes", async () => {
+  it("returns the store's refusals as tool errors, not crashes", async () => {
     const client = await connect();
     const outside = await client.callTool({
-      name: "record_answer",
-      arguments: { question: "q", answer: "a", files: ["../../etc/passwd"] },
+      name: "remember",
+      arguments: { kind: "answer", title: "q", body: "a", files: ["../../etc/passwd"] },
     });
     expect(outside.isError).toBe(true);
     expect((outside as { content: { text: string }[] }).content[0]?.text).toContain("outside the repository");
-
-    const elsewhere = await client.callTool({ name: "ask_codebase", arguments: { question: "q", repo: "/nowhere" } });
+    const elsewhere = await client.callTool({ name: "recall", arguments: { query: "q", repo: "/nowhere" } });
     expect(elsewhere.isError).toBe(true);
   });
 });
@@ -133,7 +178,7 @@ describe("MCP over HTTP in the daemon", () => {
       config: defaultConfig(),
       prices: loadPrices(),
       port: 7788,
-      mcp: { files, embedder: async () => null, resolveRepo, version: "test" },
+      mcp: { files: gitFiles, embedder: async () => null, resolveRepo, me: async () => ADA, version: "test" },
     });
   }
 

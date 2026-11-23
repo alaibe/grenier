@@ -4,35 +4,45 @@ import { join } from "node:path";
 import { repoText } from "@grenier/connectors/git";
 import { defaultConfig } from "@grenier/core";
 import { createGateway } from "@grenier/gateway";
-import type { RepoFiles } from "@grenier/index";
+import type { TeamClient } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { storeDeps } from "../../support/repo.ts";
 
 const TOKEN = "ga_admin-test";
 let store: Store;
 let dir: string;
 let app: ReturnType<typeof createGateway>;
-/** Current blob hashes, as the stand-in for git: a path left out is a deleted file. */
-let blobs: Record<string, string>;
-const files: Pick<RepoFiles, "hashes"> = {
-  hashes: async (_root, paths) => new Map(paths.map((path) => [path, blobs[path] ?? null])),
-};
+let team: TeamClient | null;
+let synced: number;
 
-beforeEach(() => {
+beforeEach(async () => {
   store = openSqliteStore(":memory:");
+  await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
+  await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
   dir = mkdtempSync(join(tmpdir(), "grenier-admin-"));
-  writeFileSync(join(dir, "plans.md"), "# Plans\n\nShip the desktop app.\n");
-  blobs = {};
+  team = null;
+  synced = 0;
   const config = defaultConfig();
-  config.budgets.session = 4;
   app = createGateway({
     store,
     config,
     prices: loadPrices(),
     port: 7788,
-    admin: { token: TOKEN, version: "test", readFile: repoText, files },
+    admin: {
+      token: TOKEN,
+      version: "test",
+      readFile: repoText,
+      host: {
+        storeDeps: () => storeDeps(store),
+        team: () => team,
+        syncNow: async () => {
+          synced += 1;
+        },
+      },
+    },
   });
 });
 
@@ -86,66 +96,15 @@ describe("the admin API", () => {
     ).toBeNull();
   });
 
-  it("adds a source, syncs it, and lists it without anything secret", async () => {
-    const added = await call("/sources", {
-      method: "POST",
-      body: JSON.stringify({ kind: "markdown", name: "journal", path: dir }),
-    });
-    expect(added.status).toBe(201);
-    expect(((await added.json()) as { sync: { added: number } }).sync.added).toBe(1);
-
-    await call("/sources", {
-      method: "POST",
-      body: JSON.stringify({
-        kind: "imap",
-        name: "mail",
-        host: "imap.example.org",
-        user: "ada",
-        password_command: "false",
-      }),
-    });
-    const refusedName = await call("/sources", {
-      method: "POST",
-      body: JSON.stringify({
-        kind: "imap",
-        name: "work",
-        host: "imap.example.org",
-        user: "ada",
-        password_command: "false",
-      }),
-    });
-    expect(refusedName.status).toBe(201);
-
-    const listed = (await (await call("/sources")).json()) as {
-      sources: { name: string; items: number; config: object }[];
-    };
-    expect(listed.sources.find((source) => source.name === "journal")?.items).toBe(1);
-    expect(JSON.stringify(listed)).not.toContain("password");
-    expect((await call("/sources/journal", { method: "DELETE" })).status).toBe(200);
-  });
-
-  it("refuses a source named after a kind, or without what its kind needs", async () => {
-    expect(
-      (await call("/sources", { method: "POST", body: JSON.stringify({ kind: "markdown", name: "notes", path: dir }) }))
-        .status,
-    ).toBe(400);
-    const missing = await call("/sources", {
-      method: "POST",
-      body: JSON.stringify({ kind: "caldav", name: "cal", url: "https://x" }),
-    });
-    expect(missing.status).toBe(400);
-    expect(((await missing.json()) as { error: string }).error).toContain("username");
-  });
-
   it("creates, lists and revokes clients, with known scopes only", async () => {
     const created = await call("/clients", {
       method: "POST",
-      body: JSON.stringify({ name: "claude", scopes: ["notes"] }),
+      body: JSON.stringify({ name: "claude", scopes: ["team"] }),
     });
     expect(created.status).toBe(201);
     expect(((await created.json()) as { token: string }).token).toMatch(/^gc_/);
     expect(
-      (await call("/clients", { method: "POST", body: JSON.stringify({ name: "x", scopes: ["secrets"] }) })).status,
+      (await call("/clients", { method: "POST", body: JSON.stringify({ name: "x", scopes: ["nowhere"] }) })).status,
     ).toBe(400);
     expect(
       ((await (await call("/clients")).json()) as { clients: { name: string }[] }).clients.map((c) => c.name),
@@ -154,19 +113,104 @@ describe("the admin API", () => {
     expect(((await (await call("/clients")).json()) as { clients: unknown[] }).clients).toEqual([]);
   });
 
-  it("shows the audit log and decides on the review queue", async () => {
-    await store.audit.add({ ts: Date.now(), clientId: "c1", tool: "search", args: { query: "x" }, itemIds: ["a"] });
+  it("shows the audit log", async () => {
+    await store.audit.add({ ts: Date.now(), clientId: "c1", tool: "recall", args: { query: "x" }, recordIds: ["a"] });
     expect(
       ((await (await call("/audit")).json()) as { entries: { tool: string }[] }).entries.map((e) => e.tool),
-    ).toEqual(["search"]);
+    ).toEqual(["recall"]);
+  });
 
-    await store.review.add({ id: "r1", clientId: "c1", text: "Remember this.", tags: [], ts: 1 });
-    await store.review.add({ id: "r2", clientId: "c1", text: "Not this.", tags: [], ts: 2 });
-    expect(((await (await call("/review")).json()) as { pending: unknown[] }).pending).toHaveLength(2);
-    expect((await call("/review/r1/approve", { method: "POST" })).status).toBe(200);
-    expect((await call("/review/r2/reject", { method: "POST" })).status).toBe(200);
-    expect((await call("/review/r2/reject", { method: "POST" })).status).toBe(404);
-    expect((await store.items.get("memory:r1"))?.body).toBe("Remember this.");
+  it("writes, lists, searches, edits and retires records for the editor", async () => {
+    const made = await call("/records", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "Decision",
+        title: "Use SQLite",
+        fields: { owner: "ada", date: "2026-11-20", reason: "One file." },
+      }),
+    });
+    expect(made.status).toBe(201);
+    const { id, waiting } = (await made.json()) as { id: string; waiting: boolean };
+    expect(waiting).toBe(true);
+    const refused = await call("/records", {
+      method: "POST",
+      body: JSON.stringify({ type: "Decision", title: "No date" }),
+    });
+    expect(refused.status).toBe(400);
+
+    const listed = (await (await call("/records?type=Decision")).json()) as { records: { id: string }[] };
+    expect(listed.records.map((record) => record.id)).toEqual([id]);
+    const found = (await (await call("/records?q=sqlite")).json()) as { records: { id: string }[] };
+    expect(found.records.map((record) => record.id)).toEqual([id]);
+
+    const edited = await call(`/records/${id}`, { method: "PUT", body: JSON.stringify({ body: "Because one file." }) });
+    expect(edited.status).toBe(200);
+    const shown = (await (await call(`/records/${id}`)).json()) as {
+      body: string;
+      status: string;
+      linkedFrom: unknown[];
+    };
+    expect(shown).toMatchObject({ body: "Because one file.", status: "hit", linkedFrom: [] });
+    expect((await call(`/records/${id}`, { method: "DELETE" })).status).toBe(200);
+    expect(((await (await call("/records?type=Decision")).json()) as { records: unknown[] }).records).toEqual([]);
+    expect((await store.outbox.list()).length).toBe(3);
+  });
+
+  it("shows what links to a record and its type list", async () => {
+    const project = (await (
+      await call("/records", { method: "POST", body: JSON.stringify({ type: "Project", title: "Checkout" }) })
+    ).json()) as { id: string };
+    await call("/records", {
+      method: "POST",
+      body: JSON.stringify({ type: "Doc", title: "Checkout spec", links: [{ kind: "record", ref: project.id }] }),
+    });
+    const shown = (await (await call(`/records/${project.id}`)).json()) as { linkedFrom: { title: string }[] };
+    expect(shown.linkedFrom.map((entry) => entry.title)).toEqual(["Checkout spec"]);
+    const types = (await (await call("/types")).json()) as { types: { name: string }[] };
+    expect(types.types.map((type) => type.name)).toContain("Meeting");
+  });
+
+  it("saves straight to the team store, and hands back a teammate's version when they changed the same field", async () => {
+    const sent: unknown[] = [];
+    let conflict = false;
+    team = {
+      url: "https://team.test",
+      token: "gt_x",
+      fetch: (async (_url: unknown, init: RequestInit) => {
+        sent.push(JSON.parse(String(init.body)));
+        return Response.json(
+          conflict
+            ? { applied: [], refused: [], conflicts: [{ current: { body: "Theirs." } }] }
+            : { applied: [{ version: 7 }], refused: [], conflicts: [] },
+        );
+      }) as unknown as typeof fetch,
+    };
+    const made = (await (
+      await call("/records", { method: "POST", body: JSON.stringify({ type: "Doc", title: "Runbook" }) })
+    ).json()) as { id: string };
+    expect((await store.records.get(made.id))?.version).toBe(7);
+    expect(synced).toBe(1);
+    conflict = true;
+    const clash = await call(`/records/${made.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ body: "Mine.", baseVersion: 7 }),
+    });
+    expect(clash.status).toBe(409);
+    expect(await clash.json()).toEqual({ conflict: { body: "Theirs." } });
+    expect((sent[1] as { changes: { check: boolean; changed: string[] }[] }).changes[0]).toMatchObject({
+      check: true,
+      changed: ["body"],
+    });
+  });
+
+  it("passes the team's pages through with this device's token, and says when there is no team", async () => {
+    expect((await call("/team/members")).status).toBe(409);
+    team = {
+      url: "https://team.test",
+      token: "gt_x",
+      fetch: (async (url: URL) => Response.json({ path: url.pathname })) as unknown as typeof fetch,
+    };
+    expect(await (await call("/team/members")).json()).toEqual({ path: "/api/members" });
   });
 
   it("gives the overview, per day, project and session, and the reports", async () => {
@@ -180,7 +224,7 @@ describe("the admin API", () => {
     });
     await store.sessions.create({ id: "s2", client: "codex", startedAt: now });
     await store.sessions.create({ id: "untagged", startedAt: now - 5000 });
-    const ask = { tool: "mcp__grenier__ask_codebase", kind: "ask" as const, ts: now, sessionId: "s1" };
+    const ask = { tool: "mcp__grenier__recall", kind: "ask" as const, ts: now, sessionId: "s1" };
     await store.steps.add([
       { ...ask, callId: "c1", outcome: "hit" },
       { ...ask, callId: "c2", outcome: "miss" },
@@ -197,7 +241,6 @@ describe("the admin API", () => {
       version: string;
       days: { requests: number }[];
       projects: { key: string; cost: number }[];
-      limits: unknown[];
       sessions: {
         key: string;
         client: string | null;
@@ -209,15 +252,6 @@ describe("the admin API", () => {
     };
     expect(overview.version).toBe("test");
     expect(overview.days[0]?.requests).toBe(3);
-    expect(overview.limits).toEqual([]);
-    await store.budgets.set("daily", "", 1);
-    await store.budgets.set("repo", "app", 0.125);
-    await store.budgets.set("repo", "api", 5);
-    const limited = (await (await call("/overview")).json()) as { limits: unknown[] };
-    expect(limited.limits).toEqual([
-      { scope: "daily", key: "", limit: 1, spent: 0.875, reached: false },
-      { scope: "repo", key: "app", limit: 0.125, spent: 0.125, reached: true },
-    ]);
     expect(overview.projects.map((row) => [row.key, row.cost])).toEqual([
       ["(not started with grenier run)", 0.75],
       ["app", 0.125],
@@ -293,72 +327,6 @@ describe("the admin API", () => {
     for (const path of ["src/untouched.ts", "link.txt", "../outside.txt", "", "src"]) {
       expect((await call(`/traces/s1/file?path=${encodeURIComponent(path)}`)).status).toBe(404);
     }
-  });
-
-  it("lists the cache by repository, its answers with what changed, and forgets one", async () => {
-    await store.sessions.create({ id: "s1", repoRoot: "/work/app", repoId: "r1", startedAt: 1 });
-    const add = (id: string, question: string, blob: string) =>
-      store.answers.add({ id, repoId: "r1", question, answer: `About ${question}`, createdAt: 5, author: "local" }, [
-        { path: "src/a.ts", blobHash: blob },
-      ]);
-    await add("a1", "Where is routing?", "aaa");
-    await add("a2", "How are budgets checked?", "old");
-    await store.answers.refuse("a2", "the team server answered: too long");
-    await store.answers.add(
-      { id: "x1", repoId: "elsewhere-id-123456", question: "q", answer: "a", createdAt: 1, author: "ada" },
-      [],
-    );
-    blobs = { "src/a.ts": "aaa" };
-
-    const repos = (await (await call("/cache")).json()) as { repos: Record<string, unknown>[] };
-    expect(repos.repos).toEqual([
-      { id: "r1", name: "app", answers: 2, hits: 0, summaries: 0, shared: false },
-      { id: "elsewhere-id-123456", name: "elsewhere-id", answers: 1, hits: 0, summaries: 0, shared: false },
-    ]);
-
-    const listed = (await (await call("/cache/r1")).json()) as { answers: Record<string, unknown>[] };
-    expect(listed.answers.map((answer) => [answer.id, answer.changed, answer.shareError])).toEqual([
-      ["a1", [], null],
-      ["a2", ["src/a.ts"], "the team server answered: too long"],
-    ]);
-    const unknown = (await (await call("/cache/elsewhere-id-123456")).json()) as { answers: { changed: unknown }[] };
-    expect(unknown.answers[0]?.changed).toBeNull();
-
-    expect((await call("/cache/answers/a1", { method: "DELETE" })).status).toBe(200);
-    expect(await store.answers.get("a1")).toBeUndefined();
-    expect((await call("/cache/answers/a1", { method: "DELETE" })).status).toBe(404);
-  });
-
-  it("shows the limits, from the config until one is set, and sets and removes them", async () => {
-    await store.sessions.create({ id: "s1", repoRoot: "/work/app", repoId: "r1", startedAt: 1 });
-    await store.sessions.create({ id: "s2", cwd: "/home/notes", startedAt: 2 });
-    await store.usage.add({ sessionId: "s1", ts: Date.now(), cost: 1.5 });
-    const budgets = async () => (await (await call("/budgets")).json()) as Record<string, unknown>;
-    expect(await budgets()).toEqual({
-      daily: null,
-      session: 4,
-      fromConfig: { daily: false, session: true },
-      repos: [],
-      known: ["app", "notes"],
-      spentToday: 1.5,
-    });
-
-    const set = (body: unknown) => call("/budgets", { method: "POST", body: JSON.stringify(body) });
-    expect((await set({ scope: "daily", limit: 10 })).status).toBe(200);
-    expect((await set({ scope: "session", limit: 2 })).status).toBe(200);
-    expect((await set({ scope: "repo", key: "app", limit: 1 })).status).toBe(200);
-    expect(await budgets()).toMatchObject({
-      daily: 10,
-      session: 2,
-      fromConfig: { daily: false, session: false },
-      repos: [{ name: "app", limit: 1 }],
-    });
-
-    expect((await set({ scope: "session", limit: null })).status).toBe(200);
-    expect((await budgets()).session).toBe(4);
-    expect((await set({ scope: "weekly", limit: 1 })).status).toBe(400);
-    expect((await set({ scope: "daily", limit: -1 })).status).toBe(400);
-    expect((await set({ scope: "repo", limit: 1 })).status).toBe(400);
   });
 
   it("lists the paused sessions and resumes one", async () => {

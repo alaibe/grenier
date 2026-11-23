@@ -11,7 +11,7 @@ export interface GatewayOptions extends ProxyOptions {
   /** Serves the MCP tools at /mcp (Streamable HTTP), for clients holding a token. */
   mcp?: Omit<McpDeps, "store">;
   /** Serves the desktop app's API at /admin, for the holder of this token. */
-  admin?: Omit<AdminOptions, "store" | "prices" | "budgets">;
+  admin?: Omit<AdminOptions, "store" | "prices">;
 }
 
 /**
@@ -61,10 +61,7 @@ export function createGateway(options: GatewayOptions): Hono {
       : proxy(raw, session, path);
 
   if (options.admin) {
-    app.route(
-      "/admin",
-      createAdmin({ store: options.store, prices: options.prices, budgets: options.config.budgets, ...options.admin }),
-    );
+    app.route("/admin", createAdmin({ store: options.store, prices: options.prices, ...options.admin }));
   } else {
     app.all("/admin/*", () => errorResponse(404, "not_found_error", "The admin API is not served here."));
   }

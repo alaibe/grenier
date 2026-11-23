@@ -1,7 +1,6 @@
 import { sha256 } from "@grenier/core";
 import type { Store } from "@grenier/store";
-import { CacheError } from "./cache.ts";
-import { type Reader, SCOPE_KINDS } from "./personal.ts";
+import { type Reader, StoreUseError } from "./records.ts";
 
 function base64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -15,34 +14,33 @@ export async function newClientToken(): Promise<{ token: string; hash: string }>
   return { token, hash: await sha256(token) };
 }
 
-/** A scope as typed (kinds and source names) as it is kept: each source name replaced by that source's id. */
-const KINDS: readonly string[] = SCOPE_KINDS;
-
-/** A scope as typed (kinds and source names) as it is kept: each source name replaced by that source's id. */
+/** A scope as typed: "*" for every space, or space ids and names, kept as ids. */
 export async function resolveScopes(store: Store, scopes: readonly string[]): Promise<string[]> {
-  const sources = await store.sources.list();
-  const ids = new Map(sources.map((source) => [source.name, source.id]));
-  const unknown = scopes.filter((scope) => !KINDS.includes(scope) && !ids.has(scope));
-  if (unknown.length > 0) {
-    throw new CacheError(`unknown scope ${unknown.join(", ")}: use ${[...KINDS, ...ids.keys()].join(", ")}`);
+  if (scopes.includes("*")) return ["*"];
+  const spaces = await store.spaces.list();
+  const kept: string[] = [];
+  for (const scope of scopes) {
+    const space = spaces.find((candidate) => candidate.id === scope || candidate.name === scope);
+    if (!space) {
+      throw new StoreUseError(
+        `unknown space ${scope}: use * for every space, or ${spaces.map((candidate) => candidate.id).join(", ")}`,
+      );
+    }
+    if (!kept.includes(space.id)) kept.push(space.id);
   }
-  return scopes.map((scope) => ids.get(scope) ?? scope);
-}
-
-/** A kept scope as people read it, given the sources: ids back to names; a source removed since is left out. */
-export function scopeNames(scopes: readonly string[], sources: readonly { id: string; name: string }[]): string[] {
-  const names = new Map(sources.map((source) => [source.id, source.name]));
-  return scopes.flatMap((scope) => (KINDS.includes(scope) ? [scope] : (names.get(scope) ?? [])));
+  return kept;
 }
 
 /**
- * Creates a client with its scope (kinds and source names, kept as source ids); returns its token, shown once. Throws
- * CacheError when the name is taken or a scope names nothing.
+ * Creates a client with its scope; returns its token, shown once. Throws StoreUseError when the name is taken or a
+ * scope names no space.
  */
 export async function addClient(store: Store, name: string, scopes: string[]): Promise<string> {
-  if (!/^[\w.@-]{1,64}$/.test(name)) throw new CacheError("a client name takes letters, digits and . _ @ -");
+  if (!/^[\w.@-]{1,64}$/.test(name)) throw new StoreUseError("a client name takes letters, digits and . _ @ -");
   if ((await store.clients.list()).some((client) => client.name === name)) {
-    throw new CacheError(`there is already a client named ${name}; revoke it first (grenier clients revoke ${name})`);
+    throw new StoreUseError(
+      `there is already a client named ${name}; revoke it first (grenier clients revoke ${name})`,
+    );
   }
   const kept = await resolveScopes(store, scopes);
   const { token, hash } = await newClientToken();

@@ -1,29 +1,26 @@
 import type {
-  Answer,
-  AnswerSource,
+  Anchor,
+  Approval,
   AuditEntry,
-  Budget,
   Client,
   Event,
-  FileSummary,
-  Item,
-  NewAnswer,
+  HistoryEntry,
+  Link,
   NewEvent,
-  NewFileSummary,
-  NewItem,
   NewSession,
-  NewSource,
   NewStep,
   NewUsage,
-  ReviewEntry,
+  OutboxEntry,
+  Outcome,
+  RecordRow,
+  Run,
   Session,
-  Source,
+  Space,
   Step,
-  TeamRepo,
   Usage,
 } from "./schema.ts";
 
-/** Every package reads and writes through this interface; adapters exist for local SQLite and, later, Cloudflare D1. */
+/** Every package reads and writes through this interface. */
 export interface Store {
   /** The version of the newest migration applied to this database. */
   schemaVersion(): Promise<number>;
@@ -32,15 +29,16 @@ export interface Store {
   usage: UsageStore;
   events: EventStore;
   steps: StepStore;
-  budgets: BudgetStore;
-  answers: AnswerStore;
-  summaries: SummaryStore;
+  state: StateStore;
+  spaces: SpaceStore;
+  records: RecordStore;
+  history: HistoryStore;
+  outbox: OutboxStore;
+  approvals: ApprovalStore;
+  runs: RunStore;
+  outcomes: OutcomeStore;
   clients: ClientStore;
-  team: TeamStore;
-  sources: SourceStore;
-  items: ItemStore;
   audit: AuditStore;
-  review: ReviewStore;
 }
 
 export interface SessionStore {
@@ -62,24 +60,12 @@ export interface UsageWithSession extends Usage {
   startedAt: number | null;
 }
 
-export interface SpendFilter {
-  /** Unix milliseconds, inclusive. */
-  since?: number;
-  sessionId?: string;
-}
-
 export interface UsageStore {
   add(row: NewUsage): Promise<void>;
-  /** The sum of `cost` over the matching rows. */
-  spend(filter: SpendFilter): Promise<number>;
-  /** The sum of `cost` since `since`, per session folder, so a project's spending is a sum of a few rows. */
-  spendByFolder(since: number): Promise<{ repoRoot: string | null; cwd: string | null; spent: number }[]>;
   /** Rows with their session's repository, oldest first. */
   list(filter?: { since?: number; sessionId?: string }): Promise<UsageWithSession[]>;
   /** Rows with an id above `id`, in order, at most `limit`. */
   after(id: number, limit: number): Promise<Usage[]>;
-  /** What the session's latest request that cost something cost, or null before its first. */
-  lastCost(sessionId: string): Promise<number | null>;
   /** Removes the rows older than `before`; returns how many. */
   prune(before: number): Promise<number>;
 }
@@ -97,10 +83,10 @@ export interface StepSummary {
   files: number;
   first: number;
   last: number;
-  /** Questions to the exploration cache, and how many it answered with a hit. */
+  /** Questions to the store, and how many it answered with a hit. */
   asks: number;
   hits: number;
-  /** Reads before the session's first question to the cache: all of its reads when it never asked. */
+  /** Reads before the session's first question to the store: all of its reads when it never asked. */
   readsBeforeAsk: number;
 }
 
@@ -115,65 +101,102 @@ export interface StepStore {
   prune(before: number): Promise<number>;
 }
 
-export type BudgetScope = "daily" | "session" | "repo";
-
-export interface BudgetStore {
-  /** Sets one limit. `key` is "" for daily and session limits, the repository's name for a repo limit. */
-  set(scope: BudgetScope, key: string, limit: number): Promise<void>;
-  remove(scope: BudgetScope, key: string): Promise<void>;
-  list(): Promise<Budget[]>;
+export interface StateStore {
+  get(key: string): Promise<string | undefined>;
+  set(key: string, value: string): Promise<void>;
+  remove(key: string): Promise<void>;
 }
 
-export interface AnswerWithSources extends Answer {
-  sources: Pick<AnswerSource, "path" | "blobHash">[];
+export interface SpaceStore {
+  /** Adds the space, or updates its name and root. */
+  put(space: Space): Promise<void>;
+  get(id: string): Promise<Space | undefined>;
+  list(): Promise<Space[]>;
+  /** Removes the space and every record in it, here. */
+  remove(id: string): Promise<void>;
 }
 
-export interface AnswerStore {
+/** A record with what it was worked out from and what it points at. */
+export interface FullRecord extends RecordRow {
+  anchors: Pick<Anchor, "kind" | "repoId" | "ref" | "version">[];
+  links: Pick<Link, "kind" | "ref">[];
+}
+
+export type RecordInput = Omit<RecordRow, "seq" | "hits"> & {
+  anchors: FullRecord["anchors"];
+  links: FullRecord["links"];
+};
+
+export interface RecordFilter {
+  /** Only records of these spaces. */
+  spaces: readonly string[];
+  type?: string;
+  kind?: string;
+  /** Records linking to this ref, as `kind:ref` would: a record id, a person, a repository. */
+  linkedTo?: { kind: Link["kind"]; ref: string };
+  /** With the retired ones too. */
+  retired?: boolean;
+  limit?: number;
+}
+
+export interface RecordStore {
   /**
-   * Adds an answer with the blob hash of every file it was worked out from, and its question's vector. An earlier
-   * answer to the same question in the same repository (ignoring case and surrounding space) is replaced.
+   * Adds or replaces the record with its anchors, links and vector. Its hit count stays. When `embedding` is not
+   * given, the vector it had stays only if its title and body did not change.
    */
-  add(
-    answer: NewAnswer,
-    sources: readonly { path: string; blobHash: string }[],
-    embedding?: { model: string; vector: Float32Array },
-  ): Promise<void>;
-  get(id: string): Promise<AnswerWithSources | undefined>;
-  /** Full-text matches for any of the terms in a repository's answers, best first (BM25). */
-  search(repoId: string, terms: readonly string[], limit: number): Promise<{ id: string; score: number }[]>;
-  /** Every question vector of a repository made by `model`. */
-  vectors(repoId: string, model: string): Promise<{ id: string; vector: Float32Array }[]>;
+  put(record: RecordInput, embedding?: { model: string; vector: Float32Array }): Promise<void>;
+  get(id: string): Promise<FullRecord | undefined>;
+  /** Newest first. */
+  list(filter: RecordFilter): Promise<FullRecord[]>;
+  /** Full-text matches for any of the terms, best first (BM25), among records not retired. */
+  search(terms: readonly string[], spaces: readonly string[], limit: number): Promise<{ id: string; score: number }[]>;
+  /** Every vector of these spaces' records made by `model`, without the retired ones. */
+  vectors(spaces: readonly string[], model: string): Promise<{ id: string; vector: Float32Array }[]>;
   /** Counts one more reuse. */
   hit(id: string): Promise<void>;
-  /** Reuses counted over every answer. */
-  totalHits(): Promise<number>;
-  /** A repository's answers, newest first. */
-  list(repoId: string): Promise<AnswerWithSources[]>;
-  /** Answers of these repositories not yet on the team server, oldest first, without those it refused. */
-  unshared(repoIds: readonly string[], limit: number): Promise<AnswerWithSources[]>;
-  markShared(ids: readonly string[]): Promise<void>;
-  /** Marks every answer as not on the team server, nor refused: for a new team server. */
-  unshareAll(): Promise<void>;
-  /** Keeps why the team server refused an answer, so sync passes over it. */
-  refuse(id: string, reason: string): Promise<void>;
+  /** The number the team store gave the record, once it took it. */
+  setVersion(id: string, version: number): Promise<void>;
+  /** Removes it here, for good: a record that never reached the team store, or one its space no longer has. */
   remove(id: string): Promise<void>;
-  /** Removes the answers of one repository, or all; returns how many. */
-  clear(repoId?: string): Promise<number>;
-  stats(): Promise<{ repoId: string; answers: number; hits: number }[]>;
+  /** Records and reuses, by space and type, without the retired ones. */
+  stats(): Promise<{ space: string; type: string; records: number; hits: number }[]>;
 }
 
-export interface SummaryStore {
-  put(summary: NewFileSummary): Promise<void>;
-  get(repoId: string, path: string, blobHash: string): Promise<FileSummary | undefined>;
-  /** The newest summary of each path in a repository. */
-  latest(repoId: string): Promise<FileSummary[]>;
-  /** Summaries of these repositories not yet on the team server, oldest first, without those it refused. */
-  unshared(repoIds: readonly string[], limit: number): Promise<FileSummary[]>;
-  markShared(keys: readonly { repoId: string; path: string; blobHash: string }[]): Promise<void>;
-  unshareAll(): Promise<void>;
-  refuse(key: { repoId: string; path: string; blobHash: string }, reason: string): Promise<void>;
-  clear(repoId?: string): Promise<number>;
-  stats(): Promise<{ repoId: string; summaries: number }[]>;
+export interface HistoryStore {
+  /** Keeps a version; one already kept for the same record and version is left as it is. */
+  add(entry: Omit<HistoryEntry, "id">): Promise<void>;
+  /** Oldest first. */
+  list(recordId: string): Promise<HistoryEntry[]>;
+}
+
+export interface OutboxStore {
+  add(entry: Omit<OutboxEntry, "seq" | "refused">): Promise<void>;
+  /** The oldest first, without those the team store refused. */
+  pending(limit: number): Promise<OutboxEntry[]>;
+  /** Every entry still here, refused ones included. */
+  list(): Promise<OutboxEntry[]>;
+  remove(ids: readonly string[]): Promise<void>;
+  refuse(id: string, reason: string): Promise<void>;
+}
+
+export interface ApprovalStore {
+  get(recordId: string, kind: Approval["kind"]): Promise<Approval | undefined>;
+  list(kind?: Approval["kind"]): Promise<Approval[]>;
+  put(approval: Approval): Promise<void>;
+  remove(recordId: string, kind: Approval["kind"]): Promise<void>;
+}
+
+export interface RunStore {
+  add(run: Run): Promise<void>;
+  update(id: string, change: Partial<Omit<Run, "id">>): Promise<void>;
+  get(id: string): Promise<Run | undefined>;
+  /** Newest first. */
+  list(filter?: { routineId?: string; since?: number; limit?: number }): Promise<Run[]>;
+}
+
+export interface OutcomeStore {
+  put(outcome: Outcome): Promise<void>;
+  list(filter?: { since?: number }): Promise<Outcome[]>;
 }
 
 export interface ClientStore {
@@ -188,62 +211,13 @@ export interface ClientStore {
   revoke(name: string, at: number): Promise<boolean>;
 }
 
-export interface TeamStore {
-  repos(): Promise<TeamRepo[]>;
-  share(repoId: string, root: string, at: number): Promise<void>;
-  unshare(repoId: string): Promise<boolean>;
-  get(key: string): Promise<string | undefined>;
-  set(key: string, value: string): Promise<void>;
-}
-
-export interface SourceStore {
-  add(source: NewSource): Promise<void>;
-  list(): Promise<Source[]>;
-  get(name: string): Promise<Source | undefined>;
-  /** Removes the source and every item it brought. */
-  remove(name: string): Promise<boolean>;
-  saveState(id: string, state: Record<string, unknown>, at: number): Promise<void>;
-  /** Puts the source in the vault or takes it out; false when there is no source of that name. */
-  setVault(name: string, on: boolean): Promise<boolean>;
-}
-
-export interface ItemFilter {
-  /** Only items of these sources: what the reading client's scope allows. */
-  sourceIds: readonly string[];
-  from?: number;
-  to?: number;
-}
-
-export interface ItemStore {
-  /** Adds or replaces an item; false when it was already there with the same content hash. */
-  put(item: NewItem): Promise<boolean>;
-  get(id: string): Promise<Item | undefined>;
-  /** Removes these items; returns how many there were. */
-  remove(ids: readonly string[]): Promise<number>;
-  ids(sourceId: string): Promise<string[]>;
-  /** Full-text matches for any of the terms, best first (BM25). */
-  search(terms: readonly string[], filter: ItemFilter, limit: number): Promise<Item[]>;
-  /** Items in time order, optionally matching any of the terms. */
-  timeline(terms: readonly string[], filter: ItemFilter, limit: number): Promise<Item[]>;
-  /** Items whose people include `name` (case-insensitive), newest first. */
-  withPerson(name: string, filter: ItemFilter, limit: number): Promise<Item[]>;
-  count(): Promise<{ sourceId: string; items: number }[]>;
-}
-
 export interface AuditStore {
   add(entry: {
     ts: number;
     clientId: string;
     tool: string;
     args: Record<string, unknown>;
-    itemIds: string[];
+    recordIds: string[];
   }): Promise<void>;
   list(filter?: { clientId?: string; since?: number; limit?: number }): Promise<AuditEntry[]>;
-}
-
-export interface ReviewStore {
-  add(entry: { id: string; clientId: string; text: string; tags: string[]; ts: number }): Promise<void>;
-  get(id: string): Promise<ReviewEntry | undefined>;
-  list(state?: ReviewEntry["state"]): Promise<ReviewEntry[]>;
-  decide(id: string, state: "approved" | "rejected", at: number): Promise<boolean>;
 }

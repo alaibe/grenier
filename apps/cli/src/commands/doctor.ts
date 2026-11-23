@@ -172,21 +172,24 @@ export async function doctor(
 
   const team = teamClient(config, paths, io.env);
   if (config.team.url && !team) {
-    add("fail", `team server ${config.team.url} is set but this machine has no token: grenier team join <url> <token>`);
+    add(
+      "fail",
+      `team store ${config.team.url} is set but this machine has no token: join from an invite link, grenier team join <link>`,
+    );
   } else if (team) {
     try {
       const me = await Promise.race([
         teamApi<{ name?: string }>(team, "/api/me"),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no answer in 5 s")), 5000)),
       ]);
-      add("ok", `team server ${config.team.url} knows this machine as ${me.name ?? "a member"}`);
+      add("ok", `team store ${config.team.url} knows this machine as ${me.name ?? "a member"}`);
     } catch (error) {
-      add("fail", `team server ${config.team.url}: ${(error as Error).message}`);
+      add("fail", `team store ${config.team.url}: ${(error as Error).message}`);
     }
   }
 
-  if (config.cache.embeddings === "off") {
-    add("info", "embeddings are off: the cache matches questions by their words only");
+  if (config.store.embeddings === "off") {
+    add("info", "embeddings are off: recall matches questions by their words only");
   } else if (
     !Object.keys(DEFAULT_MODEL.files).every((file) => existsSync(join(modelDir(join(paths.home, "models")), file)))
   ) {

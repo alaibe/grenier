@@ -23,7 +23,7 @@ export function Audit(_: ViewProps) {
   return (
     <Page
       title="Audit log"
-      intro="Every read of your personal data in the last 30 days, written before the client got an answer."
+      intro="Every read an MCP client made of the store in the last 30 days, written before the client got an answer."
       action={
         <label>
           <span className="sr-only">Client</span>
@@ -41,7 +41,7 @@ export function Audit(_: ViewProps) {
       <Notice message={error} />
       {!data && !error && <Loading what="the audit log" />}
       {data && data.entries.length === 0 && (
-        <Empty>{client ? `${client} has read no personal data.` : "No client has read personal data."}</Empty>
+        <Empty>{client ? `${client} has read nothing from the store.` : "No client has read the store yet."}</Empty>
       )}
       {data && data.entries.length > 0 && (
         <Table>

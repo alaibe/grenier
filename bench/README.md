@@ -6,8 +6,9 @@ the other. It writes tokens and cost for both runs to `results/<date>.md`. Only 
 in the README.
 
 It calls a real model with your own credentials (an API key, or the Claude Code you are signed in to), so it is run
-by hand, never in CI. `--budget` caps what it may spend, in dollars at API prices: Grenier's own budget stops the agent
-when it is reached, and a question whose runs did not both finish is listed under the table, not counted in it.
+by hand, never in CI. `--budget` caps what it may spend, in dollars at API prices: once the questions asked so far cost
+that much, it asks no more, so the question that reaches the cap can pass it. A question whose runs did not both finish
+is listed under the table, not counted in it.
 
 ```bash
 pnpm build

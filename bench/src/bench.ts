@@ -25,7 +25,7 @@ export interface QuestionResult {
   question: string;
   cold: RunUsage;
   warm: RunUsage;
-  /** Both runs finished; false when one stopped, at the budget or on an error, so its numbers mean nothing. */
+  /** Both runs finished; false when one stopped on an error, so its numbers mean nothing. */
   complete: boolean;
 }
 
@@ -38,7 +38,10 @@ export interface BenchOptions {
   /** The agent's command for one question, given the MCP config file to load. */
   agent: (question: string, mcpConfig: string) => string[];
   port: number;
-  /** A daily limit in dollars for the benchmark's own Grenier home: the proxy stops the agent when it is reached. */
+  /**
+   * A cap in dollars: once this run's questions have cost this much, no further question is asked. The question that
+   * reaches it can pass it.
+   */
   budget?: number;
   /** Where the proxy sends requests; the real API unless a test stands in. */
   upstream?: string;
@@ -56,7 +59,7 @@ export function claudeAgent(question: string, mcpConfig: string): string[] {
     mcpConfig,
     "--strict-mcp-config",
     "--allowedTools",
-    "mcp__grenier__ask_codebase,mcp__grenier__record_answer,mcp__grenier__file_summary,mcp__grenier__repo_map,Read,Grep,Glob,LS",
+    "mcp__grenier__recall,mcp__grenier__remember,mcp__grenier__file_summary,mcp__grenier__repo_map,Read,Grep,Glob,LS",
   ];
 }
 
@@ -89,7 +92,6 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
     [
       `[proxy]\nport = ${options.port}\n`,
       options.upstream ? `upstream_anthropic = ${JSON.stringify(options.upstream)}\n` : "",
-      options.budget !== undefined ? `\n[budgets]\ndaily = ${options.budget}\n` : "",
     ].join(""),
   );
   const env = { ...process.env, ...options.env, GRENIER_HOME: home };
@@ -105,9 +107,16 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
     }),
   );
 
+  type Row = { key: string } & RunUsage;
+  const sessionRows = async (cwd: string): Promise<Row[]> =>
+    JSON.parse((await grenier(["report", "--by", "session", "--since", "1d", "--json"], cwd)).stdout) as Row[];
+  const ours = new Set<string>();
+  let capped = false;
+
   const results: QuestionResult[] = [];
   try {
     for (const repo of options.repos) {
+      if (capped) break;
       const dir = join(options.workDir, "repos", repo.name);
       if (!existsSync(dir)) {
         log(`Cloning ${repo.url} at ${repo.commit.slice(0, 10)}`);
@@ -115,11 +124,12 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
       }
       await exec("git", ["-C", dir, "checkout", "--quiet", "--force", repo.commit]);
       await exec("git", ["-C", dir, "clean", "--quiet", "-fdx"]);
-      await grenier(["cache", "clear", "--repo", dir], dir);
+      await grenier(["store", "clear", "--repo", dir], dir);
 
-      // Each question runs cold then warm before the next, so a budget that runs out still leaves whole pairs.
+      // Each question runs cold then warm before the next, so a cap that is reached still leaves whole pairs.
       const runs: { question: string; cold: Run; warm: Run }[] = [];
       for (const question of repo.questions) {
+        if (capped) break;
         const pair: Partial<Record<"cold" | "warm", Run>> = {};
         for (const phase of ["cold", "warm"] as const) {
           log(`${repo.name} ${phase}: ${question}`);
@@ -132,13 +142,19 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
           pair[phase] = run;
         }
         runs.push({ question, cold: pair.cold as Run, warm: pair.warm as Run });
+        if (options.budget !== undefined) {
+          for (const run of [pair.cold, pair.warm]) if (run?.session) ours.add(run.session);
+          const spent = (await sessionRows(dir))
+            .filter((row) => ours.has(row.key))
+            .reduce((sum, row) => sum + row.cost, 0);
+          if (spent >= options.budget) {
+            capped = true;
+            log(`Stopping: the runs so far cost $${spent.toFixed(2)}, past the cap of $${options.budget}`);
+          }
+        }
       }
 
-      const report = JSON.parse(
-        (await grenier(["report", "--by", "session", "--since", "1d", "--json"], dir)).stdout,
-      ) as ({
-        key: string;
-      } & RunUsage)[];
+      const report = await sessionRows(dir);
       const usageOf = (id: string | null): RunUsage => {
         const row = report.find((entry) => entry.key === id);
         return row
@@ -212,7 +228,7 @@ export function formatResults(
     "",
     ...(stopped.length > 0
       ? [
-          "Not counted, because a run stopped before the end (the budget was reached, or the agent failed):",
+          "Not counted, because a run stopped before the end (the agent failed):",
           "",
           ...stopped.map((result) => `- ${result.repo}: ${result.question}`),
           "",

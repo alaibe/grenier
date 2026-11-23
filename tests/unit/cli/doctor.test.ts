@@ -13,7 +13,7 @@ let io: Io;
 beforeEach(() => {
   home = realpathSync(mkdtempSync(join(tmpdir(), "grenier-doctor-")));
   mkdirSync(join(home, ".grenier"));
-  writeFileSync(join(home, ".grenier", "config.toml"), '[proxy]\nport = 7797\n\n[cache]\nembeddings = "off"\n');
+  writeFileSync(join(home, ".grenier", "config.toml"), '[proxy]\nport = 7797\n\n[store]\nembeddings = "off"\n');
   io = {
     env: { GRENIER_HOME: join(home, ".grenier"), PATH: process.env.PATH },
     cwd: home,

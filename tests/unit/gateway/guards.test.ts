@@ -15,219 +15,23 @@ async function send(path: string, body: unknown = { model: "claude-opus-5-5" }) 
   return { status: response.status, headers: response.headers, text: await response.text() };
 }
 
-describe("budgets", () => {
-  async function spend(sessionId: string, cost: number, repoId: string | null = null) {
-    await gateway.store.sessions.create({
-      id: sessionId,
-      startedAt: gateway.clock.now,
-      repoId,
-      repoRoot: repoId ? `/work/${repoId}` : null,
-    });
-    await gateway.store.usage.add({ sessionId, ts: gateway.clock.now, model: "claude-opus-5-5", cost });
-  }
-
-  it("answers 429 with x-should-retry false before any upstream call once the daily budget is reached", async () => {
+describe("cost", () => {
+  it("never refuses a request for what was spent", async () => {
     const upstream = fakeUpstream(() => sse(STREAM));
-    gateway = testGateway(upstream, (config) => {
-      config.budgets.daily = 1;
-    });
-    await spend("earlier", 1.25);
-
-    const response = await send("/s/s1/v1/messages");
-
-    expect(response.status).toBe(429);
-    expect(response.headers.get("x-should-retry")).toBe("false");
-    expect(JSON.parse(response.text)).toEqual({
-      type: "error",
-      error: {
-        type: "rate_limit_error",
-        message:
-          "Grenier stopped this request: the daily budget of $1.00 is reached ($1.25 spent). To change it, run: grenier budget set --daily <amount>",
-      },
-    });
-    expect(upstream.requests).toEqual([]);
-    expect(await gateway.store.events.list({ kind: "budget" })).toHaveLength(1);
-  });
-
-  it("counts only today's spending against the daily budget", async () => {
-    const upstream = fakeUpstream(() => sse(STREAM));
-    gateway = testGateway(upstream, (config) => {
-      config.budgets.daily = 1;
-    });
-    const yesterday = gateway.clock.now - 86_400_000;
-    await gateway.store.usage.add({ sessionId: "old", ts: yesterday, model: "m", cost: 5 });
+    gateway = testGateway(upstream);
+    await gateway.store.sessions.create({ id: "earlier", startedAt: gateway.clock.now });
+    await gateway.store.usage.add({ sessionId: "earlier", ts: gateway.clock.now, model: "claude-opus-5-5", cost: 500 });
 
     expect((await send("/s/s1/v1/messages")).status).toBe(200);
+    expect(upstream.requests).toHaveLength(1);
   });
 
-  it("stops one session at its own budget and lets another through", async () => {
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      (config) => {
-        config.budgets.session = 0.5;
-      },
-    );
-    await spend("s1", 0.5);
-
-    expect((await send("/s/s1/v1/messages")).text).toContain("this session's budget of $0.50 is reached");
-    expect((await send("/s/s2/v1/messages")).status).toBe(200);
-  });
-
-  it("applies a project's budget to its sessions only", async () => {
-    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
-    await gateway.store.budgets.set("repo", "app", 2);
-    await spend("s1", 2, "app");
-    await gateway.store.sessions.create({ id: "s2", startedAt: 0, repoId: "app", repoRoot: "/work/app" });
-    await gateway.store.sessions.create({ id: "s3", startedAt: 0, repoId: "api", repoRoot: "/work/api" });
-
-    expect((await send("/s/s2/v1/messages")).text).toContain("grenier budget set --repo app=<amount>");
-    expect((await send("/s/s3/v1/messages")).status).toBe(200);
-  });
-
-  it("counts a project by its folder name, in a repository or not", async () => {
-    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
-    await gateway.store.budgets.set("repo", "app", 2);
-    await gateway.store.budgets.set("repo", "notes", 1);
-    await spend("s1", 1, "app");
-    await gateway.store.sessions.create({ id: "elsewhere", startedAt: 0, repoId: "other", repoRoot: "/home/old/app" });
-    await gateway.store.usage.add({ sessionId: "elsewhere", ts: gateway.clock.now, model: "claude-opus-5-5", cost: 1 });
-    await gateway.store.sessions.create({ id: "worktree", startedAt: 0, repoId: "app", repoRoot: "/work/app-fix" });
-    await gateway.store.sessions.create({ id: "s1-too", startedAt: 0, repoId: "app", repoRoot: "/work/app" });
-    await gateway.store.sessions.create({ id: "folder", startedAt: 0, cwd: "/home/notes" });
-    await gateway.store.usage.add({ sessionId: "folder", ts: gateway.clock.now, model: "claude-opus-5-5", cost: 1 });
-
-    expect((await send("/s/s1-too/v1/messages")).text).toContain("grenier budget set --repo app=<amount>");
-    expect((await send("/s/worktree/v1/messages")).status).toBe(200);
-    expect((await send("/s/folder/v1/messages")).text).toContain("grenier budget set --repo notes=<amount>");
-  });
-
-  it("takes a limit set while running into account at the next request, without a restart", async () => {
-    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
-    await spend("s1", 3);
-    expect((await send("/s/s1/v1/messages")).status).toBe(200);
-
-    await gateway.store.budgets.set("daily", "", 2);
-    expect((await send("/s/s1/v1/messages")).status).toBe(429);
-
-    await gateway.store.budgets.set("daily", "", 50);
-    expect((await send("/s/s1/v1/messages")).status).toBe(200);
-  });
-
-  it("stops a request that would pass the limit if it cost what the session's last one did", async () => {
-    const upstream = fakeUpstream(() => sse(STREAM));
-    gateway = testGateway(upstream, (config) => {
-      config.budgets.daily = 10;
-    });
-    await spend("s1", 9);
-    await gateway.store.usage.add({ sessionId: "s1", ts: gateway.clock.now, model: "claude-opus-5-5", cost: 0.6 });
-
-    const response = await send("/s/s1/v1/messages");
-    expect(response.status).toBe(429);
-    expect(JSON.parse(response.text).error.message).toBe(
-      "Grenier stopped this request: the daily budget of $10.00 would be passed ($9.60 spent, and this session's last request cost $0.60). To change it, run: grenier budget set --daily <amount>",
-    );
-    expect(upstream.requests).toEqual([]);
-    expect((await send("/s/s2/v1/messages")).status).toBe(200);
-  });
-
-  it("counts requests still in flight against a limit", async () => {
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let calls = 0;
-    gateway = testGateway(
-      fakeUpstream(async () => {
-        calls += 1;
-        if (calls > 1) await gate;
-        return sse(STREAM);
-      }),
-      (config) => {
-        config.budgets.session = 0.05;
-      },
-    );
-    expect((await send("/s/s1/v1/messages")).status).toBe(200);
-
-    const pending = Array.from({ length: 5 }, () => send("/s/s1/v1/messages"));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    release();
-    const statuses = (await Promise.all(pending)).map((response) => response.status);
-
-    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
-    expect(await gateway.store.usage.spend({ sessionId: "s1" })).toBeLessThanOrEqual(0.05);
-  });
-
-  it("stops a request to a model with no price while a limit applies, unless told to allow it", async () => {
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      (config) => {
-        config.budgets.daily = 10;
-      },
-    );
-    const refused = await send("/s/s1/v1/messages", { model: "mystery-model" });
-    expect(refused.status).toBe(429);
-    expect(JSON.parse(refused.text).error.message).toContain("mystery-model has no price");
-    expect((await send("/s/s1/v1/messages", { model: "claude-opus-5-5-20260101" })).status).toBe(200);
-    await gateway.store.close();
-
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      (config) => {
-        config.budgets.daily = 10;
-        config.budgets.unpriced = "allow";
-      },
-    );
-    expect((await send("/s/s1/v1/messages", { model: "mystery-model" })).status).toBe(200);
-    expect((await send("/s/s1/v1/messages", { model: "mystery-model" })).status).toBe(200);
-    expect(gateway.notifications.filter((line) => line.includes("mystery-model"))).toHaveLength(1);
-  });
-
-  it("lets a model with no price through when no limit applies, and says once that it counts as $0", async () => {
+  it("lets a model with no price through, and says once that it counts as $0", async () => {
     gateway = testGateway(fakeUpstream(() => sse(STREAM)));
     expect((await send("/s/s1/v1/messages", { model: "mystery-model" })).status).toBe(200);
     expect((await send("/s/s2/v1/messages", { model: "mystery-model" })).status).toBe(200);
     expect(gateway.notifications.filter((line) => line.includes("mystery-model"))).toHaveLength(1);
     expect(await gateway.store.events.list({ kind: "unpriced" })).toHaveLength(1);
-  });
-
-  it("warns once when today's spending passes 80% of a limit", async () => {
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      (config) => {
-        config.budgets.daily = 1;
-      },
-    );
-    await spend("earlier", 0.85);
-
-    expect((await send("/s/s1/v1/messages")).status).toBe(200);
-    expect((await send("/s/s1/v1/messages")).status).toBe(200);
-
-    expect(gateway.notifications.filter((line) => line.includes("80%"))).toEqual([
-      "Grenier: 80% of a budget: $0.85 of the daily budget of $1.00 is spent.",
-    ]);
-    expect(await gateway.store.events.list({ kind: "budget_warning" })).toHaveLength(1);
-  });
-
-  it("writes small amounts with the digits that matter", async () => {
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      (config) => {
-        config.budgets.daily = 0.004;
-      },
-    );
-    await spend("earlier", 0.0049);
-    expect(JSON.parse((await send("/s/s1/v1/messages")).text).error.message).toContain(
-      "the daily budget of $0.004 is reached ($0.0049 spent)",
-    );
-  });
-
-  it("does not hold back requests other than inference", async () => {
-    const upstream = fakeUpstream(() => Response.json({ input_tokens: 10 }));
-    gateway = testGateway(upstream, (config) => {
-      config.budgets.daily = 1;
-    });
-    await spend("s0", 5);
-    expect((await send("/s/s1/v1/messages/count_tokens")).status).toBe(200);
   });
 });
 
@@ -454,77 +258,6 @@ describe("loops", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("x-should-retry")).toBe("false");
     expect(JSON.parse(response.text).error.message).toContain("grenier resume s1");
-  });
-});
-
-describe("team budgets", () => {
-  const status = (team: number | null, teamSpent: number, member: number | null = null, memberSpent = 0) => ({
-    team: { limit: team, spent: teamSpent },
-    member: { limit: member, spent: memberSpent },
-  });
-
-  it("stops a request once the team's daily budget is reached, naming who can change it", async () => {
-    const upstream = fakeUpstream(() => sse(STREAM));
-    gateway = testGateway(upstream, () => {}, { teamBudget: async () => status(5, 5.5) });
-    const response = await send("/s/s1/v1/messages");
-    expect(response.status).toBe(429);
-    expect(response.headers.get("x-should-retry")).toBe("false");
-    expect(JSON.parse(response.text).error.message).toBe(
-      "Grenier stopped this request: the team's daily budget of $5.00 is reached ($5.50 spent). To change it, run: grenier team budget --team <amount> (a team admin)",
-    );
-    expect(upstream.requests).toEqual([]);
-  });
-
-  it("stops a member at their own limit", async () => {
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      () => {},
-      { teamBudget: async () => status(null, 0, 1, 1) },
-    );
-    expect((await send("/s/s1/v1/messages")).text).toContain("your daily budget of $1.00 in the team");
-  });
-
-  it("lets requests through when the team server cannot be reached, and asks it at most every 15 seconds", async () => {
-    let asked = 0;
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      () => {},
-      {
-        teamBudget: async () => {
-          asked += 1;
-          throw new Error("offline");
-        },
-      },
-    );
-    expect((await send("/s/s1/v1/messages")).status).toBe(200);
-    expect((await send("/s/s1/v1/messages")).status).toBe(200);
-    expect(asked).toBe(1);
-    gateway.clock.now += 16_000;
-    await send("/s/s1/v1/messages");
-    expect(asked).toBe(2);
-  });
-
-  it("stops a request that would pass the team's limit at the session's last cost", async () => {
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      () => {},
-      { teamBudget: async () => status(5, 4.5) },
-    );
-    await gateway.store.usage.add({ sessionId: "s1", ts: gateway.clock.now, model: "m", cost: 0.75 });
-    expect((await send("/s/s1/v1/messages")).text).toContain("the team's daily budget of $5.00 would be passed");
-    expect((await send("/s/s2/v1/messages")).status).toBe(200);
-  });
-
-  it("checks this machine's own limits before the team's", async () => {
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      (config) => {
-        config.budgets.daily = 1;
-      },
-      { teamBudget: async () => status(100, 0) },
-    );
-    await gateway.store.usage.add({ sessionId: "s0", ts: gateway.clock.now, model: "m", cost: 2 });
-    expect((await send("/s/s1/v1/messages")).text).toContain("the daily budget of $1.00");
   });
 });
 

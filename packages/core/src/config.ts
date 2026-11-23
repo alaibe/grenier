@@ -48,14 +48,6 @@ const configSchema = z.strictObject({
       inject_cache_control: z.boolean().default(false),
     })
     .prefault({}),
-  budgets: z
-    .strictObject({
-      daily: z.number().positive().optional(),
-      session: z.number().positive().optional(),
-      /** A request to a model prices.toml has no price for, while a limit applies: "block" it, or "allow" it at $0. */
-      unpriced: z.enum(["block", "allow"]).default("block"),
-    })
-    .prefault({}),
   guards: z
     .strictObject({
       loop_repeat_threshold: z.int().min(2).default(3),
@@ -69,11 +61,10 @@ const configSchema = z.strictObject({
       path: ["loop_repeat_threshold"],
     })
     .prefault({}),
-  cache: z
+  store: z
     .strictObject({
       /** "local" runs the embedding model on this machine; "off" leaves search to full text. */
       embeddings: z.enum(["local", "off"]).default("local"),
-      share_with_team: z.boolean().default(false),
     })
     .prefault({}),
   team: z
@@ -83,14 +74,33 @@ const configSchema = z.strictObject({
         .string()
         .regex(/^[A-Z_][A-Z0-9_]*$/, "must be an environment variable name, such as GRENIER_TEAM_TOKEN")
         .default("GRENIER_TEAM_TOKEN"),
-      /** Seconds between two rounds of sync with the team server. */
+      /** Seconds between two rounds of sync with the team store when its live connection is down. */
       sync_interval: z.int().min(1).max(3600).default(20),
     })
     .prefault({}),
-  sources: z
+  machine: z
     .strictObject({
-      /** Seconds between two pulls of mail and calendar sources; markdown folders are also watched. */
-      sync_interval: z.int().min(30).default(300),
+      /** How the team sees this machine; its host name until set. */
+      name: z
+        .string()
+        .regex(/^[\w.-]{1,40}$/, "takes letters, digits and . _ -")
+        .optional(),
+      /** Whether this machine takes the team's routine runs. */
+      routines: z.boolean().default(false),
+      /** Runs only on mains power. */
+      plugged_in: z.boolean().default(true),
+      /** Minutes without keyboard or mouse before it is available; 0 for an always-on machine. */
+      idle_minutes: z.int().min(0).default(10),
+      /** CPU load per core and memory in use, as a share, above which it is not available. */
+      cpu_max: z.number().min(0).max(1).default(0.5),
+      memory_max: z.number().min(0).max(1).default(0.85),
+      /** Hours it may run, as "22-7" (overnight) or "0-24". */
+      hours: z
+        .string()
+        .regex(/^\d{1,2}-\d{1,2}$/, 'takes hours as "22-7"')
+        .default("0-24"),
+      /** The agent that runs routines here. */
+      agent: z.enum(["claude", "codex"]).default("claude"),
     })
     .prefault({}),
   retention: z
@@ -128,9 +138,12 @@ export function parsePrices(text: string, source: string): Record<string, ModelP
 const pricesSchema = z.strictObject({ models: z.record(z.string(), modelPriceSchema) });
 
 function parseToml<T extends z.ZodType>(text: string, source: string, schema: T): z.output<T> {
-  let raw: unknown;
+  return validate(parseRaw(text, source), source, schema);
+}
+
+function parseRaw(text: string, source: string): unknown {
   try {
-    raw = parse(text);
+    return parse(text);
   } catch (error) {
     if (error instanceof TomlError) {
       const reason = error.message.split("\n")[0]?.replace(/^Invalid TOML document: /, "");
@@ -138,7 +151,9 @@ function parseToml<T extends z.ZodType>(text: string, source: string, schema: T)
     }
     throw error;
   }
+}
 
+function validate<T extends z.ZodType>(raw: unknown, source: string, schema: T): z.output<T> {
   const result = schema.safeParse(raw);
   if (result.success) return result.data;
 

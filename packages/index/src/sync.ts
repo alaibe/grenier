@@ -1,6 +1,8 @@
-import type { Store, Usage } from "@grenier/store";
+import { open, seal, VaultError } from "@grenier/core";
+import type { FullRecord, OutboxEntry, RecordInput, Store, Usage } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
 
+/** The team store's address and this device's token. */
 export interface TeamClient {
   url: string;
   token: string;
@@ -12,16 +14,14 @@ export class TeamError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    /** The server's own message. */
-    readonly reason = message,
-    /** The server's whole answer, when it was JSON. */
-    readonly body?: unknown,
+    readonly detail: string,
+    readonly body: unknown,
   ) {
     super(message);
   }
 }
 
-/** One call to the team server's API. Throws TeamError with the server's message. */
+/** One call to the team store's API. Throws TeamError with the store's message. */
 export async function teamApi<T>(
   team: TeamClient,
   path: string,
@@ -32,350 +32,255 @@ export async function teamApi<T>(
     headers: { authorization: `Bearer ${team.token}`, "content-type": "application/json" },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
   });
-  const text = await response.text();
   let body: unknown;
   try {
-    body = JSON.parse(text);
+    body = await response.json();
   } catch {
     body = undefined;
   }
   if (!response.ok) {
     const message = (body as { error?: string } | undefined)?.error ?? `HTTP ${response.status}`;
-    throw new TeamError(`the team server answered: ${message}`, response.status, message, body);
+    throw new TeamError(`the team store answered: ${message}`, response.status, message, body);
   }
   return body as T;
 }
 
-export interface TeamBudget {
-  day: string;
-  team: { limit: number | null; spent: number };
-  member: { limit: number | null; spent: number };
+/** A record as the team store sends it. */
+interface Remote {
+  id: string;
+  space: string;
+  type: string;
+  kind: string | null;
+  title: string;
+  body: string;
+  fields: Record<string, unknown>;
+  author: string;
+  device: string | null;
+  sessionId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  retiredAt: number | null;
+  version: number;
+  anchors: FullRecord["anchors"];
+  links: FullRecord["links"];
+  sealed: string | null;
+}
+
+const SEALED_PARTS = ["type", "kind", "title", "body", "fields", "anchors", "links"] as const;
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function fromBase64(text: string): Uint8Array {
+  return Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
+}
+
+/** A `me` record as it leaves: everything but its id and dates encrypted with the person's own key. */
+export async function sealRecord(key: string, record: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const secret = Object.fromEntries(SEALED_PARTS.map((part) => [part, record[part] ?? null]));
+  const sealed = await seal(key, String(record.id), new TextEncoder().encode(JSON.stringify(secret)));
+  return {
+    ...record,
+    type: "Sealed",
+    kind: null,
+    title: "",
+    body: "",
+    fields: {},
+    anchors: [],
+    links: [],
+    sealed: toBase64(sealed),
+  };
+}
+
+async function openRecord(key: string, remote: Remote): Promise<Remote> {
+  const plaintext = await open(key, remote.id, fromBase64(remote.sealed as string));
+  return { ...remote, ...(JSON.parse(new TextDecoder().decode(plaintext)) as Partial<Remote>), sealed: null };
 }
 
 export interface SyncDeps {
   store: Store;
-  embedder: Embedder | null;
   team: TeamClient;
-  /** What prompt-cache reads saved on this request, in USD. */
-  savedOf: (row: Usage) => number;
-  /** `[cache] share_with_team`: every repository with something in the cache, not only those shared one by one. */
-  shareAll: boolean;
-  /** This machine's id, so the server counts each of its usage rows once however often they are sent. */
-  device?: string;
+  embedder: Embedder | null;
+  /** The person's own key for the `me` space; without it, `me` records stay here. */
+  personalKey: string | null;
+  /** What prompt-cache reads saved on a request, in USD. */
+  savedOf?: (row: Usage) => number;
+  now?: () => number;
 }
 
 export interface SyncResult {
-  pushed: { answers: number; summaries: number; usageRows: number; forgotten: number };
-  pulled: { answers: number; removed: number; summaries: number };
-  /** What the team server refused: it stays on this machine, with the reason, and is not sent again. */
-  refused: { answers: number; summaries: number };
+  pushed: number;
+  refused: { recordId: string; reason: string }[];
+  pulled: number;
+  /** `me` records this machine could not open: its personal key is not the one they were sealed with. */
+  unopened: number;
 }
 
-const BATCH = 200;
-const SYNC_REPOS = 100;
-const FORGOTTEN = "forgotten_answers";
-
-/**
- * Removes an answer from this machine's cache. One that is on the team server is forgotten there too, at the next
- * sync: `shared` says so. Null when there is no such answer.
- */
-export async function forgetAnswer(store: Store, id: string): Promise<{ shared: boolean } | null> {
-  const answer = await store.answers.get(id);
-  if (!answer) return null;
-  await store.answers.remove(id);
-  if (answer.shared) {
-    const pending = JSON.parse((await store.team.get(FORGOTTEN)) ?? "[]") as string[];
-    if (!pending.includes(id)) await store.team.set(FORGOTTEN, JSON.stringify([...pending, id]));
-  }
-  return { shared: answer.shared };
-}
-
-const refusal = (error: unknown) => error instanceof TeamError && error.status === 400;
-
-/**
- * Sends rows in one call. When the server refuses the call, sends them one at a time and sets aside each one it
- * refuses, so a single row it will never take does not hold back the others. Returns the rows it took.
- */
-async function pushRows<T>(
-  team: TeamClient,
-  path: string,
-  rows: readonly T[],
-  body: (rows: readonly T[]) => object,
-  refuse: (row: T, reason: string) => Promise<void>,
-): Promise<{ accepted: T[]; refused: number }> {
-  if (rows.length > 1) {
-    try {
-      await teamApi(team, path, { body: body(rows) });
-      return { accepted: [...rows], refused: 0 };
-    } catch (error) {
-      if (!refusal(error)) throw error;
+/** The changes waiting for the team store, as it takes them. */
+async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
+  const changes: { id: string; recordId: string; baseVersion: number; changed: string[]; record: unknown }[] = [];
+  for (const entry of entries) {
+    const change = entry.change as { changed: string[]; record: Record<string, unknown> };
+    let record = change.record;
+    let changed = change.changed;
+    if (record.space === "me") {
+      if (!deps.personalKey) continue;
+      record = await sealRecord(deps.personalKey, record);
+      changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
+    } else {
+      const space = await deps.store.spaces.get(String(record.space));
+      if (space?.kind === "repo") record = { ...record, spaceName: space.name };
     }
+    changes.push({ id: entry.id, recordId: entry.recordId, baseVersion: entry.baseVersion, changed, record });
   }
-  const accepted: T[] = [];
-  let refused = 0;
-  for (const row of rows) {
-    try {
-      await teamApi(team, path, { body: body([row]) });
-      accepted.push(row);
-    } catch (error) {
-      if (!refusal(error)) throw error;
-      await refuse(row, (error as TeamError).reason);
-      refused += 1;
-    }
-  }
-  return { accepted, refused };
-}
-
-interface RemoteAnswer {
-  seq: number;
-  id: string;
-  repoId: string;
-  question: string;
-  answer: string;
-  sources: { path: string; blobHash: string }[];
-  author: string;
-  createdAt: number;
-  deleted: boolean;
-}
-
-interface RemoteSummary {
-  seq: number;
-  repoId: string;
-  path: string;
-  blobHash: string;
-  summary: string;
-  author: string;
-  createdAt: number;
-}
-
-async function sharedRepos(deps: SyncDeps): Promise<string[]> {
-  const ids = new Set((await deps.store.team.repos()).map((repo) => repo.repoId));
-  if (deps.shareAll) {
-    for (const row of await deps.store.answers.stats()) ids.add(row.repoId);
-    for (const row of await deps.store.summaries.stats()) ids.add(row.repoId);
-  }
-  return [...ids].sort();
-}
-
-/** UTC day of a Unix time in milliseconds: the team server's days. */
-function utcDay(ts: number): string {
-  return new Date(ts).toISOString().slice(0, 10);
+  return changes;
 }
 
 /**
- * One round of team sync: push what this machine recorded for the shared repositories (answers, summaries, usage
- * numbers), then pull what others recorded. The local cache stays the source of truth: when the server cannot be
- * reached this throws, and nothing local changes.
+ * One round of sync: send what this machine changed, then take what changed on the team store since the last round.
+ * The local copy stays usable offline: when the store cannot be reached this throws, and nothing local is lost.
  */
 export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const { store, team } = deps;
-  const result: SyncResult = {
-    pushed: { answers: 0, summaries: 0, usageRows: 0, forgotten: 0 },
-    pulled: { answers: 0, removed: 0, summaries: 0 },
-    refused: { answers: 0, summaries: 0 },
-  };
-  const repos = await sharedRepos(deps);
+  const result: SyncResult = { pushed: 0, refused: [], pulled: 0, unopened: 0 };
 
-  // Joining another team server: what was shared with the last one is pushed again.
-  const server = await store.team.get("server");
-  if (server !== null && server !== team.url) {
-    await store.answers.unshareAll();
-    await store.summaries.unshareAll();
-  }
-  if (server !== team.url) await store.team.set("server", team.url);
-
-  const forgotten = JSON.parse((await store.team.get(FORGOTTEN)) ?? "[]") as string[];
-  const sent: string[] = [];
-  for (let at = 0; at < forgotten.length; at += BATCH) {
-    const ids = forgotten.slice(at, at + BATCH);
-    try {
-      await teamApi(team, "/api/answers/forget", { body: { ids } });
-      sent.push(...ids);
-    } catch (error) {
-      // A team server deployed before forgetting existed: the ids wait for `grenier team deploy`.
-      if (!(error instanceof TeamError && error.status === 404)) throw error;
-      break;
+  for (;;) {
+    const entries = await store.outbox.pending(200);
+    const changes = await outgoing(deps, entries);
+    if (changes.length === 0) break;
+    const answer = await teamApi<{
+      applied: { id: string; recordId: string; version: number }[];
+      refused: { id: string; reason: string }[];
+    }>(team, "/api/changes", { body: { changes } });
+    for (const applied of answer.applied) {
+      const local = await store.records.get(applied.recordId);
+      if (local && local.version < applied.version) await store.records.setVersion(applied.recordId, applied.version);
     }
-  }
-  if (sent.length > 0) {
-    const pending = JSON.parse((await store.team.get(FORGOTTEN)) ?? "[]") as string[];
-    await store.team.set(FORGOTTEN, JSON.stringify(pending.filter((id) => !sent.includes(id))));
-    result.pushed.forgotten = sent.length;
+    await store.outbox.remove(answer.applied.map((applied) => applied.id));
+    for (const refused of answer.refused) {
+      await store.outbox.refuse(refused.id, refused.reason);
+      const entry = entries.find((candidate) => candidate.id === refused.id);
+      result.refused.push({ recordId: entry?.recordId ?? refused.id, reason: refused.reason });
+    }
+    result.pushed += answer.applied.length;
+    if (answer.applied.length === 0) break;
   }
 
+  const me = await store.state.get("team_me_space");
+  let cursor = Number((await store.state.get("team_cursor")) ?? 0);
+  const waiting = new Set((await store.outbox.list()).map((entry) => entry.recordId));
   for (;;) {
-    const batch = await store.answers.unshared(repos, BATCH);
-    if (batch.length === 0) break;
-    const { accepted, refused } = await pushRows(
-      team,
-      "/api/answers",
-      batch,
-      (rows) => ({
-        answers: rows.map((answer) => ({
-          id: answer.id,
-          repoId: answer.repoId,
-          question: answer.question,
-          answer: answer.answer,
-          sources: answer.sources,
-          createdAt: answer.createdAt,
-        })),
-      }),
-      (answer, reason) => store.answers.refuse(answer.id, reason),
-    );
-    await store.answers.markShared(accepted.map((answer) => answer.id));
-    result.pushed.answers += accepted.length;
-    result.refused.answers += refused;
-  }
-
-  for (;;) {
-    const batch = await store.summaries.unshared(repos, BATCH);
-    if (batch.length === 0) break;
-    const { accepted, refused } = await pushRows(
-      team,
-      "/api/summaries",
-      batch,
-      (rows) => ({
-        summaries: rows.map(({ repoId, path, blobHash, summary, createdAt }) => ({
-          repoId,
-          path,
-          blobHash,
-          summary,
-          createdAt,
-        })),
-      }),
-      (summary, reason) => store.summaries.refuse(summary, reason),
-    );
-    await store.summaries.markShared(accepted);
-    result.pushed.summaries += accepted.length;
-    result.refused.summaries += refused;
-  }
-
-  // Each repository has its own place in each server's changes, so one shared later pulls its whole history.
-  // Repositories at the same place are pulled together, in calls of at most SYNC_REPOS (the server's limit).
-  const cursorKey = (repo: string) => `cursor ${team.url} ${repo}`;
-  const groups = new Map<string, string[]>();
-  for (const repo of repos) {
-    const at = (await store.team.get(cursorKey(repo))) ?? '{"answers":0,"summaries":0}';
-    groups.set(at, [...(groups.get(at) ?? []), repo]);
-  }
-  const batches = [...groups.entries()].flatMap(([at, group]) =>
-    Array.from({ length: Math.ceil(group.length / SYNC_REPOS) }, (_, index) => ({
-      start: at,
-      batch: group.slice(index * SYNC_REPOS, (index + 1) * SYNC_REPOS),
-    })),
-  );
-  for (const { start, batch } of batches) {
-    let cursor = JSON.parse(start) as { answers: number; summaries: number };
-    for (;;) {
-      const query = new URLSearchParams({
-        repos: batch.join(","),
-        answers: String(cursor.answers),
-        summaries: String(cursor.summaries),
+    const page = await teamApi<{
+      records: Remote[];
+      next: number;
+      version: number;
+      spaces: { id: string; name: string; kind: "team" | "repo" | "custom"; repoId: string | null }[];
+    }>(team, `/api/changes?after=${cursor}&limit=500`);
+    for (const space of page.spaces) {
+      if (space.id.startsWith("me:")) continue;
+      const local = await store.spaces.get(space.id);
+      await store.spaces.put({
+        id: space.id,
+        name: local?.name ?? space.name,
+        kind: space.kind,
+        repoId: space.repoId,
+        root: local?.root ?? null,
       });
-      const changes = await teamApi<{
-        answers: RemoteAnswer[];
-        summaries: RemoteSummary[];
-        cursors: { answers: number; summaries: number };
-      }>(team, `/api/sync?${query}`);
-
-      for (const remote of changes.answers) {
-        if (remote.deleted) {
-          await store.answers.remove(remote.id);
-          result.pulled.removed += 1;
+    }
+    for (let remote of page.records) {
+      if (waiting.has(remote.id)) continue;
+      if (remote.space === me) {
+        if (!deps.personalKey) {
+          result.unopened += 1;
           continue;
         }
-        if (await store.answers.get(remote.id)) continue;
-        const [vector] = deps.embedder ? await deps.embedder.embed([remote.question]) : [];
-        await store.answers.add(
-          {
-            id: remote.id,
-            repoId: remote.repoId,
-            question: remote.question,
-            answer: remote.answer,
-            createdAt: remote.createdAt,
-            author: remote.author,
-            shared: true,
-          },
-          remote.sources,
-          vector && deps.embedder ? { model: deps.embedder.model, vector } : undefined,
-        );
-        result.pulled.answers += 1;
+        try {
+          remote = { ...(await openRecord(deps.personalKey, remote)), space: "me" };
+        } catch (error) {
+          if (!(error instanceof VaultError)) throw error;
+          result.unopened += 1;
+          continue;
+        }
       }
-      for (const remote of changes.summaries) {
-        await store.summaries.put({
-          repoId: remote.repoId,
-          path: remote.path,
-          blobHash: remote.blobHash,
-          summary: remote.summary,
-          createdAt: remote.createdAt,
-          shared: true,
-        });
-        result.pulled.summaries += 1;
-      }
-      if (changes.answers.length === 0 && changes.summaries.length === 0) break;
-      for (const repo of batch) await store.team.set(cursorKey(repo), JSON.stringify(changes.cursors));
-      cursor = changes.cursors;
+      const { sealed: _sealed, ...rest } = remote;
+      const record: RecordInput = rest;
+      const before = await store.records.get(record.id);
+      const [vector] =
+        deps.embedder && (!before || before.title !== record.title || before.body !== record.body)
+          ? await deps.embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)])
+          : [];
+      await store.records.put(record, vector && deps.embedder ? { model: deps.embedder.model, vector } : undefined);
+      const { anchors, links, ...row } = record;
+      await store.history.add({
+        recordId: record.id,
+        version: record.version,
+        author: record.author,
+        device: record.device,
+        ts: record.updatedAt,
+        snapshot: { ...row, anchors, links },
+      });
+      result.pulled += 1;
     }
+    cursor = page.next;
+    await store.state.set("team_cursor", String(cursor));
+    if (page.records.length === 0 || cursor >= page.version) break;
   }
 
-  const usageCursor = Number((await store.team.get("usage_id")) ?? 0);
-  const rows = await store.usage.after(usageCursor, 1000);
-  const hits = await store.answers.totalHits();
-  const hitsPushed = Number((await store.team.get("hits_pushed")) ?? hits);
-  const days = new Map<string, Record<string, number>>();
-  for (const row of rows) {
-    const day = utcDay(row.ts);
-    const delta = days.get(day) ?? {
-      requests: 0,
-      inputTokens: 0,
-      cacheWriteTokens: 0,
-      cacheReadTokens: 0,
-      outputTokens: 0,
-      cost: 0,
-      saved: 0,
-      answerHits: 0,
-    };
-    delta.requests = (delta.requests ?? 0) + 1;
-    delta.inputTokens = (delta.inputTokens ?? 0) + (row.inputTokens ?? 0);
-    delta.cacheWriteTokens = (delta.cacheWriteTokens ?? 0) + (row.cacheWriteTokens ?? 0);
-    delta.cacheReadTokens = (delta.cacheReadTokens ?? 0) + (row.cacheReadTokens ?? 0);
-    delta.outputTokens = (delta.outputTokens ?? 0) + (row.outputTokens ?? 0);
-    delta.cost = (delta.cost ?? 0) + (row.cost ?? 0);
-    delta.saved = (delta.saved ?? 0) + deps.savedOf(row);
-    days.set(day, delta);
-  }
-  const newHits = Math.max(0, hits - hitsPushed);
-  if (newHits > 0) {
-    const today = utcDay(Date.now());
-    const delta = days.get(today) ?? {
-      requests: 0,
-      inputTokens: 0,
-      cacheWriteTokens: 0,
-      cacheReadTokens: 0,
-      outputTokens: 0,
-      cost: 0,
-      saved: 0,
-      answerHits: 0,
-    };
-    delta.answerHits = newHits;
-    days.set(today, delta);
-  }
-  let through = rows.at(-1)?.id ?? usageCursor;
-  if (days.size > 0) {
-    const range = deps.device ? { device: deps.device, from: usageCursor, through } : {};
-    try {
-      await teamApi(team, "/api/usage", {
-        body: { usage: [...days.entries()].map(([day, delta]) => ({ day, ...delta })), ...range },
-      });
-      result.pushed.usageRows = rows.length;
-    } catch (error) {
-      // Already counted (a lost answer, or another sync at the same time): carry on from where the server is.
-      const counted = error instanceof TeamError && error.status === 409 ? (error.body as { through?: unknown }) : null;
-      if (typeof counted?.through !== "number") throw error;
-      through = counted.through;
-    }
-  }
-  if (through !== usageCursor) await store.team.set("usage_id", String(through));
-  await store.team.set("hits_pushed", String(hits));
+  await pushUsage(deps);
+  await store.state.set("last_sync", String((deps.now ?? Date.now)()));
   return result;
+}
+
+/** This machine's usage by day and repository folder, as totals the team store replaces. */
+async function pushUsage(deps: SyncDeps): Promise<void> {
+  const since = (deps.now ?? Date.now)() - 35 * 86_400_000;
+  const rows = await deps.store.usage.list({ since });
+  const runs = await deps.store.runs.list({ since, limit: 10_000 });
+  const totals = new Map<string, Record<string, number | string>>();
+  for (const row of rows) {
+    const day = new Date(row.ts).toISOString().slice(0, 10);
+    const repo = (row.repoRoot ?? row.cwd ?? "").split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+    const key = `${day}\u0000${repo}`;
+    const total = totals.get(key) ?? {
+      day,
+      repo,
+      requests: 0,
+      inputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 0,
+      cost: 0,
+      routineMinutes: 0,
+    };
+    total.requests = Number(total.requests) + 1;
+    total.inputTokens = Number(total.inputTokens) + (row.inputTokens ?? 0);
+    total.cacheWriteTokens = Number(total.cacheWriteTokens) + (row.cacheWriteTokens ?? 0);
+    total.cacheReadTokens = Number(total.cacheReadTokens) + (row.cacheReadTokens ?? 0);
+    total.outputTokens = Number(total.outputTokens) + (row.outputTokens ?? 0);
+    total.cost = Number(total.cost) + (row.cost ?? 0);
+    totals.set(key, total);
+  }
+  for (const run of runs) {
+    if (!run.endedAt) continue;
+    const day = new Date(run.startedAt).toISOString().slice(0, 10);
+    const key = `${day}\u0000`;
+    const total = totals.get(key) ?? {
+      day,
+      repo: "",
+      requests: 0,
+      inputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 0,
+      cost: 0,
+      routineMinutes: 0,
+    };
+    total.routineMinutes = Number(total.routineMinutes) + (run.endedAt - run.startedAt) / 60_000;
+    totals.set(key, total);
+  }
+  if (totals.size === 0) return;
+  await teamApi(deps.team, "/api/usage", { method: "PUT", body: { rows: [...totals.values()] } });
 }

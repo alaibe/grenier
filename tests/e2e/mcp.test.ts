@@ -54,7 +54,7 @@ beforeAll(async () => {
   await new Promise((resolve) => free.close(resolve));
 
   await grenier("status");
-  writeFileSync(join(home, "config.toml"), `[proxy]\nport = ${port}\n\n[cache]\nembeddings = "off"\n`);
+  writeFileSync(join(home, "config.toml"), `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n`);
 });
 
 afterAll(async () => {
@@ -63,7 +63,7 @@ afterAll(async () => {
 });
 
 describe("the MCP server of the built binary", () => {
-  it("answers ask_codebase over stdio: miss, then hit after record_answer, then stale after an edit", async () => {
+  it("answers recall over stdio: miss, then hit after remember, then stale after an edit", async () => {
     const transport = new StdioClientTransport({
       command: BINARY,
       args: ["mcp", "serve"],
@@ -75,20 +75,20 @@ describe("the MCP server of the built binary", () => {
     await client.connect(transport);
     try {
       const question = "Where is the proxy defined?";
-      expect(structured(await client.callTool({ name: "ask_codebase", arguments: { question } })).status).toBe("miss");
+      expect(structured(await client.callTool({ name: "recall", arguments: { query: question } })).status).toBe("miss");
       await client.callTool({
-        name: "record_answer",
-        arguments: { question, answer: "In proxy.ts.", files: ["proxy.ts"] },
+        name: "remember",
+        arguments: { kind: "answer", title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
       });
-      expect(structured(await client.callTool({ name: "ask_codebase", arguments: { question } }))).toMatchObject({
+      expect(structured(await client.callTool({ name: "recall", arguments: { query: question } }))).toMatchObject({
         status: "hit",
-        answer: "In proxy.ts.",
+        results: [{ title: question }],
       });
 
       writeFileSync(join(repo, "proxy.ts"), "export const proxy = 2;\n");
-      expect(structured(await client.callTool({ name: "ask_codebase", arguments: { question } }))).toMatchObject({
+      expect(structured(await client.callTool({ name: "recall", arguments: { query: question } }))).toMatchObject({
         status: "stale",
-        changed: ["proxy.ts"],
+        results: [{ changed: ["proxy.ts"] }],
       });
       writeFileSync(join(repo, "proxy.ts"), "export const proxy = 1;\n");
     } finally {
@@ -96,7 +96,7 @@ describe("the MCP server of the built binary", () => {
     }
   });
 
-  it("answers over HTTP through the daemon for a client with a token, from the same cache", async () => {
+  it("answers over HTTP through the daemon for a client with a token, from the same store", async () => {
     await grenier("start");
     const store = openSqliteStore(join(home, "grenier.db"));
     const token = "e2e-client-token";
@@ -116,12 +116,12 @@ describe("the MCP server of the built binary", () => {
     await client.connect(transport);
     try {
       const result = await client.callTool({
-        name: "ask_codebase",
-        arguments: { question: "Where is the proxy defined?", repo },
+        name: "recall",
+        arguments: { query: "Where is the proxy defined?", repo },
       });
-      expect(structured(result)).toMatchObject({ status: "hit", answer: "In proxy.ts." });
-      const withoutRepo = await client.callTool({ name: "ask_codebase", arguments: { question: "x" } });
-      expect(withoutRepo.isError).toBe(true);
+      expect(structured(result)).toMatchObject({ status: "hit", results: [{ title: "Where is the proxy defined?" }] });
+      const elsewhere = await client.callTool({ name: "recall", arguments: { query: "x", repo: "/nowhere" } });
+      expect(elsewhere.isError).toBe(true);
     } finally {
       await client.close();
     }
@@ -130,9 +130,10 @@ describe("the MCP server of the built binary", () => {
     expect(refused.status).toBe(401);
   });
 
-  it("shows and clears the cache", async () => {
-    expect((await grenier("cache", "stats")).stdout).toMatch(/^\S+\s+1\s+\d+\s+0$/m);
-    expect((await grenier("cache", "clear", "--repo", repo)).stdout).toBe("Removed 1 answer(s) and 0 summary(ies).\n");
-    expect((await grenier("cache", "stats")).stdout).toBe("The cache is empty.\n");
+  it("lists and retires records", async () => {
+    expect((await grenier("store", "stats")).stdout).toMatch(/^repo:\S+\s+Memory\s+1 records\s+\d+ reuses$/m);
+    const id = (await grenier("store", "list")).stdout.split(/\s+/)[0] as string;
+    expect((await grenier("store", "retire", id)).stdout).toMatch(/^Retired /);
+    expect((await grenier("store", "stats")).stdout).toBe("No records yet.\n");
   });
 });

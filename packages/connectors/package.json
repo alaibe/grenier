@@ -2,22 +2,12 @@
   "name": "@grenier/connectors",
   "version": "0.0.0",
   "private": true,
-  "description": "Where Grenier reads from: git repositories, markdown, IMAP and CalDAV/ICS. Node only.",
+  "description": "Where Grenier reads from: git repositories. Node only.",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./git": "./src/git.ts"
   },
-  "dependencies": {
-    "@grenier/core": "workspace:*",
-    "@grenier/store": "workspace:*",
-    "ical.js": "2.2.1",
-    "imapflow": "2.11.0",
-    "mailparser": "3.14.2",
-    "tsdav": "2.5.0"
-  },
-  "devDependencies": {
-    "@types/mailparser": "3.9.0"
-  }
+  "dependencies": {}
 }

@@ -67,24 +67,6 @@ describe("usage", () => {
     await store.usage.add({ sessionId: "untagged", ts: 400, model: "m", cost: null });
   });
 
-  it("sums spend by time and session", async () => {
-    expect(await store.usage.spend({})).toBe(7.5);
-    expect(await store.usage.spend({ since: 200 })).toBe(6);
-    expect(await store.usage.spend({ sessionId: "s1" })).toBe(3.5);
-    expect(await store.usage.spend({ sessionId: "none" })).toBe(0);
-  });
-
-  it("sums spend per session folder", async () => {
-    await store.sessions.create({ id: "s3", startedAt: 1_000, cwd: "/home/notes", repoRoot: null, repoId: null });
-    await store.usage.add({ sessionId: "s3", ts: 500, model: "m", cost: 0.5 });
-    const folders = await store.usage.spendByFolder(200);
-    expect(folders.sort((a, b) => b.spent - a.spent)).toEqual([
-      { repoRoot: "/work/app", cwd: "/work/app", spent: 6 },
-      { repoRoot: null, cwd: "/home/notes", spent: 0.5 },
-      { repoRoot: null, cwd: null, spent: 0 },
-    ]);
-  });
-
   it("lists rows with their session's repository, oldest first", async () => {
     const rows = await store.usage.list({ since: 200 });
     expect(rows.map((row) => [row.sessionId, row.repoId, row.cwd])).toEqual([
@@ -93,12 +75,6 @@ describe("usage", () => {
       ["untagged", null, null],
     ]);
     expect((await store.usage.list({ sessionId: "s2" })).map((row) => row.ts)).toEqual([300]);
-  });
-
-  it("gives what a session's latest request cost", async () => {
-    expect(await store.usage.lastCost("s1")).toBe(2);
-    expect(await store.usage.lastCost("untagged")).toBeNull();
-    expect(await store.usage.lastCost("none")).toBeNull();
   });
 });
 
@@ -175,53 +151,136 @@ describe("steps", () => {
     expect(await store.usage.prune(20)).toBe(1);
     expect(await store.events.prune(20)).toBe(1);
     expect((await store.steps.list("s1")).map((row) => row.path)).toEqual(["b.ts"]);
-    expect(await store.usage.spend({})).toBe(2);
+    expect((await store.usage.list()).map((row) => row.cost)).toEqual([2]);
     expect(await store.events.list()).toEqual([]);
   });
 });
 
-describe("budgets", () => {
-  it("sets, replaces and removes limits", async () => {
-    await store.budgets.set("daily", "", 10);
-    await store.budgets.set("repo", "app", 2);
-    await store.budgets.set("daily", "", 12);
-    expect(await store.budgets.list()).toEqual([
-      { scope: "daily", key: "", period: "day", limitAmount: 12 },
-      { scope: "repo", key: "app", period: "day", limitAmount: 2 },
+describe("records", () => {
+  const record = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    space: "team",
+    type: "Memory",
+    kind: "fact",
+    title: "Deploys on Friday",
+    body: "Only before noon.",
+    fields: { kind: "fact" },
+    author: "ada",
+    device: "ada-mbp",
+    sessionId: null,
+    createdAt: 1,
+    updatedAt: 1,
+    retiredAt: null,
+    version: 0,
+    anchors: [{ kind: "git" as const, repoId: "r", ref: "src/a.ts", version: "abc" }],
+    links: [{ kind: "record" as const, ref: "p1" }],
+    ...extra,
+  });
+
+  it("keeps a record with its anchors and links, and replaces them with it", async () => {
+    await store.records.put(record("r1"));
+    expect(await store.records.get("r1")).toMatchObject({
+      title: "Deploys on Friday",
+      anchors: [{ ref: "src/a.ts" }],
+      links: [{ ref: "p1" }],
+    });
+    await store.records.put(record("r1", { anchors: [], links: [], title: "Deploys on Fridays" }));
+    expect(await store.records.get("r1")).toMatchObject({ title: "Deploys on Fridays", anchors: [], links: [] });
+  });
+
+  it("lists by space, type and link, newest first, without the retired ones unless asked", async () => {
+    await store.records.put(record("r1", { updatedAt: 1 }));
+    await store.records.put(record("r2", { updatedAt: 2, type: "Doc", kind: null, links: [] }));
+    await store.records.put(record("r3", { updatedAt: 3, retiredAt: 3 }));
+    expect((await store.records.list({ spaces: ["team"] })).map((r) => r.id)).toEqual(["r2", "r1"]);
+    expect((await store.records.list({ spaces: ["team"], retired: true })).map((r) => r.id)).toEqual([
+      "r3",
+      "r2",
+      "r1",
     ]);
-    await store.budgets.remove("repo", "app");
-    expect((await store.budgets.list()).map((b) => b.scope)).toEqual(["daily"]);
+    expect((await store.records.list({ spaces: ["team"], type: "Doc" })).map((r) => r.id)).toEqual(["r2"]);
+    expect(
+      (await store.records.list({ spaces: ["team"], linkedTo: { kind: "record", ref: "p1" } })).map((r) => r.id),
+    ).toEqual(["r1"]);
+    expect(await store.records.list({ spaces: [] })).toEqual([]);
+  });
+
+  it("searches titles and bodies with the stemmer, in the spaces given", async () => {
+    await store.records.put(record("r1", { title: "How does streaming work?" }));
+    await store.records.put(record("r2", { space: "me", title: "Streamed responses" }));
+    expect((await store.records.search(["streams"], ["team"], 10)).map((r) => r.id)).toEqual(["r1"]);
+    expect((await store.records.search(["streams"], ["team", "me"], 10)).map((r) => r.id).sort()).toEqual(["r1", "r2"]);
+  });
+
+  it("keeps a vector until the text changes, and counts reuses", async () => {
+    await store.records.put(record("r1"), { model: "m", vector: Float32Array.from([1, 0]) });
+    await store.records.put(record("r1", { fields: { kind: "fact", extra: 1 } }));
+    expect(await store.records.vectors(["team"], "m")).toHaveLength(1);
+    await store.records.put(record("r1", { body: "Changed." }));
+    expect(await store.records.vectors(["team"], "m")).toEqual([]);
+    await store.records.hit("r1");
+    expect((await store.records.get("r1"))?.hits).toBe(1);
+    expect(await store.records.stats()).toEqual([{ space: "team", type: "Memory", records: 1, hits: 1 }]);
   });
 });
 
-describe("items", () => {
-  it("finds a person by name whatever the case and accents, and a repeated question the same way", async () => {
-    await store.sources.add({ id: "src", name: "mail", kind: "imap", config: {} });
-    await store.items.put({
-      id: "src:1",
-      sourceId: "src",
-      kind: "mail",
-      title: "Lunch",
+describe("spaces, the outbox, history and approvals", () => {
+  it("removes a space with its records here", async () => {
+    await store.spaces.put({ id: "space:x", name: "x", kind: "custom", repoId: null, root: null });
+    await store.records.put({
+      id: "r1",
+      space: "space:x",
+      type: "Doc",
+      kind: null,
+      title: "t",
       body: "",
-      people: ["Élodie Müller <elodie@example.org>"],
-      ts: 1,
-      contentHash: "h",
+      fields: {},
+      author: "a",
+      device: null,
+      sessionId: null,
+      createdAt: 1,
+      updatedAt: 1,
+      retiredAt: null,
+      version: 0,
+      anchors: [],
+      links: [],
     });
-    for (const name of ["élodie", "ELODIE", "muller", "Müller"]) {
-      expect(
-        (await store.items.withPerson(name, { sourceIds: ["src"] }, 10)).map((item) => item.id),
-        name,
-      ).toEqual(["src:1"]);
-    }
+    await store.spaces.remove("space:x");
+    expect(await store.records.get("r1")).toBeUndefined();
+    expect(await store.spaces.get("space:x")).toBeUndefined();
+  });
 
-    await store.answers.add(
-      { id: "a1", repoId: "r", question: "Où est le café ?", answer: "old", createdAt: 1, author: "x" },
-      [],
-    );
-    await store.answers.add(
-      { id: "a2", repoId: "r", question: "OÙ EST LE CAFÉ ?", answer: "new", createdAt: 2, author: "x" },
-      [],
-    );
-    expect(await store.answers.get("a1")).toBeUndefined();
+  it("keeps a repository's root when it is put again without one", async () => {
+    await store.spaces.put({ id: "repo:r", name: "app", kind: "repo", repoId: "r", root: "/work/app" });
+    await store.spaces.put({ id: "repo:r", name: "app", kind: "repo", repoId: "r", root: null });
+    expect((await store.spaces.get("repo:r"))?.root).toBe("/work/app");
+  });
+
+  it("gives pending changes oldest first, without refused ones", async () => {
+    await store.outbox.add({ id: "c1", recordId: "r1", change: {}, baseVersion: 0, createdAt: 1 });
+    await store.outbox.add({ id: "c2", recordId: "r2", change: {}, baseVersion: 0, createdAt: 2 });
+    await store.outbox.refuse("c1", "no");
+    expect((await store.outbox.pending(10)).map((entry) => entry.id)).toEqual(["c2"]);
+    await store.outbox.remove(["c2"]);
+    expect((await store.outbox.list()).map((entry) => entry.id)).toEqual(["c1"]);
+  });
+
+  it("keeps each version once, and approvals by record and kind", async () => {
+    const entry = { recordId: "r1", version: 1, author: "ada", device: null, ts: 1, snapshot: { title: "t" } };
+    await store.history.add(entry);
+    await store.history.add({ ...entry, snapshot: { title: "other" } });
+    expect(await store.history.list("r1")).toMatchObject([{ version: 1, snapshot: { title: "t" } }]);
+    const approval = {
+      recordId: "s1",
+      kind: "skill" as const,
+      hash: "h",
+      approvedAt: 1,
+      settings: {},
+      installedPath: null,
+      previousHash: null,
+    };
+    await store.approvals.put(approval);
+    await store.approvals.put({ ...approval, hash: "h2" });
+    expect(await store.approvals.list("skill")).toMatchObject([{ hash: "h2" }]);
   });
 });

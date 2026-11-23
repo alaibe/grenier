@@ -41,8 +41,8 @@ interface Request {
   messages?: { role: string; content: string | Content[] }[];
 }
 
-const ASK = "mcp__grenier__ask_codebase";
-const RECORD = "mcp__grenier__record_answer";
+const ASK = "mcp__grenier__recall";
+const RECORD = "mcp__grenier__remember";
 /** Input tokens of the call made once ToolSearch has loaded Grenier's tools: small next to the prompt. */
 const LOADED = 500;
 
@@ -63,7 +63,7 @@ function textOf(content: unknown): string {
 }
 
 /**
- * What the stand-in model does next: ask the cache, record on a miss, answer on a hit or once recorded. Claude Code
+ * What the stand-in model does next: recall, remember on a miss, answer on a hit or once remembered. Claude Code
  * defers MCP tools: it names them in the prompt, and a model loads them with ToolSearch before it calls one.
  */
 function next(request: Request): [Block, number] {
@@ -71,7 +71,7 @@ function next(request: Request): [Block, number] {
   const deferred = !loaded && JSON.stringify([request.system, request.messages]).includes(ASK);
   if (!loaded && !deferred) return [{ type: "text", text: "ok" }, 25];
   const ask: [Block, number] = [
-    { type: "tool_use", id: `toolu_ask_${toolResults.length}`, name: ASK, input: { question: QUESTION } },
+    { type: "tool_use", id: `toolu_ask_${toolResults.length}`, name: ASK, input: { query: QUESTION } },
     20_000,
   ];
   const load: [Block, number] = [
@@ -103,7 +103,7 @@ function next(request: Request): [Block, number] {
         type: "tool_use",
         id: `toolu_record_${toolResults.length}`,
         name: RECORD,
-        input: { question: QUESTION, answer: ANSWER, files: ["app.ts"] },
+        input: { kind: "answer", title: QUESTION, body: ANSWER, files: ["app.ts"] },
       },
       20_000,
     ];
@@ -181,11 +181,7 @@ describe.skipIf(claude === null)("the benchmark with Claude Code", () => {
       },
     });
 
-    expect(toolResults.map((result) => result.name)).toEqual([
-      "mcp__grenier__ask_codebase",
-      "mcp__grenier__record_answer",
-      "mcp__grenier__ask_codebase",
-    ]);
+    expect(toolResults.map((result) => result.name)).toEqual([ASK, RECORD, ASK]);
     expect(toolResults[0]?.text).toMatch(/"status":\s*"miss"/);
     expect(toolResults[2]?.text).toMatch(/"status":\s*"hit"/);
     expect(toolResults[2]?.text).toContain(ANSWER);

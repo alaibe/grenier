@@ -56,12 +56,12 @@ export function Clients(_: ViewProps) {
 
   return (
     <Page
-      title="Clients and scopes"
+      title="Clients and spaces"
       intro={
         <>
-          Each app that reads your personal data through Grenier has its own token, and reads only the scopes you give
-          it. <code>grenier mcp install</code> creates the client for the app it installs into; create one here only for
-          another app or a script.
+          Each app that reads the store through Grenier has its own token. It reads the repositories it works in, and
+          only the spaces you give it beyond them: me, the team, a project's. <code>grenier mcp install</code> creates
+          the client for the app it installs into; create one here only for another app or a script.
         </>
       }
       action={
@@ -128,7 +128,7 @@ export function Clients(_: ViewProps) {
               ))}
             </div>
             <span className="text-sm font-normal text-muted">
-              With nothing ticked, the client reads no personal data.
+              With nothing ticked, it reads only the spaces of the repositories it works in. * is every space.
             </span>
           </fieldset>
           <div className="flex items-center gap-2">
@@ -145,8 +145,8 @@ export function Clients(_: ViewProps) {
       {!data && !error && <Loading what="clients" />}
       {data && data.clients.length === 0 && !adding && !created && (
         <Empty>
-          <p>No app reads your personal data yet. Install Grenier in one with the scopes it may read:</p>
-          <code>grenier mcp install claude-desktop --scope notes,calendar</code>
+          <p>No app reads the store yet. Install Grenier in one:</p>
+          <code>grenier mcp install claude-code</code>
         </Empty>
       )}
       {data && data.clients.length > 0 && (
@@ -177,7 +177,7 @@ export function Clients(_: ViewProps) {
                       ))}
                     </span>
                   ) : (
-                    <span className="block text-sm break-all text-muted">no personal data</span>
+                    <span className="block text-sm break-all text-muted">its repositories only</span>
                   )}
                 </td>
                 <td>

@@ -1,28 +1,41 @@
-import { homedir } from "node:os";
-import { commandWords, localPath, syncSources } from "@grenier/connectors";
-import { type Config, effectiveLimits, WARN_AT } from "@grenier/core";
+import { BUILTIN_TYPES, builtinType, customType, recordProblem, repoSpace } from "@grenier/core";
 import {
   addClient,
-  approveMemory,
-  CacheError,
-  forgetAnswer,
-  type RepoFiles,
-  SCOPE_KINDS,
-  scopeNames,
+  check,
+  type Found,
+  newId,
+  query,
+  recall,
+  retire,
+  type StoreDeps,
+  StoreUseError,
+  type TeamClient,
+  TeamError,
+  teamApi,
+  write,
 } from "@grenier/index";
 import {
   buildReport,
   cacheReport,
-  folderName,
   type GroupBy,
   mostSpentFirst,
   type Prices,
   parseSince,
   projectOf,
-  startOfToday,
 } from "@grenier/log";
-import type { BudgetScope, Source, Store, UsageWithSession } from "@grenier/store";
+import type { FullRecord, RecordInput, Store, UsageWithSession } from "@grenier/store";
 import { Hono } from "hono";
+
+/** What the daemon does for the admin API beyond the store: the team, this machine, routines, installs. */
+export interface AdminHost {
+  storeDeps(): Promise<StoreDeps>;
+  /** The team store and this device's token, or null outside a team. */
+  team(): TeamClient | null;
+  /** Sends what is waiting and takes what is new, now. */
+  syncNow(): Promise<void>;
+  /** The daemon's other pages: machine, installs, routines, effectiveness. Each returns null for a path it has not. */
+  extra?: (method: string, path: string, body: unknown) => Promise<{ status: number; body: unknown } | null>;
+}
 
 export interface AdminOptions {
   store: Store;
@@ -30,30 +43,16 @@ export interface AdminOptions {
   /** The token the desktop app reads from ~/.grenier/admin-token; every /admin call needs it. */
   token: string;
   version: string;
-  log?: (line: string) => void;
+  host?: AdminHost;
   /** A text file of a repository's work tree, or null when it cannot be shown. Without it, traces show no code. */
   readFile?: (root: string, path: string) => Promise<string | null>;
-  /** The files' current blob hashes, to say which cached answers are stale. Without it, none is said to be. */
-  files?: Pick<RepoFiles, "hashes">;
-  /** The config file's limits, which a limit set here or with `grenier budget set` replaces. */
-  budgets?: Config["budgets"];
   /** Who the daemon is, so a client can tell it from another program that reused its pid. */
   identity?: { pid: number; port: number };
 }
 
-/** Where each repository is on this machine: the root it was shared from, else the latest session's. */
-async function repoRoots(store: Store): Promise<Map<string, string>> {
-  const roots = new Map<string, string>();
-  for (const session of await store.sessions.list()) {
-    if (session.repoId && session.repoRoot) roots.set(session.repoId, session.repoRoot);
-  }
-  for (const repo of await store.team.repos()) roots.set(repo.repoId, repo.root);
-  return roots;
-}
-
 /**
- * Each session's spending, the newest first, with where it ran and its questions to the exploration cache: null
- * outside a repository, where no step is traced.
+ * Each session's spending, the newest first, with where it ran and its questions to the store: null outside a
+ * repository, where no step is traced.
  */
 async function sessionReport(store: Store, rows: readonly UsageWithSession[], prices: Prices, since: number) {
   const traced = new Map((await store.steps.sessions(since)).map((summary) => [summary.sessionId, summary]));
@@ -75,8 +74,6 @@ async function sessionReport(store: Store, rows: readonly UsageWithSession[], pr
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }
 
-const BUDGET_SCOPES: readonly BudgetScope[] = ["daily", "session", "repo"];
-
 /** The desktop app's webview: Tauri serves it from these origins; the Vite dev server from the last. */
 const APP_ORIGINS = new Set([
   "tauri://localhost",
@@ -86,64 +83,36 @@ const APP_ORIGINS = new Set([
 ]);
 
 const GROUPS: readonly GroupBy[] = ["day", "session", "repo"];
-const SOURCE_KINDS = ["markdown", "ics", "caldav", "imap"] as const;
 
 function problem(status: number, message: string): Response {
   return Response.json({ error: message }, { status });
 }
 
-/** A source as the app shows it: its config without anything that could be a secret. */
-function publicSource(source: Source, items: number) {
-  const { password_command: _command, password_env: _env, ...config } = source.config;
-  return { name: source.name, kind: source.kind, config, items, lastSync: source.lastSync };
-}
-
-function sourceConfig(kind: (typeof SOURCE_KINDS)[number], body: Record<string, unknown>): Record<string, unknown> {
-  const text = (key: string) => (typeof body[key] === "string" && body[key] !== "" ? (body[key] as string) : undefined);
-  const list = (key: string) =>
-    Array.isArray(body[key]) && (body[key] as unknown[]).every((entry) => typeof entry === "string")
-      ? (body[key] as string[])
-      : undefined;
-  const password = () => {
-    const command = text("password_command");
-    if (command) return { password_command: commandWords(command) };
-    const env = text("password_env");
-    if (env) return { password_env: env };
-    throw new CacheError("give password_command (a command printing the password) or password_env");
+/** A record as the editor shows it: what it says, whether it still holds, and the records around it. */
+async function shown(deps: StoreDeps, record: FullRecord, spaces: readonly string[]) {
+  const { status, changed } = await check(deps, record);
+  const titles = async (ids: readonly string[]) => {
+    const out: { id: string; title: string; type: string }[] = [];
+    for (const id of ids) {
+      const target = await deps.store.records.get(id);
+      if (target && spaces.includes(target.space)) out.push({ id, title: target.title, type: target.type });
+    }
+    return out;
   };
-  switch (kind) {
-    case "markdown": {
-      const path = text("path");
-      if (!path) throw new CacheError("a markdown source needs path");
-      return { path: localPath(path, homedir()) };
-    }
-    case "ics": {
-      const url = text("url");
-      const path = text("path");
-      if (!url && !path) throw new CacheError("an ics source needs url or path");
-      return url ? { url } : { path: localPath(path as string, homedir()) };
-    }
-    case "caldav": {
-      const url = text("url");
-      const username = text("username");
-      if (!url || !username) throw new CacheError("a caldav source needs url and username");
-      const calendars = list("calendars");
-      return { url, username, ...password(), ...(calendars ? { calendars } : {}) };
-    }
-    case "imap": {
-      const host = text("host");
-      const user = text("user");
-      if (!host || !user) throw new CacheError("an imap source needs host and user");
-      const mailboxes = list("mailboxes");
-      return { host, user, ...password(), ...(mailboxes ? { mailboxes } : {}) };
-    }
-  }
+  const backlinks = await deps.store.records.list({ spaces, linkedTo: { kind: "record", ref: record.id } });
+  return {
+    ...record,
+    status,
+    changed,
+    linksTo: await titles(record.links.filter((link) => link.kind === "record").map((link) => link.ref)),
+    linkedFrom: backlinks.map((other) => ({ id: other.id, title: other.title, type: other.type })),
+  };
 }
 
-/** The local admin API the desktop app uses: usage, sources, clients and scopes, the audit log, the review queue. */
+/** The local admin API the desktop app uses: usage, traces, the store and its editor, the team, clients, audit. */
 export function createAdmin(options: AdminOptions): Hono {
   const { store, prices } = options;
-  const log = options.log ?? (() => {});
+  const host = options.host;
   const app = new Hono();
 
   app.use(async (c, next) => {
@@ -155,7 +124,7 @@ export function createAdmin(options: AdminOptions): Hono {
         status: 204,
         headers: {
           "access-control-allow-origin": allowed,
-          "access-control-allow-methods": "GET, POST, DELETE",
+          "access-control-allow-methods": "GET, POST, PUT, DELETE",
           "access-control-allow-headers": "authorization, content-type",
           "access-control-max-age": "600",
         },
@@ -173,49 +142,38 @@ export function createAdmin(options: AdminOptions): Hono {
   });
 
   app.onError((error) => {
-    if (error instanceof CacheError) return problem(400, error.message);
+    if (error instanceof StoreUseError) return problem(400, error.message);
+    if (error instanceof TeamError) return problem(error.status >= 500 ? 502 : error.status, error.detail);
     if (error instanceof Error && /--since takes/.test(error.message)) return problem(400, error.message);
     throw error;
   });
 
-  app.get("/health", (c) => c.json({ ...options.identity, version: options.version }));
+  const deps = async () => {
+    if (!host) throw new StoreUseError("the store is not served here");
+    return host.storeDeps();
+  };
+  /** The desktop app is the person: it reads every space this machine has. */
+  const everything = { id: "desktop", name: "desktop", scopes: ["*"] };
+  const allSpaces = async () => (await store.spaces.list()).map((space) => space.id);
 
-  /** Today's daily and project limits that spending has passed 80% of, or reached. */
-  async function limitsToday(rows: readonly UsageWithSession[]) {
-    const stored = await store.budgets.list();
-    const limits = [
-      ...effectiveLimits(options.budgets ?? {}, stored, null).filter((limit) => limit.scope === "daily"),
-      ...stored
-        .filter((budget) => budget.scope === "repo")
-        .map((budget) => ({ scope: "repo" as const, key: budget.key, limit: budget.limitAmount })),
-    ];
-    if (limits.length === 0) return [];
-    const today = rows.filter((row) => row.ts >= startOfToday(Date.now()));
-    const spentBy = (project: string | null) =>
-      today
-        .filter((row) => project === null || projectOf(row) === project)
-        .reduce((sum, row) => sum + (row.cost ?? 0), 0);
-    return limits
-      .map((limit) => ({ ...limit, spent: spentBy(limit.scope === "daily" ? null : limit.key) }))
-      .filter((limit) => limit.spent >= limit.limit * WARN_AT)
-      .map((limit) => ({ ...limit, reached: limit.spent >= limit.limit }));
-  }
+  app.get("/health", (c) => c.json({ ...options.identity, version: options.version }));
 
   app.get("/overview", async (c) => {
     const since = parseSince("7d", Date.now());
     const rows = await store.usage.list({ since });
-    const counts = await store.items.count();
+    const stats = await store.records.stats();
+    const team = host?.team() ?? null;
     return c.json({
       version: options.version,
+      me: host ? (await host.storeDeps()).me.member : null,
       days: buildReport(rows, "day", prices),
       projects: mostSpentFirst(buildReport(rows, "repo", prices)),
-      limits: await limitsToday(rows),
       sessions: await sessionReport(store, rows, prices, since),
-      cache: await store.answers.stats(),
-      sources: (await store.sources.list()).length,
-      items: counts.reduce((total, row) => total + row.items, 0),
+      records: stats.reduce((total, row) => total + row.records, 0),
+      hits: stats.reduce((total, row) => total + row.hits, 0),
+      waiting: (await store.outbox.list()).length,
+      team: team ? { url: team.url, lastSync: Number((await store.state.get("last_sync")) ?? 0) || null } : null,
       clients: (await store.clients.list()).filter((client) => client.revokedAt === null).length,
-      pendingReview: (await store.review.list("pending")).length,
       paused: (await store.sessions.paused()).length,
     });
   });
@@ -251,7 +209,7 @@ export function createAdmin(options: AdminOptions): Hono {
       repo: projectOf(session),
       startedAt: session.startedAt,
       endedAt: session.endedAt,
-      steps: (await store.steps.list(session.id)).map(({ sessionId: _session, ...step }) => step),
+      steps: (await store.steps.list(session.id)).map(({ sessionId: _session, lineHashes: _hashes, ...step }) => step),
       requests: usage.map((row) => ({ ts: row.ts, cost: row.cost ?? 0 })),
     });
   });
@@ -269,101 +227,185 @@ export function createAdmin(options: AdminOptions): Hono {
     return c.json({ path, text });
   });
 
-  app.get("/cache", async (c) => {
-    const roots = await repoRoots(store);
-    const answers = new Map((await store.answers.stats()).map((row) => [row.repoId, row]));
-    const summaries = new Map((await store.summaries.stats()).map((row) => [row.repoId, row.summaries]));
-    const shared = new Set((await store.team.repos()).map((repo) => repo.repoId));
-    const ids = [...new Set([...answers.keys(), ...summaries.keys()])];
-    const name = (id: string) => {
-      const root = roots.get(id);
-      return root ? folderName(root) : id.slice(0, 12);
-    };
+  app.get("/spaces", async (c) => {
+    const stats = await store.records.stats();
     return c.json({
-      repos: ids
-        .map((id) => ({
-          id,
-          name: name(id),
-          answers: answers.get(id)?.answers ?? 0,
-          hits: answers.get(id)?.hits ?? 0,
-          summaries: summaries.get(id) ?? 0,
-          shared: shared.has(id),
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    });
-  });
-
-  // An answer's `changed` is null when its repository is not on this machine, so whether it is stale is unknown.
-  app.get("/cache/:repo", async (c) => {
-    const id = c.req.param("repo");
-    const root = (await repoRoots(store)).get(id);
-    const answers = await store.answers.list(id);
-    const paths = [...new Set(answers.flatMap((answer) => answer.sources.map((source) => source.path)))];
-    const current =
-      root && options.files && paths.length > 0 ? await options.files.hashes(root, paths).catch(() => null) : null;
-    return c.json({
-      answers: answers.map((answer) => ({
-        id: answer.id,
-        question: answer.question,
-        answer: answer.answer,
-        author: answer.author,
-        createdAt: answer.createdAt,
-        hits: answer.hits,
-        shared: answer.shared,
-        shareError: answer.shareError,
-        files: answer.sources.map((source) => source.path),
-        changed: current
-          ? answer.sources.filter((source) => current.get(source.path) !== source.blobHash).map((source) => source.path)
-          : null,
+      spaces: (await store.spaces.list()).map((space) => ({
+        ...space,
+        records: stats.filter((row) => row.space === space.id).reduce((total, row) => total + row.records, 0),
       })),
     });
   });
 
-  app.delete("/cache/answers/:id", async (c) => {
-    const forgotten = await forgetAnswer(store, c.req.param("id"));
-    if (!forgotten) return problem(404, `no answer ${c.req.param("id")} in the cache`);
-    return c.json({ forgotten: c.req.param("id"), shared: forgotten.shared });
+  app.get("/types", async (c) => {
+    const custom = await store.records.list({ spaces: await allSpaces(), type: "Type" });
+    return c.json({ types: [...BUILTIN_TYPES, ...custom.map((record) => ({ ...customType(record), id: record.id }))] });
   });
 
-  app.get("/budgets", async (c) => {
-    const stored = await store.budgets.list();
-    const find = (scope: BudgetScope, key = "") =>
-      stored.find((budget) => budget.scope === scope && budget.key === key)?.limitAmount ?? null;
-    const projects = (await store.sessions.list()).map(projectOf).filter((project) => project !== null);
-    return c.json({
-      daily: find("daily") ?? options.budgets?.daily ?? null,
-      session: find("session") ?? options.budgets?.session ?? null,
-      fromConfig: {
-        daily: find("daily") === null && options.budgets?.daily !== undefined,
-        session: find("session") === null && options.budgets?.session !== undefined,
-      },
-      repos: stored
-        .filter((budget) => budget.scope === "repo")
-        .map((budget) => ({ name: budget.key, limit: budget.limitAmount })),
-      known: [...new Set(projects)].sort(),
-      spentToday: await store.usage.spend({ since: startOfToday(Date.now()) }),
-    });
+  /** Records to list or search: by space, type and words; newest first, or best match first. */
+  app.get("/records", async (c) => {
+    const storeDeps = await deps();
+    const spaces = c.req.query("space") ? [c.req.query("space") as string] : await allSpaces();
+    const type = c.req.query("type");
+    const words = c.req.query("q")?.trim();
+    let records: Found[];
+    if (words) {
+      records = (
+        await recall(storeDeps, everything, {
+          query: words,
+          repo: null,
+          limit: 20,
+          count: false,
+          ...(type ? { type } : {}),
+          ...(c.req.query("space") ? { space: c.req.query("space") as string } : {}),
+        })
+      ).results;
+    } else {
+      records = (
+        await query(storeDeps, everything, {
+          ...(type ? { type } : {}),
+          ...(c.req.query("space") ? { space: c.req.query("space") as string } : {}),
+          ...(c.req.query("retired") === "1" ? { retired: true } : {}),
+          limit: 200,
+        })
+      ).records;
+    }
+    return c.json({ records: records.filter((record) => spaces.includes(record.space)) });
   });
 
-  app.post("/budgets", async (c) => {
+  app.get("/records/:id", async (c) => {
+    const storeDeps = await deps();
+    const record = await store.records.get(c.req.param("id"));
+    if (!record) return problem(404, "no such record");
+    return c.json(await shown(storeDeps, record, await allSpaces()));
+  });
+
+  app.get("/records/:id/history", async (c) => {
+    const id = c.req.param("id");
+    const team = host?.team();
+    if (team) {
+      try {
+        return c.json(await teamApi(team, `/api/records/${encodeURIComponent(id)}/history`));
+      } catch {
+        // Offline, or a record that never reached the team store: the versions this machine kept.
+      }
+    }
+    return c.json({ history: await store.history.list(id) });
+  });
+
+  /**
+   * The editor's save. With a team, the change goes straight to the team store, which refuses it when someone changed
+   * the same field since `baseVersion`: the answer then holds their version, for the person to choose. Offline, it
+   * waits here and the latest write wins.
+   */
+  async function save(record: RecordInput, before: FullRecord | undefined, baseVersion: number) {
+    const storeDeps = await deps();
+    const custom = (await store.records.list({ spaces: await allSpaces(), type: "Type" })).find(
+      (type) => type.title === record.type,
+    );
+    const why = recordProblem(record, builtinType(record.type) ?? (custom ? customType(custom) : undefined));
+    if (why) throw new StoreUseError(`the record is refused: ${why}`);
+    const team = host?.team();
+    if (team && record.space !== "me" && (await store.spaces.get(record.space))?.kind !== undefined) {
+      const changed = ["space", "type", "kind", "title", "body", "fields", "retiredAt", "links"].filter(
+        (key) =>
+          !before ||
+          JSON.stringify((before as unknown as Record<string, unknown>)[key]) !==
+            JSON.stringify((record as unknown as Record<string, unknown>)[key]),
+      );
+      try {
+        const answer = await teamApi<{
+          applied: { version: number }[];
+          refused: { reason: string }[];
+          conflicts: { current: unknown }[];
+        }>(team, "/api/changes", {
+          body: {
+            changes: [{ id: newId(), recordId: record.id, baseVersion, changed, record, check: true }],
+          },
+        });
+        if (answer.conflicts[0]) return { conflict: answer.conflicts[0].current };
+        if (answer.refused[0]) throw new StoreUseError(`the team store refused it: ${answer.refused[0].reason}`);
+        await store.records.put({ ...record, version: answer.applied[0]?.version ?? record.version });
+        await host?.syncNow().catch(() => undefined);
+        return { saved: record.id };
+      } catch (error) {
+        if (error instanceof StoreUseError) throw error;
+        if (error instanceof TeamError && error.status < 500) throw new StoreUseError(error.detail);
+      }
+    }
+    await write(storeDeps, record, before);
+    return { saved: record.id, waiting: true };
+  }
+
+  app.post("/records", async (c) => {
+    const storeDeps = await deps();
+    const body = await c.req.json<Partial<RecordInput>>().catch(() => ({}) as Partial<RecordInput>);
+    const now = Date.now();
+    const space = typeof body.space === "string" ? body.space : "team";
+    if (space !== "me" && !(await store.spaces.get(space))) return problem(400, `there is no space ${space}`);
+    const record: RecordInput = {
+      id: newId(),
+      space,
+      type: typeof body.type === "string" ? body.type : "Doc",
+      kind: typeof body.kind === "string" ? body.kind : body.type === "Memory" ? "fact" : null,
+      title: String(body.title ?? "").trim(),
+      body: String(body.body ?? ""),
+      fields: body.fields && typeof body.fields === "object" ? body.fields : {},
+      author: storeDeps.me.member,
+      device: storeDeps.me.device,
+      sessionId: null,
+      createdAt: now,
+      updatedAt: now,
+      retiredAt: null,
+      version: 0,
+      anchors: [],
+      links: Array.isArray(body.links) ? body.links : [],
+    };
+    if (record.type === "Memory" && !record.fields.kind) record.fields = { ...record.fields, kind: record.kind };
+    const result = await save(record, undefined, 0);
+    return c.json({ ...result, id: record.id }, 201);
+  });
+
+  app.put("/records/:id", async (c) => {
+    const before = await store.records.get(c.req.param("id"));
+    if (!before) return problem(404, "no such record");
     const body = await c.req
-      .json<{ scope?: unknown; key?: unknown; limit?: unknown }>()
-      .catch(() => ({}) as { scope?: unknown; key?: unknown; limit?: unknown });
-    const scope = body.scope as BudgetScope;
-    if (!BUDGET_SCOPES.includes(scope)) return problem(400, `scope takes ${BUDGET_SCOPES.join(", ")}`);
-    const key = scope === "repo" ? body.key : "";
-    if (typeof key !== "string" || (scope === "repo" && !/^[^\s=]{1,128}$/.test(key))) {
-      return problem(400, "a repo limit needs the project's folder name as key");
-    }
-    if (body.limit === null) {
-      await store.budgets.remove(scope, key);
-      return c.json({ removed: { scope, key } });
-    }
-    if (typeof body.limit !== "number" || !Number.isFinite(body.limit) || body.limit < 0) {
-      return problem(400, "limit takes an amount in dollars, or null to remove it");
-    }
-    await store.budgets.set(scope, key, body.limit);
-    return c.json({ set: { scope, key, limit: body.limit } });
+      .json<Partial<RecordInput> & { baseVersion?: number }>()
+      .catch(() => ({}) as Partial<RecordInput> & { baseVersion?: number });
+    const { seq: _seq, hits: _hits, ...current } = before;
+    const record: RecordInput = {
+      ...current,
+      ...(typeof body.title === "string" ? { title: body.title.trim() } : {}),
+      ...(typeof body.body === "string" ? { body: body.body } : {}),
+      ...(body.fields && typeof body.fields === "object" ? { fields: body.fields } : {}),
+      ...(Array.isArray(body.links) ? { links: body.links } : {}),
+      ...(typeof body.space === "string" ? { space: body.space } : {}),
+      updatedAt: Date.now(),
+    };
+    if (record.type === "Memory") record.kind = String(record.fields.kind ?? record.kind ?? "fact");
+    const result = await save(record, before, typeof body.baseVersion === "number" ? body.baseVersion : before.version);
+    return "conflict" in result ? c.json(result, 409) : c.json(result);
+  });
+
+  app.delete("/records/:id", async (c) =>
+    (await retire(await deps(), c.req.param("id")))
+      ? c.json({ retired: c.req.param("id") })
+      : problem(404, "no such record, or retired already"),
+  );
+
+  app.get("/repos/:repo", async (c) => {
+    const space = await store.spaces.get(repoSpace(c.req.param("repo")));
+    return space ? c.json(space) : problem(404, "no such repository here");
+  });
+
+  /** The team's own pages, through this device's token: members, invites, machines, usage, runs. */
+  app.all("/team/*", async (c) => {
+    const team = host?.team();
+    if (!team) return problem(409, "this machine is in no team: grenier team deploy, or open an invite link");
+    const path = c.req.path.replace(/^.*?\/team\//, "/api/");
+    const body = c.req.method === "GET" || c.req.method === "DELETE" ? undefined : await c.req.json().catch(() => ({}));
+    const search = new URL(c.req.url).search;
+    return c.json(await teamApi(team, `${path}${search}`, { method: c.req.method, ...(body ? { body } : {}) }));
   });
 
   app.get("/sessions/paused", async (c) => {
@@ -387,50 +429,13 @@ export function createAdmin(options: AdminOptions): Hono {
     return c.json({ resumed: session.id });
   });
 
-  app.get("/sources", async (c) => {
-    const counts = new Map((await store.items.count()).map((row) => [row.sourceId, row.items]));
-    return c.json({
-      sources: (await store.sources.list()).map((source) => publicSource(source, counts.get(source.id) ?? 0)),
-    });
-  });
-
-  app.post("/sources", async (c) => {
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
-    const kind = body.kind as (typeof SOURCE_KINDS)[number];
-    const name = body.name;
-    if (!SOURCE_KINDS.includes(kind)) return problem(400, `kind takes ${SOURCE_KINDS.join(", ")}`);
-    if (typeof name !== "string" || !/^[\w.@-]{1,64}$/.test(name) || [...SCOPE_KINDS, "memory"].includes(name)) {
-      return problem(400, `a source name takes letters, digits and . _ @ -, and cannot be ${SCOPE_KINDS.join(", ")}`);
-    }
-    if (await store.sources.get(name)) return problem(409, `there is already a source named ${name}`);
-    await store.sources.add({ id: crypto.randomUUID(), name, kind, config: sourceConfig(kind, body) });
-    const [result] = await syncSources(store, log, name);
-    return c.json({ added: name, sync: result ?? null }, 201);
-  });
-
-  app.post("/sources/:name/sync", async (c) => {
-    const results = await syncSources(store, log, c.req.param("name"));
-    if (results.length === 0) return problem(404, `no source named ${c.req.param("name")}`);
-    return c.json({ sync: results[0] });
-  });
-
-  app.delete("/sources/:name", async (c) => {
-    const name = c.req.param("name");
-    if (name === "memory") return problem(400, "the memory source stays");
-    return (await store.sources.remove(name)) ? c.json({ removed: name }) : problem(404, `no source named ${name}`);
-  });
-
   app.get("/clients", async (c) => {
-    const sources = await store.sources.list();
+    const spaces = await store.spaces.list();
     return c.json({
       clients: (await store.clients.list())
         .filter((client) => client.revokedAt === null)
-        .map((client) => ({
-          name: client.name,
-          scopes: scopeNames(client.scopes, sources),
-          createdAt: client.createdAt,
-        })),
-      scopes: [...SCOPE_KINDS, ...sources.filter((s) => s.kind !== "memory").map((s) => s.name)],
+        .map((client) => ({ name: client.name, scopes: client.scopes, createdAt: client.createdAt })),
+      scopes: ["*", ...spaces.map((space) => space.id)],
     });
   });
 
@@ -468,27 +473,13 @@ export function createAdmin(options: AdminOptions): Hono {
     });
   });
 
-  app.get("/review", async (c) => {
-    const names = new Map((await store.clients.list()).map((client) => [client.id, client.name.replace(/~\d+$/, "")]));
-    return c.json({
-      pending: (await store.review.list("pending")).map((entry) => ({
-        ...entry,
-        client: names.get(entry.clientId) ?? entry.clientId,
-      })),
-    });
+  app.all("*", async (c) => {
+    const body = c.req.method === "GET" ? undefined : await c.req.json().catch(() => ({}));
+    const path = c.req.path.replace(/^\/admin/, "");
+    const handled = host?.extra ? await host.extra(c.req.method, `${path}${new URL(c.req.url).search}`, body) : null;
+    if (!handled) return problem(404, `no ${c.req.method} ${path}`);
+    return c.json(handled.body, handled.status as 200);
   });
-
-  app.post("/review/:id/approve", async (c) =>
-    (await approveMemory({ store }, c.req.param("id")))
-      ? c.json({ approved: c.req.param("id") })
-      : problem(404, `no pending memory ${c.req.param("id")}`),
-  );
-
-  app.post("/review/:id/reject", async (c) =>
-    (await store.review.decide(c.req.param("id"), "rejected", Date.now()))
-      ? c.json({ rejected: c.req.param("id") })
-      : problem(404, `no pending memory ${c.req.param("id")}`),
-  );
 
   return app;
 }
