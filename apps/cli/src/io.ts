@@ -50,7 +50,6 @@ export function environment(io: Io): Environment {
   return { paths, config, configFound: found };
 }
 
-/** Runs `use` with the database open, and closes it after. */
 export async function withStore<T>(paths: GrenierPaths, use: (store: Store) => Promise<T>): Promise<T> {
   const store = openSqliteStore(paths.db);
   try {

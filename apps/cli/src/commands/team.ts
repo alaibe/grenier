@@ -78,7 +78,7 @@ export function parseInvite(link: string): { url: string; invite: string; secret
   return { url: `${local ? "http" : "https"}://${host}`, invite: match[2] as string, secret: match[3] as string };
 }
 
-/** `grenier team deploy`: the team store into the logged-in Cloudflare account, then this machine as its first admin. */
+/** `grenier team deploy`: the team store into the logged-in Cloudflare account, this machine as its first admin. */
 async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): Promise<string[]> {
   const { values } = parseArgs({
     args: argv,

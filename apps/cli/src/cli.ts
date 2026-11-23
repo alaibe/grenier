@@ -206,7 +206,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
   }
 }
 
-/** `grenier <command> --help`, `-h` anywhere, or `help` as its first argument (`ask` takes any words, `run` its agent's). */
+/** `-h` or `--help` anywhere, or `help` first; never for `run`, and `ask` takes `help` as a word. */
 function asksHelp(command: string | undefined, rest: string[]): boolean {
   if (command === undefined || command === "run") return false;
   return rest.includes("-h") || rest.includes("--help") || (command !== "ask" && rest[0] === "help");

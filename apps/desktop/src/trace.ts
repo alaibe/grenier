@@ -64,10 +64,7 @@ interface Node {
   children: Map<string, Node>;
 }
 
-/**
- * The files and directories a trace touched, as an indented tree: the repository first, then directories before files,
- * each in name order. A directory the agent never aimed at and that holds a single directory shares its row.
- */
+/** A directory the agent never aimed at that holds a single directory shares its row. */
 export function treeOf(repo: string, steps: readonly TraceStep[]): Tree {
   const files = new Set(
     steps.filter((step) => step.path && (step.kind === "read" || step.kind === "edit")).map((step) => step.path ?? ""),

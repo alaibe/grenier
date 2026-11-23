@@ -1,6 +1,4 @@
-// Claude Code itself through the daemon, against a stand-in for the API: run by hand with `pnpm test:agents` where
-// `claude` is installed. It uses a dummy API key and a throwaway config directory, so no real login or key is sent,
-// and nothing reaches Anthropic.
+// Run by hand with `pnpm test:agents`: a dummy key and a throwaway config directory, so nothing reaches Anthropic.
 import { execFile, execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";

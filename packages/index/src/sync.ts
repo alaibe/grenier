@@ -2,7 +2,6 @@ import { open, seal, VaultError } from "@grenier/core";
 import type { FullRecord, OutboxEntry, RecordInput, Store } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
 
-/** The team store's address and this device's token. */
 export interface TeamClient {
   url: string;
   token: string;
@@ -20,7 +19,6 @@ export class TeamError extends Error {
   }
 }
 
-/** One call to the team store's API. Throws TeamError with the store's message. */
 export async function teamApi<T>(
   team: TeamClient,
   path: string,
@@ -116,7 +114,6 @@ export interface SyncResult {
   unopened: number;
 }
 
-/** The changes waiting for the team store, as it takes them. */
 async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
   const changes: { id: string; recordId: string; baseVersion: number; changed: string[]; record: unknown }[] = [];
   for (const entry of entries) {
@@ -141,10 +138,7 @@ async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
   return changes;
 }
 
-/**
- * One round of sync: send what this machine changed, then take what changed on the team store since the last round.
- * The local copy stays usable offline: when the store cannot be reached this throws, and nothing local is lost.
- */
+/** Pushes this machine's changes, then pulls the store's since the last round; offline, it throws and loses nothing. */
 export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const { store, team } = deps;
   const result: SyncResult = { pushed: 0, refused: [], pulled: 0, unopened: 0 };

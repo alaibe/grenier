@@ -18,7 +18,6 @@ type Layout = "table" | "board" | "calendar";
 
 const STATUSES = ["to-do", "doing", "done"] as const;
 
-/** Every record this machine holds: listed, searched, filtered by type and space, and opened in the editor. */
 export function Knowledge({ focus }: ViewProps) {
   const [open, setOpen] = useState<string | null>(focus ?? null);
   if (open) return <RecordEditor key={open} id={open} open={setOpen} back={() => setOpen(null)} />;

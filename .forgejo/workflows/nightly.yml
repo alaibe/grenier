@@ -1,19 +1,8 @@
-# Releases Grenier every night when main has commits since the last release, as Kestrel's nightly does.
-#
-# On the home runner, `due` counts the commits since the last `v*` tag that change what ships (not only the workflows,
-# tests/, bench/ or Markdown); with none, the run ends there, and with no tag yet the first release is
-# due. Otherwise the Mac runs Types and Tests (Vitest, then the desktop shell's `cargo test`), moves a version that's
-# already tagged to its next patch in every version file (scripts/version.ts) and commits it, then tags `v<version>` and
-# pushes both over SSH, as Anthony. A tag pushed with the job's own token starts no workflow; this one starts
-# release.yml. Its "Run workflow" button does the same at once.
-#
-# 05:30 in Paris all year (the TZ= prefix: Forgejo reads a bare cron as UTC), after the home server's 04:30 deploys and
-# an hour before Kestrel's nightly; Statim's follows at 07:30.
-
 name: Nightly release
 
 on:
   schedule:
+    # Forgejo reads a bare cron as UTC.
     - cron: "TZ=Europe/Paris 30 5 * * *"
   workflow_dispatch:
 
@@ -23,6 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # A tag pushed with the job's own token starts no workflow; one pushed over SSH starts release.yml.
   ORIGIN: ssh://git@git.laibe.cc:2222/anthony/grenier.git
 
 jobs:
@@ -70,7 +60,6 @@ jobs:
         env:
           GIT_CONFIG_GLOBAL: ${{ runner.temp }}/gitconfig
 
-      # The Rust in rust-toolchain.toml through the Mac's own rustup, as release.yml installs it.
       - name: Rust
         run: |
           rustup install --no-self-update
@@ -83,7 +72,7 @@ jobs:
       - name: JavaScript packages
         run: pnpm install --frozen-lockfile
 
-      # tauri-build checks the web UI (frontendDist) and the sidecar (externalBin) before the shell compiles.
+      # tauri-build needs the web UI and the sidecar in place before the shell compiles.
       - name: Desktop UI and sidecar
         run: |
           pnpm build
@@ -94,7 +83,6 @@ jobs:
       - name: Types
         run: pnpm typecheck
 
-      # Vitest, then the desktop shell.
       - name: Tests
         run: |
           pnpm test

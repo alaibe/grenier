@@ -30,7 +30,6 @@ const loadRuns = () =>
     .then((answer) => answer.runs.filter((run) => run.kind === "run"))
     .catch(() => [] as Run[]);
 
-/** Work asked of the team's routines: a task that names a routine runs on an idle machine that allows it. */
 export function Requests({ go }: ViewProps) {
   const routines = useLoad(loadRoutines);
   const tasks = useLoad(loadTasks);

@@ -6,7 +6,6 @@ export interface ToolCall {
   hash: string;
 }
 
-/** A call with what it was given and, when the request carries it, what it returned. */
 export interface ToolUse {
   id: string;
   tool: string;
@@ -60,7 +59,6 @@ function textOf(content: unknown): string {
     .join("\n");
 }
 
-/** What each call returned, by call id. */
 function resultsOf(body: MessagesBody): Map<string, { error: boolean; text: string }> {
   const results = new Map<string, { error: boolean; text: string }>();
   for (const message of body.messages ?? []) {
@@ -84,7 +82,7 @@ function resultsOf(body: MessagesBody): Map<string, { error: boolean; text: stri
   return results;
 }
 
-/** A result without what changes from run to run of the same work: durations, clock times and timestamps. */
+/** Durations and times change from run to run of the same work, so they don't count. */
 function steadyText(text: string): string {
   return (
     text
@@ -95,13 +93,7 @@ function steadyText(text: string): string {
   );
 }
 
-/**
- * Every tool call in the conversation, keyed by its id, in order: Anthropic's tool_use blocks and tool_result blocks
- * marked as errors, OpenAI's Chat Completions tool_calls and Responses function, custom tool and shell call items.
- * A call is hashed with its result, when the request carries it: the same call returning something else is progress,
- * not a loop. Calls whose key is in `seen` are left out before they are hashed: each request resends the whole
- * conversation.
- */
+/** A call is hashed with its result: the same call returning something else is progress, not a loop. */
 export async function toolCalls(
   body: MessagesBody,
   seen: ReadonlySet<string> = new Set(),
@@ -148,7 +140,7 @@ export async function toolCalls(
   return calls;
 }
 
-/** Which conversation of a session a request belongs to: its first user message. Subagents each have their own. */
+/** A conversation is known by its first user message: subagents each have their own. */
 async function conversationOf(body: MessagesBody): Promise<string> {
   const first =
     body.messages?.find((message) => message.role === "user") ??
@@ -160,17 +152,10 @@ async function conversationOf(body: MessagesBody): Promise<string> {
   return sha256(textOf(content) || canonicalJson(content ?? null));
 }
 
-/** How long a session may go without a request before its state is dropped. */
 export const IDLE_SESSION = 6 * 60 * 60 * 1000;
 const SWEEP_EVERY = 60 * 1000;
 
-/**
- * The tool calls each conversation of each session has made, across its requests. Each request resends the whole
- * conversation, so only calls not seen before are observed. For a session that started before this process (the daemon restarted under
- * it), the first request only marks what it carries as seen, so old history is not counted twice as a loop. A
- * session idle for `idle` is dropped; when it comes back, its history is marked as seen again, neither counted nor
- * returned as fresh, since it was both when it was first seen.
- */
+/** A session older than this process, or back from idle, only marks the history it resends as seen. */
 export class LoopWatch {
   readonly #sessions = new Map<string, { seen: Set<string>; detector: LoopDetector; at: number }>();
   readonly #dropped = new Set<string>();
@@ -214,7 +199,6 @@ export class LoopWatch {
     return { loops, fresh };
   }
 
-  /** How many conversations are held in memory. */
   get size(): number {
     return this.#sessions.size;
   }

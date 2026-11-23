@@ -145,10 +145,7 @@ export async function ensureRunner(home: string, platform: string, fetchImpl: ty
   return dir;
 }
 
-/**
- * The job-started hook: the runner calls it before each job, and a job whose workflow is not the one approved on
- * this machine fails there.
- */
+/** The job-started hook: a job whose workflow is not the one approved on this machine fails there. */
 export function writeHook(dir: string, self: readonly string[]): { hook: string; bin: string } {
   const quoted = self.map((word) => `'${word.replace(/'/g, "'\\''")}'`).join(" ");
   const hook = join(dir, "grenier-hook.sh");
@@ -191,10 +188,7 @@ export async function approveWorkflow(store: Store, routineId: string, text: str
   return hash;
 }
 
-/**
- * The hook's check, from the variables GitHub sets for the job: the workflow file at the job's commit, hashed and
- * compared with the approved ones. Returns why it is refused, or null.
- */
+/** The hook's check: the workflow file at the job's commit against the approved hashes; why it is refused, or null. */
 export async function checkWorkflow(store: Store, github: GitHub, env: NodeJS.ProcessEnv): Promise<string | null> {
   const ref = env.GITHUB_WORKFLOW_REF ?? "";
   const sha = env.GITHUB_WORKFLOW_SHA ?? env.GITHUB_SHA ?? "";

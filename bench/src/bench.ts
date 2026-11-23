@@ -38,10 +38,7 @@ export interface BenchOptions {
   /** The agent's command for one question, given the MCP config file to load. */
   agent: (question: string, mcpConfig: string) => string[];
   port: number;
-  /**
-   * A cap in dollars: once this run's questions have cost this much, no further question is asked. The question that
-   * reaches it can pass it.
-   */
+  /** A cap in dollars: no question is asked once it is reached, so the one that reaches it can pass it. */
   budget?: number;
   /** Where the proxy sends requests; the real API unless a test stands in. */
   upstream?: string;
@@ -191,10 +188,7 @@ function saving(cold: number, warm: number): string {
   return cold === 0 ? "–" : `${Math.round(((cold - warm) / cold) * 100)}%`;
 }
 
-/**
- * The results as a Markdown table: tokens and cost per question, cold and warm, with totals. Questions whose runs did
- * not both finish are listed under the table and left out of it.
- */
+/** The results as a Markdown table; questions whose runs did not both finish are listed under it, not counted. */
 export function formatResults(
   all: readonly QuestionResult[],
   meta: { date: string; agent: string; budget?: number },

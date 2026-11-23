@@ -1,7 +1,4 @@
-# The Rust the desktop app (apps/desktop/src-tauri) is built with, here, in CI, in the nightly and on the release
-# runners, with rustfmt and Clippy for CI's Format and Lint. Only the host's standard library: each release job adds
-# the targets it builds, so CI doesn't download three it never uses. At the root: Tauri's CLI asks rustc for the host
-# from apps/desktop.
+# At the root, not in src-tauri: Tauri's CLI asks rustc for the host from apps/desktop.
 [toolchain]
 channel = "1.98.1"
 profile = "minimal"

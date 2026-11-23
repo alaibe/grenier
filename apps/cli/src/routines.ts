@@ -122,10 +122,7 @@ export function scores(runs: { version: number; kind: string; score: number | nu
   return new Map([...sums].map(([version, sum]) => [version, sum.total / sum.count]));
 }
 
-/**
- * Puts a version in production, retiring the one there: only once it scored at least as well on the eval set, or
- * when the routine has no version in production yet.
- */
+/** Puts a version in production only once it scored at least as well on the evals, or when none is in production. */
 export async function promote(
   deps: StoreDeps,
   routine: FullRecord,

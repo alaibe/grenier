@@ -2,9 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The sidecar, Node, under the hardened runtime: V8 compiles JavaScript into memory it then runs. Node's own
-	     build asks for these two and more; better-sqlite3's addon is signed by the same team, so library validation
-	     stays on, and get-task-allow, which notarization refuses, is left out. -->
+	<!-- Node under the hardened runtime: V8 compiles JavaScript into memory it then runs. -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>

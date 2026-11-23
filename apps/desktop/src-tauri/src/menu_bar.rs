@@ -14,8 +14,7 @@ fn show_window(app: &AppHandle) {
 /// The project lines sit between the "Today" heading and the separator.
 const FIRST_LINE: usize = 1;
 
-/// The menu bar item: its icon alone, and a menu with what each project spent today and what the prompt cache took
-/// off, from `grenier statusline --today`, every 30 seconds.
+/// Each project's spend today, from `grenier statusline --today`, refreshed every 30 seconds.
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let today = MenuItem::with_id(app, "today", "Today", false, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Grenier", true, None::<&str>)?;

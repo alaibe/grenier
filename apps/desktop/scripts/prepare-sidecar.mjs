@@ -1,14 +1,4 @@
-// Gathers what the app bundles to run the daemon: Node's official standalone binary as the sidecar (named for Tauri
-// with the target triple, downloaded once and checked against the SHA-256 pinned below), the CLI's bundle
-// (dist/grenier.js and the team Worker), better-sqlite3, the one dependency the bundle leaves outside, with only the
-// target's prebuilt addon, and on a Mac the `grenier` command (bin/grenier) that the Homebrew cask links. The deb, the
-// rpm and the Windows installer take theirs from tauri.conf.json and tauri.windows.conf.json. Run after `pnpm build` at
-// the root:
-//
-//   node scripts/prepare-sidecar.mjs [--target <triple>]
-//
-// The target defaults to this machine's. `universal-apple-darwin` joins both Macs' Node with lipo, and keeps each
-// Mac's own binary beside it: Tauri's build checks for those while it compiles each architecture.
+// What the app bundles to run the daemon: Node's official build, the CLI's bundle and better-sqlite3's prebuilt addon.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -22,8 +12,7 @@ const app = join(here, "..");
 const cli = join(app, "..", "cli");
 if (!existsSync(join(cli, "dist", "grenier.js"))) throw new Error("build the CLI first: pnpm build");
 
-// Node 22 LTS from nodejs.org, as its SHASUMS256.txt lists it, with better-sqlite3's prebuild for the same system. A
-// package manager's node (Homebrew's) links a shared libnode and cannot be copied into an app.
+// A package manager's node (Homebrew's) links a shared libnode and cannot be copied into an app.
 const NODE = "22.23.5";
 const BUILDS = {
   "aarch64-apple-darwin": ["darwin-arm64", "e7131995759b61a0170b646010d2ad35a5d37b4cb0d471f3e8317eac6f742f3d"],
@@ -76,6 +65,7 @@ async function sidecar(triple) {
 
 const files = [];
 for (const triple of triples) files.push(await sidecar(triple));
+// Each Mac's own binary stays beside the universal one: Tauri's build checks for it per architecture.
 if (target === UNIVERSAL) {
   const universal = join(binaries, `grenier-node-${UNIVERSAL}`);
   execFileSync("lipo", ["-create", "-output", universal, ...files]);

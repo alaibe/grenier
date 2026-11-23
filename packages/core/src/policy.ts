@@ -13,17 +13,13 @@ function sortKeys(value: unknown): unknown {
   return value;
 }
 
-/** SHA-256 of the text, in hex. Uses Web Crypto, so it runs on Node and on Workers. */
+/** Web Crypto, so it runs on Node and on Workers. */
 export async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * Watches one conversation's tool calls. `observe` returns true when a hash reaches `threshold` occurrences within
- * the last `window` observations. Those occurrences are then forgotten, so a loop that goes on fires again after as
- * many repeats.
- */
+/** Fires once a hash repeats `threshold` times in the last `window`, then forgets those repeats. */
 export class LoopDetector {
   #recent: string[] = [];
 
@@ -50,10 +46,7 @@ export const MAX_SHARED_TEXT = 4000;
 export const MAX_CODE_LINES = 10;
 export const MAX_QUESTION = 2000;
 
-/**
- * An answer or summary describes code; it may quote a short snippet, never a file. Null when the text is
- * fine, else what is wrong with it.
- */
+/** Null when an answer or summary is fine to share, else why: it may quote a short snippet, never a file. */
 export function unshareable(text: string): string | null {
   if (text.trim() === "") return "the text is empty";
   if (text.length > MAX_SHARED_TEXT) return `it holds at most ${MAX_SHARED_TEXT} characters`;
@@ -66,10 +59,7 @@ export function unshareable(text: string): string | null {
   return null;
 }
 
-/**
- * The longest run of lines `text` copies from `source`, in order, comparing trimmed lines and skipping blank ones:
- * the check against the files an answer or summary was worked out from, which catches code quoted without fences.
- */
+/** The longest run of trimmed, non-blank lines copied in order: catches code quoted without fences. */
 export function copiedLines(text: string, source: string): number {
   const lines = (value: string) =>
     value
@@ -171,11 +161,7 @@ function luhn(digits: string): boolean {
   return total % 10 === 0;
 }
 
-/**
- * Removes IBANs (checked with their mod-97 digits), card numbers (checked with Luhn), phone numbers and street
- * addresses from text before it leaves the daemon. Heuristics: an address without a street word, or a phone number
- * written with letters, passes through; a date, a time or an IPv4 address stays.
- */
+/** Removes IBANs, card numbers, phone numbers and street addresses; dates, times and IPv4 addresses stay. */
 export function redact(text: string): string {
   // Every pattern below needs a digit.
   if (!/\d/.test(text)) return text;

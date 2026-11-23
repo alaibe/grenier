@@ -62,7 +62,6 @@ const loadMembers = () =>
     .then((answer) => answer.members.map((member) => member.name))
     .catch(() => [] as string[]);
 
-/** One record in a form made from its type, with its body in Markdown, what it links to, and its history. */
 export function RecordEditor({ id, open, back }: { id: string; open: (id: string) => void; back: () => void }) {
   const isNew = id.startsWith("new:");
   const load = useCallback(
@@ -549,7 +548,6 @@ function Body({
   );
 }
 
-/** The files the record was written from: unchanged, or changed since, with the change. */
 function Anchors({ record }: { record: RecordFull }) {
   const files = record.anchors.filter((anchor) => anchor.kind === "git");
   const [shown, setShown] = useState<string | null>(null);

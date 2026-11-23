@@ -33,7 +33,6 @@ import {
 import { LIBRARIAN, librarian } from "./librarian.ts";
 import { type Availability, availability, type Probes, systemProbes } from "./machine.ts";
 
-/** What an agent run returned. */
 export interface AgentResult {
   code: number;
   text: string;
@@ -152,10 +151,7 @@ export const spawnAgent: Spawner = (command, args, options) =>
 const git = async (root: string, args: string[]) =>
   (await promisify(execFile)("git", ["-C", root, ...args], { encoding: "utf8" })).stdout;
 
-/**
- * This machine's part in the team's routines: it says when it is available, takes the work the team store offers,
- * runs it in a clean checkout as the routine and its mode allow, and attaches the result to the task.
- */
+/** This machine's part in the team's routines: takes the work offered and runs it in a clean checkout. */
 export class Runner {
   #current: Current | null = null;
   #last: Availability | null = null;
@@ -218,10 +214,7 @@ export class Runner {
     if (!this.running && this.deps.github && this.now() - this.#lastGitHub >= CLAIM_EVERY) await this.#gitHubJob();
   }
 
-  /**
-   * Takes one queued GitHub job for a routine approved here, with its workflow: a just-in-time runner registered for
-   * that one job, from the pinned runner binary, never for a public repository.
-   */
+  /** Takes one queued GitHub job on a just-in-time runner for that job only, never for a public repository. */
   async #gitHubJob(): Promise<void> {
     const github = this.deps.github as GitHubDeps;
     this.#lastGitHub = this.now();
@@ -596,10 +589,7 @@ export class Runner {
     return { id: runId, ...outcome, result };
   }
 
-  /**
-   * Runs a version against each case of its routine's eval set and scores it: by code here, by a model through a
-   * second short run, or left for a person.
-   */
+  /** Scores a version on each eval case: by code here, by a model through a second short run, or by a person. */
   async evaluate(
     routine: FullRecord,
     version: RoutineVersion,

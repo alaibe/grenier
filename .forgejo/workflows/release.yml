@@ -1,42 +1,3 @@
-# Builds the desktop app for the three systems when a `v*` tag is pushed to git.laibe.cc (nightly.yml pushes it), on
-# Forgejo Actions, and releases it on the public GitHub repository alaibe/grenier, which mirrors this one, as Statim's
-# release does.
-#
-# Runners (the homeserver repository has their setup):
-#   mac         forgejo-runner on the Mac, steps on the Mac itself with its Xcode, rustup, Node, pnpm and gh
-#   home-linux  forgejo-runner on the home server, Ubuntu containers, two jobs at a time, sharing a /cache that
-#               outlives them (each job's Caches step)
-#
-# - prepare (`home-linux`): the version files agree with the tag (scripts/version.ts), GitHub has the tag at this
-#   commit, and a draft release carries the commits since the last one.
-# - macOS (`mac`): the universal app built unsigned, signed inside out by apps/desktop/scripts/sign-macos.sh, its
-#   daemon started once from the signed bundle, then put in a DMG, notarized and stapled when NOTARIZE is on, and
-#   packed as the update bundle Tauri's updater installs (Grenier_<version>_universal.app.tar.gz, signed with the
-#   Tauri key).
-# - Linux (`home-linux`): the deb, rpm and AppImage, each with its update signature, the daemon started once from the
-#   deb's files.
-# - Windows (`home-linux`): the NSIS installer and its update signature, cross-built with cargo-xwin, beside the
-#   Linux build.
-# - publish (`home-linux`): SHA256SUMS and latest.json, the feed every installed copy's updater reads, built as
-#   Kestrel's and Statim's are; then, on a tag's run only, the release leaves draft and the Homebrew cask
-#   (alaibe/homebrew-tap, Casks/grenier.rb) moves to its DMG.
-#
-# A run by hand builds the branch it's started on into a draft and goes no further. It refuses a version whose release
-# is already published, so it can't overwrite one.
-#
-# Secrets on git.laibe.cc: the APPLE_* ones and RELEASES_TOKEN are shared by every repository (user level, set with
-# the homeserver repository's ci-secrets.sh, whose AGENTS.md maps every credential); the TAURI_* ones are grenier's own:
-#   RELEASES_TOKEN              a GitHub fine-grained token with Contents read and write on alaibe/grenier and
-#                               alaibe/homebrew-tap
-#   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
-#   APPLE_CERTIFICATE_PASSWORD  its password
-#   APPLE_SIGNING_IDENTITY      "Developer ID Application: … (8N3Z3WWTK7)"
-#   APPLE_API_KEY, APPLE_API_ISSUER, APPLE_API_PRIVATE_KEY   notarization, read only when NOTARIZE is true
-#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD   the update key (~/.tauri/grenier.key; ci-secrets.sh
-#                               tauri-key grenier sets them), whose public half is plugins.updater.pubkey
-#
-# Actions are pinned to a commit, with their tag beside it, as in ci.yml; gh is checked against its SHA-256.
-
 name: Release
 
 on:
@@ -103,8 +64,7 @@ jobs:
           node -e 'const c = require("./apps/desktop/src-tauri/tauri.conf.json"); process.exit(c.plugins?.updater?.pubkey ? 0 : 1)' ||
             { echo "plugins.updater.pubkey is empty in tauri.conf.json: ci-secrets.sh tauri-key grenier prints it" >&2; exit 1; }
 
-      # The mirror pushes the tag to GitHub within seconds of the push here. Publishing a release whose tag GitHub
-      # doesn't have would make one from GitHub's main, and the mirror would then overwrite it.
+      # A release whose tag GitHub lacks would be made from GitHub's main, then overwritten by the mirror.
       - name: GitHub has the tag, at this commit
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -124,7 +84,6 @@ jobs:
 
       - name: Release notes
         run: |
-          # The commits since the last release; the first release has none to list.
           PREVIOUS=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
           if [ -n "$PREVIOUS" ]; then
             git log --no-merges --format='- %s' "$PREVIOUS..HEAD" > "$RUNNER_TEMP/all-notes"
@@ -147,7 +106,6 @@ jobs:
           release=$(gh api "repos/$RELEASES_REPOSITORY/releases" --paginate \
             --jq ".[] | select(.tag_name == \"$TAG\") | \"\(.id) \(.draft)\"" | head -1)
           if [ -n "$release" ]; then
-            # As Statim's: a published release's files are never replaced, a draft's are.
             [ "${release#* }" = true ] || { echo "Grenier $V is already published; this run would overwrite its files." >&2; exit 1; }
             id=${release%% *}
           else
@@ -184,7 +142,6 @@ jobs:
             [ -n "${!name}" ] || { echo "The $name secret is not set." >&2; exit 1; }
           done
 
-      # The Rust in rust-toolchain.toml, with both Macs' targets, through the Mac's own rustup.
       - name: The Mac's tools
         run: |
           WORK=$(mktemp -d)
@@ -233,9 +190,7 @@ jobs:
       - name: Sign inside out
         run: apps/desktop/scripts/sign-macos.sh "$APP" "${{ secrets.APPLE_SIGNING_IDENTITY }}" "$KEYCHAIN"
 
-      # The signed Node, under the hardened runtime, runs the bundled CLI and opens a database with the signed SQLite
-      # addon: what the app does when it starts the daemon. Intel's half too, when Rosetta is installed. Then the
-      # `grenier` command, through a link as the cask makes one.
+      # The signed Node, under the hardened runtime, loads the signed SQLite addon as the app's daemon does.
       - name: The signed daemon runs
         run: |
           run() { GRENIER_HOME="$(mktemp -d "$WORK/home.XXXXXX")" "$@" "$APP/Contents/MacOS/grenier-node" "$APP/Contents/Resources/grenier/dist/grenier.js" status; }
@@ -249,9 +204,6 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          # The repository's NOTARIZE variable (Settings › Actions › Variables) set to `true`. Off while Apple refuses
-          # the team's requests until its new agreement is accepted; an un-notarized DMG asks "Open Anyway" on the
-          # first launch from a download.
           NOTARIZE: ${{ vars.NOTARIZE }}
         run: |
           STAGE="$WORK/dmg"
@@ -271,8 +223,7 @@ jobs:
           xcrun stapler staple "$DMG"
           spctl --assess --type open --context context:primary-signature --verbose "$DMG"
 
-      # What Tauri's updater unpacks over an installed Grenier: the signed app, packed without macOS's ._ files, its
-      # signature bound to this version (requireSignedVersion).
+      # What the updater unpacks over an installed Grenier, without macOS's ._ files.
       - name: Update bundle
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -282,7 +233,7 @@ jobs:
           COPYFILE_DISABLE=1 tar -czf "$UPDATE" -C "$(dirname "$APP")" "$(basename "$APP")"
           pnpm --filter @grenier/desktop tauri signer sign --app-version "$VERSION" "$UPDATE"
           [ -s "$UPDATE.sig" ] || { echo "no signature beside $UPDATE" >&2; exit 1; }
-          # The key that signed it must be the one whose public half the app carries: a copy out with another never updates.
+          # It must be signed with the key whose public half the app carries, or that copy never updates.
           key_id() { base64 -d | sed -n 2p | base64 -d | head -c 10 | tail -c 8 | xxd -p; }
           signed=$(key_id < "$UPDATE.sig")
           trusted=$(node -p 'require("./apps/desktop/src-tauri/tauri.conf.json").plugins.updater.pubkey' | key_id)
@@ -312,11 +263,9 @@ jobs:
     steps:
       - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      # WebKitGTK, GTK and libsoup for the Tauri shell; patchelf, file and xdg-utils for the AppImage; bsdtar to open the
-      # rpm.
       - name: Linux packages and gh
         run: |
-          # Ubuntu's main servers crawl from the home server; its French mirror is fast and carries -security too.
+          # archive and security.ubuntu.com crawl from the home server; the French mirror carries both.
           sudo sed -i -E 's#https?://(archive|security)\.ubuntu\.com/ubuntu#http://fr.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get update
           sudo mkdir -p /cache/apt/archives/partial
@@ -329,8 +278,7 @@ jobs:
           echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
           sudo tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C /usr/local --strip-components=1
 
-      # The Rust in rust-toolchain.toml. The Linux image has no rustup: a minimal one goes in
-      # first, without a default toolchain, and on the PATH for the next steps.
+      # The image has no rustup; rust-toolchain.toml picks the toolchain.
       - name: Rust
         run: |
           if ! command -v rustup > /dev/null; then
@@ -346,7 +294,7 @@ jobs:
         with:
           node-version-file: .node-version
 
-      # The runner's ci-cache volume, as in ci.yml. The last release's bundles go first, or they'd be attached again.
+      # The last release's bundles go first, or they'd be attached again.
       - name: Caches
         run: |
           target=/cache/target/grenier/linux
@@ -367,7 +315,6 @@ jobs:
 
       - name: Build the deb, rpm and AppImage
         env:
-          # Signs the update files an installed copy checks before applying them.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # linuxdeploy is an AppImage itself, and the job container has no FUSE to mount it.
@@ -376,8 +323,6 @@ jobs:
           pnpm --filter @grenier/desktop tauri build --bundles deb,rpm,appimage \
             --config '{"bundle":{"createUpdaterArtifacts":true}}' -- --locked
 
-      # What the app does when it starts the daemon, from the files the deb installs. Then the grenier command the deb
-      # and the rpm put in /usr/bin, which finds the rest beside it.
       - name: The bundled daemon runs
         run: |
           shopt -s nullglob
@@ -415,8 +360,7 @@ jobs:
   windows:
     needs: prepare
     runs-on: home-linux
-    # Tauri's installer script needs NSIS 3.09 (Win\RestartManager.nsh); Ubuntu 22.04 has 3.08. Pinned to the digest
-    # of act-24.04 on 2026-11-17.
+    # Tauri's installer script needs NSIS 3.09 (Win\RestartManager.nsh); Ubuntu 22.04 has 3.08.
     container:
       image: ghcr.io/catthehacker/ubuntu:act-24.04@sha256:7bf3a8afc2bbfe7fdaf4b9d2716cb2f3634fd21e4f38e26aa17a12cfda80d721
     timeout-minutes: 90
@@ -432,11 +376,10 @@ jobs:
       # unzip opens Node's Windows build, which GNU tar can't.
       - name: NSIS, LLVM, unzip and gh
         run: |
-          # Ubuntu's main servers crawl from the home server; its French mirror is fast and carries -security too.
+          # archive and security.ubuntu.com crawl from the home server; the French mirror carries both.
           sudo sed -i -E 's#https?://(archive|security)\.ubuntu\.com/ubuntu#http://fr.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get update
-          # The Mac's menu bar turns on Tauri's tray-icon feature, and tauri-cli then looks for Linux's tray library on
-          # the machine it runs on, even for a Windows build.
+          # tauri-cli wants Linux's tray library even for a Windows build: the Mac's menu bar turns on tray-icon.
           sudo mkdir -p /cache/apt/archives/partial
           sudo flock /cache/apt/lock apt-get install -y --no-install-recommends \
             -o Dir::Cache::Archives=/cache/apt/archives \
@@ -463,8 +406,7 @@ jobs:
         with:
           node-version-file: .node-version
 
-      # The runner's ci-cache volume, as in ci.yml, with cargo-xwin's copy of Microsoft's CRT and SDK. The last
-      # release's installer goes first, or it'd be attached again.
+      # The last release's installer goes first, or it'd be attached again.
       - name: Caches
         run: |
           target=/cache/target/grenier/windows
@@ -484,9 +426,7 @@ jobs:
           pnpm build
           pnpm --filter @grenier/desktop sidecar --target x86_64-pc-windows-msvc
 
-      # Then the installer's script holds tauri.windows.conf.json: bin\grenier.cmd, and the hook that puts bin on the
-      # PATH. XWIN_ARCH: cargo-xwin downloads Microsoft's CRT and SDK for x64 and arm64 by default, 1.1 GB; x64 alone
-      # is 630 MB, and once it's in XWIN_CACHE_DIR it isn't downloaded again.
+      # XWIN_ARCH: Microsoft's CRT and SDK for x64 alone are 630 MB, against 1.1 GB with arm64.
       - name: Cross-build the NSIS installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -547,9 +487,7 @@ jobs:
           find . -maxdepth 1 -type f ! -name '*.sig' -printf '%f\n' | sort | xargs sha256sum -- > "$RUNNER_TEMP/SHA256SUMS"
           cat "$RUNNER_TEMP/SHA256SUMS"
 
-      # The feed Tauri's updater reads, built alike in Kestrel's and Statim's release.yml: each key an installed copy
-      # looks up (its own installer's first, then the bare one) points at a file of this release, with that file's
-      # signature. FEED lists them, a key and a file name with {v} for the version.
+      # An installed copy looks up its own installer's key first, then the bare one.
       - name: latest.json
         working-directory: files
         env:
@@ -590,7 +528,7 @@ jobs:
 
   homebrew:
     needs: [prepare, publish]
-    # As publish's Leave draft: the cask follows only a published release.
+    # The cask follows only a published release.
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: home-linux
     timeout-minutes: 10

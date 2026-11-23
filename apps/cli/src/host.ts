@@ -110,10 +110,7 @@ export function anchorDiffs(store: Store): Route {
   };
 }
 
-/**
- * The team's skills and servers on this machine: listed, installed, removed, put back, and the auto setting; and
- * skills found on skills.sh, shared with the team from GitHub like any other.
- */
+/** The team's skills and servers on this machine, and skills from skills.sh, shared from GitHub like any other. */
 export function installs(
   store: Store,
   home: string,

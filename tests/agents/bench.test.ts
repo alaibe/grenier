@@ -1,7 +1,4 @@
-// The benchmark's own Claude Code command against a stand-in for the API: run by hand with `pnpm test:agents` where
-// `claude` is installed. The stand-in plays the model and calls Grenier's tools as an agent would, so this checks that
-// Claude Code accepts the flags the benchmark passes, loads Grenier's MCP server and runs its tools, and that the cold
-// run records what the warm run reuses. A dummy key and a throwaway config directory: nothing reaches Anthropic.
+// Run by hand with `pnpm test:agents`: a stand-in for the API plays the model, so nothing reaches Anthropic.
 
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -62,10 +59,7 @@ function textOf(content: unknown): string {
   return Array.isArray(content) ? content.map((block: { text?: string }) => block.text ?? "").join("") : "";
 }
 
-/**
- * What the stand-in model does next: recall, remember on a miss, answer on a hit or once remembered. Claude Code
- * defers MCP tools: it names them in the prompt, and a model loads them with ToolSearch before it calls one.
- */
+/** Claude Code defers MCP tools: it names them in the prompt, and the model loads them with ToolSearch. */
 function next(request: Request): [Block, number] {
   const loaded = request.tools?.some((tool) => tool.name === ASK) ?? false;
   const deferred = !loaded && JSON.stringify([request.system, request.messages]).includes(ASK);
@@ -187,8 +181,7 @@ describe.skipIf(claude === null)("the benchmark with Claude Code", () => {
     expect(toolResults[2]?.text).toContain(ANSWER);
 
     const [result] = results;
-    // Cold: ToolSearch, ask, record, answer; warm: ToolSearch, ask, answer; the loaded step is 500 tokens, and the odd
-    // side request Claude Code makes without tools is 25.
+    // Cold: ToolSearch, ask, record, answer; warm: ToolSearch, ask, answer; plus Claude Code's toolless side requests.
     expect(result?.cold.inputTokens).toBeGreaterThanOrEqual(60_000);
     expect(result?.warm.inputTokens).toBeGreaterThanOrEqual(22_000);
     expect(result?.warm.inputTokens).toBeLessThan(23_000);

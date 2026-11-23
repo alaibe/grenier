@@ -8,10 +8,7 @@ export function sessionOf(env: NodeJS.ProcessEnv): string | undefined {
   return /^http:\/\/(?:127\.0\.0\.1|localhost):\d+\/s\/([^/]+)/.exec(env.ANTHROPIC_BASE_URL ?? "")?.[1];
 }
 
-/**
- * `grenier statusline [--today]`: one line for Claude Code's status line, with what the agent's session and today
- * spent and what the prompt cache took off. `--today` prints today per project instead, for the desktop app's menu bar.
- */
+/** `grenier statusline`: Claude Code's status line; `--today` prints today per project, for the app's menu bar. */
 export async function statusline(argv: string[], io: Io, now = Date.now()): Promise<string> {
   const { values } = parseArgs({ args: argv, strict: true, options: { today: { type: "boolean", default: false } } });
   const { paths, config } = environment(io);

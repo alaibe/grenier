@@ -51,12 +51,7 @@ export async function ask(argv: string[], io: Io): Promise<string> {
   return values.json ? JSON.stringify(result, null, 2) : asText(result);
 }
 
-/**
- * `grenier hook prompt`: Claude Code's UserPromptSubmit hook. When the prompt is close to a question the store holds
- * an unchanged answer for, passes that answer to the agent as context. It never stands in the prompt's way: any
- * failure, or no strong match, prints nothing. It looks without counting a reuse, and never downloads the model.
- * Tests pass their own `embedder`.
- */
+/** `grenier hook prompt`: passes a close recorded answer to the agent; any failure or weak match prints nothing. */
 export async function promptHook(io: Io, embedder?: Embedder | null): Promise<number> {
   try {
     const input = JSON.parse((await io.stdin?.()) ?? "") as { prompt?: unknown; cwd?: unknown };

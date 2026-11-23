@@ -1,16 +1,12 @@
 import { Tokenizer } from "@huggingface/tokenizers";
 
-/** Turns texts into vectors whose cosine says how alike they are. */
 export interface Embedder {
   /** Names the model, so vectors from different models are never compared. */
   readonly model: string;
   embed(texts: readonly string[]): Promise<Float32Array[]>;
 }
 
-/**
- * A Model2Vec static model: one vector per token, averaged over a text's tokens and normalised. No neural network
- * runs, so it needs no native code and embeds a question in well under a millisecond.
- */
+/** Model2Vec: token vectors averaged and normalised, so no native code and no neural network run. */
 export class StaticEmbedder implements Embedder {
   readonly #tokenizer: Tokenizer;
   readonly #table: Float32Array;
@@ -58,7 +54,7 @@ function normalise(vector: Float32Array): Float32Array {
   return vector;
 }
 
-/** Cosine similarity, from -1 to 1; 0 when either vector is all zeros. */
+/** 0 when either vector is all zeros. */
 export function cosine(a: Float32Array, b: Float32Array): number {
   let dot = 0;
   let normA = 0;

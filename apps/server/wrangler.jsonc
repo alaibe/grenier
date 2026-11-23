@@ -1,5 +1,4 @@
-// For local development only (`pnpm --filter @grenier/server exec wrangler dev`). `grenier team deploy` writes the
-// configuration of a real deployment into the user's ~/.grenier/team-server.
+// Local development only: `grenier team deploy` writes a real deployment's own configuration.
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "grenier-team",

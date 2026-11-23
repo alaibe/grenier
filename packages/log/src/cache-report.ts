@@ -55,7 +55,6 @@ export function cacheReport(rows: readonly UsageWithSession[]): CacheRow[] {
   });
 }
 
-/** A plain-text table of the cache report, with a note on what a flag means. */
 export function formatCacheReport(rows: readonly CacheRow[]): string {
   if (rows.length === 0) return "No requests in this period.";
   const header = ["session", "requests", "input", "cache write", "cache read", ""];

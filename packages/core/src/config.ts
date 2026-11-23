@@ -99,7 +99,6 @@ const configSchema = z.strictObject({
         .string()
         .regex(/^\d{1,2}-\d{1,2}$/, 'takes hours as "22-7"')
         .default("0-24"),
-      /** The agent that runs routines here. */
       agent: z.enum(["claude", "codex"]).default("claude"),
     })
     .prefault({}),

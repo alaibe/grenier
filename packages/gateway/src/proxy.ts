@@ -22,7 +22,6 @@ export interface ProxyOptions {
   prices: Prices;
   fetch?: typeof fetch;
   now?: () => number;
-  /** Shows a desktop notification. The daemon passes one; tests record the calls. */
   notify?: (title: string, message: string) => void;
   log?: (line: string) => void;
   /** How often a held request looks for `grenier resume`, in milliseconds. */
@@ -37,16 +36,12 @@ export interface ProxyOptions {
 export interface RunGuard {
   /** Whether a tool call may go through; a refused one cuts the answer off before it and ends the run. */
   allows(tool: string): boolean;
-  /** Called once a tool call was cut off. */
   cut(tool: string): void;
   /** True once the run may make its next model call; false when it must stop. */
   hold(signal: AbortSignal): Promise<boolean>;
 }
 
-/**
- * Passes an Anthropic event stream through whole events at a time, until one starts a tool call the guard refuses:
- * that event and everything after it are replaced by an error event, and the upstream is cancelled.
- */
+/** From the first refused tool call on, the stream becomes one error event and the upstream is cancelled. */
 function guardedEvents(guard: RunGuard) {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -86,7 +81,7 @@ function guardedEvents(guard: RunGuard) {
   };
 }
 
-// Hop-by-hop headers (RFC 9110 §7.6.1) and the ones fetch sets itself.
+// Hop-by-hop headers, and the ones fetch sets itself.
 const DROPPED_REQUEST_HEADERS = new Set([
   "host",
   "connection",
@@ -108,7 +103,6 @@ const DROPPED_RESPONSE_HEADERS = new Set([
   "content-length",
 ]);
 
-/** Forwards one request to the upstream and streams the answer back, after the session's guards let it through. */
 export function createProxy(options: ProxyOptions) {
   const { store, config, prices } = options;
   const fetchUpstream = options.fetch ?? fetch;
@@ -152,10 +146,7 @@ export function createProxy(options: ProxyOptions) {
     }
   }
 
-  /**
-   * Keeps where the session's new calls went in its repository, for the desktop app's traces. The request does not
-   * wait for it, and it never fails one.
-   */
+  /** For the desktop app's traces: the request does not wait for it, and it never fails one. */
   async function recordSteps(session: Session, uses: ToolUse[]): Promise<void> {
     if (!session.repoRoot || uses.length === 0) return;
     try {
@@ -168,7 +159,7 @@ export function createProxy(options: ProxyOptions) {
     }
   }
 
-  /** Waits while the session is paused. False when the pause outlasted the timeout or the client went away. */
+  /** False when the pause outlasted the timeout or the client went away. */
   async function waitWhilePaused(id: string, signal: AbortSignal): Promise<boolean> {
     const deadline = now() + config.guards.pause_timeout * 1000;
     while ((await store.sessions.get(id))?.paused) {

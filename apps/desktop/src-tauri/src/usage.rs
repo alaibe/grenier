@@ -1,11 +1,4 @@
-//! Anonymous usage statistics: page views to Grenier's own Umami at stats.laibe.cc, from release builds only, until
-//! Settings turns them off. The page decides when (`src/usage/tracker.ts`: a screen once it has stayed a second in
-//! front, again after 30 minutes away) and passes only a listed screen's url and the display's size. The hit is built
-//! here, so nothing the window shows (repositories, sessions, mail, spending) can go in it.
-//!
-//! The core, from the `use` lines to `now_seconds`, is the same text as in Kestrel's
-//! `crates/kestrel-core/src/backend/usage.rs`, apart from the constants' values and the `screens!` rows.
-//! `usage-vectors.json` is the three apps' shared test fixture. Change them together.
+//! Usage page views to Umami; the core, from the `use` lines to `now_seconds`, is shared with Kestrel and Statim.
 
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -369,8 +362,7 @@ pub async fn post(endpoint: &str, agent: &str, body: &Value) -> reqwest::Result<
     Ok(())
 }
 
-/// The page's `{ screen, width, height }`, read whole so that any other field is refused. Fire and forget: no retry,
-/// and the answer, Umami's or an error, is dropped.
+/// The page's `{ screen, width, height }`, read whole so that any other field is refused; fire and forget.
 #[tauri::command(async)]
 pub fn usage_page_view(request: Request<'_>, usage: State<'_, Usage>) -> Result<(), String> {
     let InvokeBody::Json(args) = request.body() else {

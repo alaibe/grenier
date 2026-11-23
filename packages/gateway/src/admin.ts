@@ -18,34 +18,26 @@ import { buildReport, mostSpentFirst, type Prices, parseSince, projectOf } from 
 import type { FullRecord, RecordInput, Store, UsageWithSession } from "@grenier/store";
 import { Hono } from "hono";
 
-/** What the daemon does for the admin API beyond the store: the team, this machine, routines, installs. */
 export interface AdminHost {
   storeDeps(): Promise<StoreDeps>;
-  /** The team store and this device's token, or null outside a team. */
   team(): TeamClient | null;
-  /** Sends what is waiting and takes what is new, now. */
   syncNow(): Promise<void>;
-  /** The daemon's other pages: machine, installs, routines, effectiveness. Each returns null for a path it has not. */
+  /** Each returns null for a path it does not serve. */
   extra?: (method: string, path: string, body: unknown) => Promise<{ status: number; body: unknown } | null>;
 }
 
 export interface AdminOptions {
   store: Store;
   prices: Prices;
-  /** The token the desktop app reads from ~/.grenier/admin-token; every /admin call needs it. */
   token: string;
   version: string;
   host: AdminHost;
-  /** A text file of a repository's work tree, or null when it cannot be shown. */
   readFile: (root: string, path: string) => Promise<string | null>;
   /** Who the daemon is, so a client can tell it from another program that reused its pid. */
   identity?: { pid: number; port: number };
 }
 
-/**
- * Each session's spending, the newest first, with where it ran and its questions to the store: null outside a
- * repository, where no step is traced.
- */
+/** Questions to the store are null outside a repository, where no step is traced. */
 async function sessionReport(store: Store, rows: readonly UsageWithSession[], prices: Prices, since: number) {
   const traced = new Map((await store.steps.sessions(since)).map((summary) => [summary.sessionId, summary]));
   const sessions = new Map(rows.map((row) => [row.sessionId, row]));
@@ -78,7 +70,6 @@ function problem(status: number, message: string): Response {
   return Response.json({ error: message }, { status });
 }
 
-/** A record as the editor shows it: what it says, whether it still holds, and the records around it. */
 async function shown(deps: StoreDeps, record: FullRecord, spaces: readonly string[]) {
   const { status, changed } = await check(deps, record);
   const titles = async (ids: readonly string[]) => {
@@ -99,7 +90,6 @@ async function shown(deps: StoreDeps, record: FullRecord, spaces: readonly strin
   };
 }
 
-/** The local admin API the desktop app uses: usage, traces, the store and its editor, the team, clients. */
 export function createAdmin(options: AdminOptions): Hono {
   const { store, prices } = options;
   const host = options.host;
@@ -220,7 +210,6 @@ export function createAdmin(options: AdminOptions): Hono {
     return c.json({ types: [...BUILTIN_TYPES, ...custom.map((record) => ({ ...customType(record), id: record.id }))] });
   });
 
-  /** Records to list or search: by space, type and words; newest first, or best match first. */
   app.get("/records", async (c) => {
     const storeDeps = await deps();
     const spaces = c.req.query("space") ? [c.req.query("space") as string] : await allSpaces();
@@ -271,11 +260,7 @@ export function createAdmin(options: AdminOptions): Hono {
     return c.json({ history: await store.history.list(id) });
   });
 
-  /**
-   * The editor's save. With a team, the change goes straight to the team store, which refuses it when someone changed
-   * the same field since `baseVersion`: the answer then holds their version, for the person to choose. Offline, it
-   * waits here and the latest write wins.
-   */
+  /** With a team, a field changed since `baseVersion` comes back as a conflict; offline, the latest write wins. */
   async function save(record: RecordInput, before: FullRecord | undefined, baseVersion: number) {
     const storeDeps = await deps();
     const custom = (await store.records.list({ spaces: await allSpaces(), type: "Type" })).find(
@@ -371,7 +356,6 @@ export function createAdmin(options: AdminOptions): Hono {
       : problem(404, "no such record, or retired already"),
   );
 
-  /** The team's own pages, through this device's token: members, invites, machines, usage, runs. */
   app.all("/team/*", async (c) => {
     const team = host.team();
     if (!team) return problem(409, "this machine is in no team: grenier team deploy, or open an invite link");

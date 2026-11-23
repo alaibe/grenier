@@ -3,10 +3,7 @@ import { open, seal, VaultError } from "@grenier/core";
 import { CommandError, environment, type Io, UsageError } from "../io.ts";
 import { ensurePersonalKey, personalKey, personalKeyFile } from "../runtime.ts";
 
-/**
- * `grenier key`: the person's own key for the `me` space, made the first time; `grenier key set <key>` puts the same
- * key on another of their machines, so it can open what the first one sealed.
- */
+/** `grenier key`: the person's `me` key; `key set <key>` puts it on another machine, to open what this one sealed. */
 export async function key(argv: string[], io: Io): Promise<string[]> {
   const [action, value] = argv;
   const { paths } = environment(io);

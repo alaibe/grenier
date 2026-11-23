@@ -307,10 +307,7 @@ export async function startDaemon(io: Io): Promise<{ pid: number; port: number; 
   throw new CommandError(`the daemon did not start. ${logFile(paths.home)} says:\n${tail}`);
 }
 
-/**
- * Stops the daemon and waits for it to exit. Returns its pid, or null if it was not running. A recorded pid that is
- * another program's is never signalled: the stale record is removed instead.
- */
+/** Stops the daemon; a recorded pid that is another program's is never signalled, only its record removed. */
 export async function stopDaemon(io: Io): Promise<{ pid: number | null; stale?: number }> {
   const { paths } = environment(io);
   const current = await daemonState(paths.home);

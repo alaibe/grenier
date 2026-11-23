@@ -1,6 +1,4 @@
-// The desktop app with a team's worth of made-up data, in a browser at http://localhost:1420: a team store in
-// Miniflare, a daemon in a throwaway GRENIER_HOME, and the app's UI built against it. For the site's screenshots
-// (laibe's grenier:screenshots); nothing here touches ~/.grenier or ~/.claude. Run it with: pnpm demo
+// The desktop app on made-up data at http://localhost:1420, for the site's screenshots; ~/.grenier is never touched.
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -122,10 +120,7 @@ const deps: StoreDeps = {
 
 const teammates: Record<string, TeamClient> = { sam, lea, anthony };
 
-/**
- * A record by marie, written on this machine, or by a teammate, sent to the team store with their own token: the
- * store names whoever sent a change as its author.
- */
+/** A record by marie on this machine, or by a teammate with their own token: the store names the sender as author. */
 async function record(input: Partial<RecordInput> & Pick<RecordInput, "type" | "title">): Promise<string> {
   const id = input.id ?? newId();
   const full: RecordInput = {

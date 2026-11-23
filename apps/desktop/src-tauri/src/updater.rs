@@ -1,8 +1,4 @@
-//! Updates, on the Mac, Windows and Linux alike: Tauri's updater reads the `latest.json` at `plugins.updater.endpoints`
-//! (tauri.conf.json), the one each release on alaibe/grenier carries, and installs only an update signed for the
-//! version it announces with the key whose public half is `plugins.updater.pubkey`. A release build
-//! checks a minute after launch, then once a day, and asks before installing; the menu bar's Check for Updates checks
-//! at once.
+//! A release build checks for updates a minute after launch, then once a day, and asks before installing.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -30,8 +26,7 @@ pub fn schedule(app: &AppHandle) {
     });
 }
 
-/// Checks now, as asked from the menu: unlike the daily check, it also says when Grenier is up to date or the check
-/// failed. It waits for the person's answer, so it must not run on the main thread.
+/// Also says when Grenier is up to date or the check failed; it waits for an answer, so never on the main thread.
 #[cfg(target_os = "macos")]
 pub fn check_now(app: &AppHandle) {
     check(app, true);

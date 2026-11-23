@@ -14,7 +14,6 @@ export interface ResponseUsage extends TokenCounts {
   model: string | null;
 }
 
-/** The usage of a Messages API response: the `message_start` and `message_delta` events of a stream, or a JSON body. */
 export class UsageReader extends BodyReader<ResponseUsage> {
   #model: string | null = null;
   #usage: AnthropicUsage = {};

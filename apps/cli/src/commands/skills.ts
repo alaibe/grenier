@@ -21,10 +21,7 @@ import { storeDeps } from "../runtime.ts";
 
 const STATE = { installed: "installed", update: "update waiting", available: "not installed" } as const;
 
-/**
- * `grenier skills …` and `grenier servers …`: the team's shared skills and MCP servers. Installing one approves it as
- * it is now; a later change waits for the next install, unless it is recommended and `skills auto on` is set.
- */
+/** `grenier skills …` and `grenier servers …`: installing one approves it as it is now. */
 export async function sharedCommand(type: Shared, argv: string[], io: Io, home: string = homedir()): Promise<string[]> {
   const [action = "list", name, ...rest] = argv;
   const word = type === "Skill" ? "skills" : "servers";

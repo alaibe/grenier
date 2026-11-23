@@ -21,10 +21,7 @@ export async function repoRoot(cwd: string): Promise<string | null> {
   }
 }
 
-/**
- * The repository's identity across machines and clones: its first commit's id (the smallest, if it has several
- * roots). Null for a repository with no commit yet.
- */
+/** The repository's identity across clones: its first commit's id, the smallest of several roots. */
 export async function repoId(root: string): Promise<string | null> {
   try {
     const roots = (await git(root, ["rev-list", "--max-parents=0", "HEAD"])).split("\n").filter(Boolean).sort();
@@ -42,10 +39,7 @@ export function repoPath(root: string, path: string): string | null {
   return inside.split(sep).join("/");
 }
 
-/**
- * The git blob hash of each file as it is now in the work tree, staged or not (`git hash-object`), or null for a
- * file that no longer exists. Paths are relative to the root.
- */
+/** Each file's blob hash as it is now in the work tree, staged or not; null for a file that is gone. */
 export async function blobHashes(root: string, paths: readonly string[]): Promise<Map<string, string | null>> {
   const hashes = new Map<string, string | null>();
   const present: string[] = [];
@@ -79,10 +73,7 @@ export async function trackedFiles(root: string): Promise<{ path: string; blob: 
 /** The most a file shown in the desktop app's traces may weigh. */
 export const MAX_TEXT_BYTES = 1_000_000;
 
-/**
- * A text file of the work tree as it is now, or null when it is missing, binary, too large, or outside the root once
- * symbolic links are followed.
- */
+/** A work-tree text file, or null when missing, binary, too large, or outside the root once links are followed. */
 export async function repoText(root: string, path: string, maxBytes = MAX_TEXT_BYTES): Promise<string | null> {
   try {
     const realRoot = await realpath(root);

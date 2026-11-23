@@ -1,7 +1,6 @@
 import { blob, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-// Times are Unix milliseconds. Edit this file, then `pnpm db:generate` writes the migration.
-// The full-text index on records and its triggers are hand-written SQL in a custom migration, not modelled here.
+// Times are Unix milliseconds; the full-text index and its triggers live in a custom migration.
 
 export const sessions = sqliteTable(
   "sessions",
@@ -50,10 +49,7 @@ export const events = sqliteTable(
   (table) => [index("events_session_ts").on(table.sessionId, table.ts)],
 );
 
-/**
- * Where an agent went in its repository: one row per file (or search) a tool call touched, for the desktop app to
- * replay. Paths, line ranges and hashes of written lines only, never a command or what a file holds.
- */
+/** One row per file or search a tool call touched: never a command or what a file holds. */
 export const steps = sqliteTable(
   "steps",
   {
@@ -85,21 +81,16 @@ export const state = sqliteTable("state", {
   value: text("value").notNull(),
 });
 
-/** The spaces this machine knows: `me`, one per repository, `team`, and those the team made. */
 export const spaces = sqliteTable("spaces", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   kind: text("kind", { enum: ["me", "repo", "team", "custom"] }).notNull(),
   /** For a repository's space: its id, the hash of its first commit. */
   repoId: text("repo_id"),
-  /** Where the repository is on this machine, when it is. */
   root: text("root"),
 });
 
-/**
- * One thing worth keeping: a project, task, meeting, decision, doc, person or memory, a skill, an MCP server, a
- * routine. `seq` is the full-text index's rowid: an implicit rowid can change on VACUUM.
- */
+/** `seq` is the full-text index's rowid: an implicit rowid can change on VACUUM. */
 export const records = sqliteTable(
   "records",
   {
@@ -134,7 +125,6 @@ export const anchors = sqliteTable(
       .notNull()
       .references(() => records.id, { onDelete: "cascade" }),
     kind: text("kind", { enum: ["git", "item"] }).notNull(),
-    /** For a file: its repository's id. */
     repoId: text("repo_id"),
     /** A path relative to the repository, or an item's ref (`linear:acme/LIN-123`). */
     ref: text("ref").notNull(),
@@ -168,7 +158,6 @@ export const recordEmbeddings = sqliteTable("record_embeddings", {
   vector: blob("vector", { mode: "buffer" }).notNull(),
 });
 
-/** Every version of a record, as the team store numbered it, with who made it. */
 export const history = sqliteTable(
   "history",
   {
@@ -195,10 +184,7 @@ export const outbox = sqliteTable("outbox", {
   refused: text("refused"),
 });
 
-/**
- * What this machine's person approved to run or install here, by hash: a skill, an MCP server, a routine, a
- * routine's workflow file. A change to the item needs approval again.
- */
+/** What this machine's person approved, by hash: a change to the item needs approval again. */
 export const approvals = sqliteTable(
   "approvals",
   {
@@ -215,7 +201,6 @@ export const approvals = sqliteTable(
   (table) => [primaryKey({ columns: [table.recordId, table.kind] })],
 );
 
-/** A routine's runs on this machine. */
 export const runs = sqliteTable(
   "runs",
   {
@@ -254,7 +239,6 @@ export const audit = sqliteTable(
     clientId: text("client_id").notNull(),
     tool: text("tool").notNull(),
     args: text("args", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
-    /** What was returned. */
     recordIds: text("record_ids", { mode: "json" }).$type<string[]>().notNull(),
   },
   (table) => [index("audit_client_ts").on(table.clientId, table.ts)],

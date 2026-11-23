@@ -17,7 +17,6 @@ export interface ReportRow {
   saved: number;
 }
 
-/** Share of input tokens served from the prompt cache. */
 export function cacheHitRate(row: Pick<ReportRow, "inputTokens" | "cacheWriteTokens" | "cacheReadTokens">): number {
   const input = row.inputTokens + row.cacheWriteTokens + row.cacheReadTokens;
   return input === 0 ? 0 : row.cacheReadTokens / input;
@@ -78,10 +77,7 @@ export function folderName(path: string): string {
   );
 }
 
-/**
- * The project a session's spending is grouped under, everywhere (reports, the dashboard, the menu bar):
- * the folder name of its repository, else of the folder it started in; null for neither.
- */
+/** What spending is grouped under everywhere: the repository's folder name, else the starting folder's. */
 export function projectOf(session: { repoRoot: string | null; cwd: string | null }): string | null {
   const folder = session.repoRoot ?? session.cwd;
   return folder ? folderName(folder) : null;
@@ -93,7 +89,7 @@ function localDate(ts: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** Midnight today in local time, in Unix milliseconds. */
+/** Local midnight. */
 export function startOfToday(now: number): number {
   const date = new Date(now);
   date.setHours(0, 0, 0, 0);
@@ -116,7 +112,6 @@ export function parseSince(value: string, now: number): number {
 
 const COLUMNS = ["", "requests", "input", "cache write", "cache read", "output", "cache hit", "cost", "saved"];
 
-/** The sum of report rows, as one row with the key "total". */
 export function totalOf(rows: readonly ReportRow[]): ReportRow {
   return rows.reduce<ReportRow>(
     (sum, row) => ({
@@ -144,7 +139,6 @@ export function totalOf(rows: readonly ReportRow[]): ReportRow {
   );
 }
 
-/** A plain-text table of report rows with a total line. */
 export function formatReport(rows: readonly ReportRow[]): string {
   if (rows.length === 0) return "No requests in this period.";
 
@@ -182,16 +176,12 @@ function tokens(count: number): string {
 
 const spentAndCached = (row: ReportRow) => `$${row.cost.toFixed(2)} spent, $${row.saved.toFixed(2)} cached`;
 
-/**
- * One line for an agent's status bar: what its session spent and what the prompt cache took off it, then today.
- * `session` is null for an agent not started by `grenier run`.
- */
+/** `session` is null for an agent not started by `grenier run`. */
 export function formatStatusLine(today: ReportRow, session: ReportRow | null): string {
   const first = session ? `session ${spentAndCached(session)}` : "not started with grenier run";
   return `grenier · ${first} · today ${spentAndCached(today)}`;
 }
 
-/** Report rows ordered by cost, the most spent first, then by key. */
 export function mostSpentFirst(rows: readonly ReportRow[]): ReportRow[] {
   return [...rows].sort((a, b) => b.cost - a.cost || a.key.localeCompare(b.key));
 }

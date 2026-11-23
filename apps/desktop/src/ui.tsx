@@ -6,7 +6,6 @@ export const money = (amount: number) =>
   amount === 0 || Math.abs(amount) >= 0.1 ? `$${amount.toFixed(2)}` : `$${Number(amount.toPrecision(2))}`;
 export const count = (value: number) => value.toLocaleString("en");
 
-/** A count with its noun, as in "1 hit" or "3 hits". */
 export const times = (n: number, one: string, many = `${one}s`) => `${count(n)} ${n === 1 ? one : many}`;
 
 export function moment(ts: number): string {
@@ -70,10 +69,7 @@ export interface Message {
   problem?: boolean;
 }
 
-/**
- * Runs one action at a time. `busy` names the running one, so its button can say what it is doing; the action's
- * message, or its error, stays on the page until the next action.
- */
+/** Runs one action at a time; its message or error stays on the page until the next action. */
 export function useAction(onDone: () => void): {
   run: (key: string, action: () => Promise<Message | undefined>) => Promise<boolean>;
   busy: string | null;
@@ -170,10 +166,7 @@ export function Button({
   );
 }
 
-/**
- * A button for something that cannot be undone, asked twice in the page: the first click shows the question with Yes
- * and Cancel. The window's own confirm() cannot be used: in the app it does not wait for an answer.
- */
+/** Asks in the page: the window's own confirm() does not wait for an answer in the app. */
 export function ConfirmButton({
   label,
   question,

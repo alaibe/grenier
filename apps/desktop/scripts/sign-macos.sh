@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Signs an unsigned Grenier.app for Developer ID, inside out, under the hardened runtime with a timestamp:
-# better-sqlite3's addons in the resources, then the Node sidecar with
-# src-tauri/node.entitlements, then the app. Notarization refuses a bundle with anything unsigned.
-#
-#   apps/desktop/scripts/sign-macos.sh <path/to/Grenier.app> "<Developer ID Application: …>" [<keychain>]
-#
-# The identity must be in the default keychain search list, or in the keychain passed third.
+# Signs Grenier.app inside out: notarization refuses a bundle with anything unsigned.
 set -euo pipefail
 
 usage="usage: sign-macos.sh <Grenier.app> <identity> [keychain]"

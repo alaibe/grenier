@@ -79,7 +79,6 @@ fn answers(port: u16) -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_ok()
 }
 
-/// The bundled CLI with these arguments, run by the bundled Node.
 fn grenier(app: &AppHandle, args: &[&str]) -> Result<Command, String> {
     let script = app
         .path()
@@ -93,8 +92,7 @@ fn grenier(app: &AppHandle, args: &[&str]) -> Result<Command, String> {
         .args(args))
 }
 
-/// The daemon's port, after starting the bundled daemon when none answers there. One start at a time: calls made
-/// while it starts wait for it instead of starting another.
+/// The daemon's port, after starting the bundled daemon when none answers; calls made meanwhile wait for that start.
 fn start_daemon(app: &AppHandle, home: &Path) -> Result<u16, String> {
     let state = app.state::<Sidecar>();
     let mut sidecar = state.0.lock().map_err(|error| error.to_string())?;
@@ -152,8 +150,7 @@ fn start_daemon(app: &AppHandle, home: &Path) -> Result<u16, String> {
     }
 }
 
-/// Stops the daemon this app started, if it did: `grenier stop` lets it finish cleanly; it is killed only if that
-/// fails. One started by `grenier start` is left alone.
+/// Stops the daemon this app started with `grenier stop`, and kills it only if that fails.
 fn stop_daemon(app: &AppHandle) {
     let Some(child) = app.state::<Sidecar>().0.lock().ok().and_then(|mut child| child.take()) else {
         return;

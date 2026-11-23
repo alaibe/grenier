@@ -13,10 +13,7 @@ import { environment, type Io, UsageError, withStore } from "../io.ts";
 
 const GROUPS: readonly GroupBy[] = ["day", "session", "repo"];
 
-/**
- * `grenier report [--by day|session|repo] [--since 7d] [--json]`, `grenier report --cache` for the prompt cache by
- * session, or `grenier report --effectiveness` for what the spend turned into.
- */
+/** `grenier report`: spend, the prompt cache by session (`--cache`), or what the spend turned into. */
 export async function report(argv: string[], io: Io, now = Date.now()): Promise<string> {
   const { values } = parseArgs({
     args: argv,

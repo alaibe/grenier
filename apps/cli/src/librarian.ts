@@ -11,11 +11,7 @@ const normal = (title: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
-/**
- * Looks through the shared records for what needs a person: memories whose files changed, duplicates, records that
- * break their type's rules, and requests for a retired routine. Each finding becomes a Suggestion a person accepts or
- * dismisses; one already open is not made twice. Returns how many it made.
- */
+/** Files one Suggestion for each stale, duplicate or broken record and each request for a retired routine. */
 export async function librarian(deps: StoreDeps): Promise<{ suggested: number; lines: string[] }> {
   const spaces = (await deps.store.spaces.list()).filter((space) => space.kind !== "me").map((space) => space.id);
   const records = await deps.store.records.list({ spaces });

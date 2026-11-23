@@ -264,7 +264,7 @@ export async function routines(argv: string[], io: Io): Promise<string[]> {
   }
 }
 
-/** `grenier machine [set <rule> <value>]`: this machine's state, and the rules that keep routines from disturbing anyone. */
+/** `grenier machine [set <rule> <value>]`: this machine's state, and the rules that keep routines out of the way. */
 export async function machine(argv: string[], io: Io): Promise<string[]> {
   const [action, key, value] = argv;
   if (action === "set") {

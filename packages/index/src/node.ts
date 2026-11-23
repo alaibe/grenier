@@ -3,10 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { join } from "node:path";
 import { type Embedder, readSafetensors, StaticEmbedder } from "./embeddings.ts";
 
-/**
- * The default embedding model: Model2Vec's potion-base-8M (MIT), 256 dimensions, 30 MB. Pinned to one revision,
- * and every file checked against its SHA-256 before use.
- */
+/** Model2Vec's potion-base-8M (MIT): a new model or revision is a new pin, and its vectors never mix with these. */
 export const DEFAULT_MODEL = {
   repository: "minishlab/potion-base-8M",
   revision: "bf8b056651a2c21b8d2565580b8569da283cab23",
@@ -20,15 +17,11 @@ function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-/** The model's folder under `modelsDir`, named after its repository and revision. */
 export function modelDir(modelsDir: string): string {
   return join(modelsDir, `${DEFAULT_MODEL.repository.replace("/", "--")}@${DEFAULT_MODEL.revision.slice(0, 7)}`);
 }
 
-/**
- * Loads the model from `modelsDir`, downloading from huggingface.co any file that is missing or does not match its
- * hash, unless `offline`. Throws when a file is missing offline, a download fails or a downloaded file does not match.
- */
+/** Downloads any file that is missing or fails its hash, unless `offline`. */
 export async function loadLocalEmbedder(
   modelsDir: string,
   options: { fetch?: typeof fetch; offline?: boolean } = {},

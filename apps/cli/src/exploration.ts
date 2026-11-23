@@ -7,10 +7,7 @@ import { loadLocalEmbedder } from "@grenier/index/node";
 
 export const gitFiles: RepoFiles = { hashes: blobHashes, tracked: trackedFiles, relative: repoPath, text: repoText };
 
-/**
- * Finds the repository for a tool call: `repo` resolved against `base`, or `base` itself; null outside a repository.
- * An explicit `repo` that is not one is an error.
- */
+/** `repo` resolved against `base`, or `base` itself; null outside a repository, an error for a wrong `repo`. */
 export function repoResolver(base: string | null): (repo: string | undefined) => Promise<Repo | null> {
   const known = new Map<string, Repo | null>();
   return async (repo) => {
@@ -31,11 +28,7 @@ export function repoResolver(base: string | null): (repo: string | undefined) =>
 /** How long after a failed load of the model the next use tries again. */
 export const EMBEDDER_RETRY_MS = 60_000;
 
-/**
- * Loads the embedding model on first use, once. When it cannot be loaded, search falls back to full text, and a use
- * a minute later tries again: a download that failed on a bad connection does not turn embeddings off until restart.
- * `offline` uses only a model already downloaded.
- */
+/** Loads the embedding model on first use; after a failed load, search uses full text and retries a minute later. */
 export function embedderLoader(
   config: Config,
   paths: GrenierPaths,

@@ -8,10 +8,7 @@ interface Connection {
 
 let connection: Promise<Connection> | undefined;
 
-/**
- * Where the daemon listens and the admin token it wrote in ~/.grenier: from the Tauri shell, which starts the daemon
- * if it is not running, or from VITE_GRENIER_URL and VITE_GRENIER_TOKEN when the UI runs in a browser for development.
- */
+/** From the Tauri shell, or from VITE_GRENIER_URL and VITE_GRENIER_TOKEN when the UI runs in a browser. */
 function connect(): Promise<Connection> {
   if (connection) return connection;
   const attempt: Promise<Connection> = isTauri()
@@ -40,7 +37,6 @@ export class ApiError extends Error {
   }
 }
 
-/** One call to the daemon's admin API. Throws ApiError with the daemon's own message. */
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const { url, token } = await connect();
   let response: Response;
@@ -65,7 +61,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   return body;
 }
 
-/** Counts a page view of a screen, with the display's size. The shell alone decides whether it is sent. */
+/** The shell alone decides whether a page view is sent. */
 export function sendPageView(screen: ScreenUrl): void {
   if (!isTauri()) return;
   invoke("usage_page_view", { screen, width: window.screen.width, height: window.screen.height }).catch(() => {});
@@ -73,7 +69,6 @@ export function sendPageView(screen: ScreenUrl): void {
 
 const OUTSIDE_THE_APP = "Settings are kept by the desktop app: open this page in Grenier.";
 
-/** Whether usage statistics are on, as the shell keeps it. */
 export function usageEnabled(): Promise<boolean> {
   return isTauri() ? invoke<boolean>("usage_enabled") : Promise.reject(new ApiError(OUTSIDE_THE_APP));
 }

@@ -142,10 +142,7 @@ function writeSkill(folder: string, files: Record<string, string>): void {
   }
 }
 
-/**
- * Installs a shared skill or server as it is now, and pins its hash: a later change waits for a new approval, unless
- * it is recommended and this machine installs those by itself.
- */
+/** Installs a shared skill or server and pins its hash, so a later change waits for approval again. */
 export async function install(
   store: Store,
   home: string,
@@ -284,10 +281,7 @@ export async function findShared(store: Store, type: Shared, name: string): Prom
   return found[0] as FullRecord;
 }
 
-/**
- * On a machine that installs recommended ones by itself: each recommended skill or server, installed or brought up
- * to date; those it installed by itself and that were retired since, removed. Returns what it did, to log.
- */
+/** Brings recommended skills and servers up to date and removes retired ones it installed; returns what it did. */
 export async function autoInstall(store: Store, home: string): Promise<string[]> {
   if ((await store.state.get("auto_install")) !== "on") return [];
   const done: string[] = [];
@@ -390,7 +384,6 @@ export async function share(
   return { id: next.id, updated: Boolean(existing) };
 }
 
-/** Whether a path is a folder. */
 export function isFolder(path: string): boolean {
   return existsSync(path) && statSync(path).isDirectory();
 }

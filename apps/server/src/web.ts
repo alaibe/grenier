@@ -1,8 +1,4 @@
-/**
- * The web view: the team's store, requests, routines, machines and (for admins) usage, in a browser. It signs in with
- * a one-time link from `grenier team web` and keeps the token it gets in this browser only. Text from records is
- * only ever set as text, never as HTML.
- */
+/** The web view. Text from records is only ever set as text, never as HTML. */
 export const WEB = `<!doctype html>
 <html lang="en">
 <head>

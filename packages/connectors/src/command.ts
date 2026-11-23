@@ -1,7 +1,4 @@
-/**
- * A command line as its words, quoted the way a shell quotes them ('…', "…" and \), without running a shell. Throws
- * on a quote left open.
- */
+/** A command line's words as a shell would quote them, without running a shell; throws on an open quote. */
 export function commandWords(line: string): string[] {
   const words: string[] = [];
   let word = "";

@@ -27,7 +27,6 @@ interface Me {
 const loadOverview = () => api<Overview>("/overview");
 const loadMe = () => api<Me>("/team/me");
 
-/** The team: who is in it and on which machines, invites and their codes, and what each machine spends. */
 export function Team({ changed }: ViewProps) {
   const overview = useLoad(loadOverview);
   if (overview.error) return <Notice message={overview.error} />;

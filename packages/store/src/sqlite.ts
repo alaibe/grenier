@@ -9,16 +9,12 @@ import type { FullRecord, RecordFilter, Store } from "./store.ts";
 type Db = BetterSQLite3Database<typeof schema>;
 
 export interface SqliteStoreOptions {
-  /** The migrations to apply. Tests pass their own; everything else uses the shipped ones. */
   migrations?: readonly Migration[];
 }
 
 const BUSY_TIMEOUT = 5000;
 
-/**
- * Switches the database to WAL. When processes create the file at the same moment, SQLite refuses the switch to all
- * but one at once, without the busy timeout, so as not to deadlock: the others try again until it is done.
- */
+/** SQLite refuses a concurrent switch to WAL at once, ignoring the busy timeout, so the losers retry. */
 function useWal(sqlite: Database.Database): void {
   const deadline = Date.now() + BUSY_TIMEOUT;
   for (;;) {

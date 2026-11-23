@@ -28,11 +28,7 @@ export function asksFirst(program: string, args: readonly string[], inRepository
   );
 }
 
-/**
- * The command's arguments, plus what points it at the proxy when an environment variable cannot: Codex reads its base
- * URL only from its config, so it gets `-c openai_base_url=…` unless the command already sets one. With `askFirst`,
- * Claude Code gets ASK_FIRST in its system prompt.
- */
+/** Codex reads its base URL only from its config, so it gets `-c openai_base_url=…` unless the command sets one. */
 export function agentArgs(
   program: string,
   args: readonly string[],
@@ -47,11 +43,7 @@ export function agentArgs(
   return ["-c", `openai_base_url=${JSON.stringify(openaiBaseUrl)}`, ...args];
 }
 
-/**
- * `grenier run -- <command>`: registers a session, points the command at the proxy (ANTHROPIC_BASE_URL,
- * OPENAI_BASE_URL, and Codex's own setting), runs it with the session's id in GRENIER_SESSION, and closes the session
- * when it exits. Returns the command's exit code.
- */
+/** `grenier run -- <command>`: runs the command through the proxy, in a session of its own. */
 export async function run(argv: string[], io: Io, dependencies: RunDependencies = { startDaemon }): Promise<number> {
   const command = argv[0] === "--" ? argv.slice(1) : argv;
   const [program, ...args] = command;

@@ -1,6 +1,4 @@
-// Grenier's version lives in every file a release ships from, and they move together: `check` prints it and fails when
-// two disagree, `bump` writes the next patch to all of them and prints it. The nightly workflow bumps, the release
-// workflow checks it against the tag, and CI checks on every push. Run with Node 22.18 or later (type stripping).
+// `check` prints the version and fails when two files disagree; `bump` writes the next patch to all of them.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

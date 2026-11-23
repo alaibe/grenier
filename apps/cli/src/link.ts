@@ -4,10 +4,7 @@ import { type Embedder, type SyncResult, syncOnce, type TeamClient, teamApi } fr
 import type { Store } from "@grenier/store";
 import { personalKey } from "./runtime.ts";
 
-/**
- * The daemon's link to the team store: a round of sync on a timer, and at once when the store says something changed
- * over the live connection, or when this machine changed something. Offline, the local copy carries on alone.
- */
+/** The daemon's link to the team store; offline, the local copy carries on alone. */
 export class TeamLink {
   #syncing: Promise<SyncResult | null> | null = null;
   #again = false;

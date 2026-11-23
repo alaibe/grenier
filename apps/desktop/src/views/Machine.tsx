@@ -29,7 +29,6 @@ const SAYS = {
   away: "Not available",
 };
 
-/** This machine: its name, whether it takes routine runs, and the rules that keep them from disturbing its person. */
 export function Machine(_: ViewProps) {
   const { data, error, reload } = useLoad(load);
   const action = useAction(reload);

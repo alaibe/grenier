@@ -27,11 +27,7 @@ async function defaultRef(git: Git, root: string): Promise<string> {
   return "HEAD";
 }
 
-/**
- * Works out, once a session's edits had LANDING_DAYS to land, what its spend turned into: how many of the lines it
- * wrote are on the default branch, what it spent reading files a recorded answer already covered, and the issue keys
- * of the commits made while it ran. Kept on this machine only. Returns how many sessions it worked out.
- */
+/** Works out what each session's spend became once its edits had LANDING_DAYS to land; kept on this machine only. */
 export async function computeOutcomes(store: Store, now = Date.now(), git: Git = runGit): Promise<number> {
   const done = new Set((await store.outcomes.list()).map((outcome) => outcome.sessionId));
   let computed = 0;
@@ -109,10 +105,7 @@ export interface Effectiveness {
   sessions: number;
 }
 
-/**
- * The effectiveness ratio and its parts since `since`: spend weighted by each session's landed share, and for a
- * session that edited nothing, credit when an agent used what it recorded.
- */
+/** Spend weighted by each session's landed share; one that edited nothing earns credit when its records are used. */
 export async function effectiveness(store: Store, since: number, now = Date.now()): Promise<Effectiveness> {
   const outcomes = new Map((await store.outcomes.list()).map((outcome) => [outcome.sessionId, outcome]));
   const costs = new Map<string, number>();

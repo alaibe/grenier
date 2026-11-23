@@ -104,7 +104,6 @@ function FindSkills({ shared }: { shared: () => void }) {
   );
 }
 
-/** The team's skills and MCP servers: installed into Claude Code on this machine once approved, by their hash. */
 export function Skills({ go }: ViewProps) {
   const { data, error, reload } = useLoad(load);
   const action = useAction(reload);

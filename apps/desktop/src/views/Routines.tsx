@@ -56,7 +56,6 @@ function scores(runs: Run[], routine: string): Map<number, number> {
   return new Map([...sums].map(([version, list]) => [version, list.reduce((a, b) => a + b, 0) / list.length]));
 }
 
-/** The team's routines on this machine: approved by their hash, in a mode, with their versions, evals and runs. */
 export function Routines(_: ViewProps) {
   const routines = useLoad(load);
   const runs = useLoad(loadRuns);

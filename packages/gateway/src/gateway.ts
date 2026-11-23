@@ -8,16 +8,11 @@ import { createProxy, errorResponse, type ProxyOptions, UNTAGGED } from "./proxy
 export interface GatewayOptions extends ProxyOptions {
   /** The port the daemon listens on, to accept only requests addressed to this machine. */
   port: number;
-  /** Serves the MCP tools at /mcp (Streamable HTTP), for clients holding a token. */
   mcp?: Omit<McpDeps, "store">;
-  /** Serves the desktop app's API at /admin, for the holder of this token. */
   admin?: Omit<AdminOptions, "store" | "prices">;
 }
 
-/**
- * The daemon's HTTP app: MCP at /mcp for clients with a token, the proxy under /s/<session>/… for `grenier run`, and
- * untagged proxying everywhere else.
- */
+/** MCP at /mcp, the proxy under /s/<session>/… for `grenier run`, and untagged proxying everywhere else. */
 export function createGateway(options: GatewayOptions): Hono {
   const proxy = createProxy(options);
   const hosts = new Set([`127.0.0.1:${options.port}`, `localhost:${options.port}`, `[::1]:${options.port}`]);

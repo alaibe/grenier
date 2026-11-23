@@ -61,10 +61,7 @@ export function configPath(client: McpClient, home: string, platform: NodeJS.Pla
   }
 }
 
-/**
- * The same program at a path that survives upgrades: a versioned one (Homebrew's Cellar, a version manager's folder)
- * is replaced by a PATH entry that resolves to the same file. Otherwise the program as given.
- */
+/** The same program at a PATH entry that survives upgrades, in place of a versioned path such as Homebrew's Cellar. */
 export function stableProgram(program: string, searchPath: string | undefined): string {
   let real: string;
   try {
@@ -142,10 +139,7 @@ function shellWord(word: string): string {
 export const isPromptHook = (command: unknown): command is string =>
   typeof command === "string" && command.includes("grenier") && command.endsWith(" hook prompt");
 
-/**
- * Adds Grenier's UserPromptSubmit hook to Claude Code's settings, in place of one added before, keeping every other
- * key and hook.
- */
+/** Adds Grenier's UserPromptSubmit hook to Claude Code's settings in place of an earlier one, keeping the rest. */
 export function withPromptHook(text: string, command: string): string {
   let settings: Record<string, unknown> = {};
   if (text.trim() !== "") {
@@ -168,11 +162,7 @@ export function withPromptHook(text: string, command: string): string {
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
 
-/**
- * `grenier mcp install <client> [--scope …] [--hook]`: adds Grenier's MCP server (over stdio) to that client's
- * config, with a client token of its own whose scope says which spaces it may read (every space by default).
- * Installing again revokes the previous token. `--hook`, for Claude Code only, also adds the prompt hook.
- */
+/** `grenier mcp install <client>`: installing again revokes the client's previous token. */
 export async function install(
   argv: string[],
   io: Io,

@@ -1,7 +1,4 @@
-// A routine's read-only run with Claude Code itself, against a stand-in for the API that answers with an edit: run by
-// hand with `pnpm test:agents` where `claude` is installed. Claude Code must accept the flags the runner passes, and
-// the proxy must cut the run off at the edit and stop the agent at once. A dummy key and a throwaway config directory:
-// nothing reaches Anthropic.
+// Run by hand with `pnpm test:agents`: the proxy must cut a read-only run off at the stand-in model's edit.
 import { execFile, execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";

@@ -1,9 +1,6 @@
 const MAX_JSON_BYTES = 16 * 1024 * 1024;
 
-/**
- * Reads a response body as it passes through, without holding it back: each server-sent event of a stream as it
- * completes, or a JSON body once it has ended. `push` takes each chunk as it is forwarded; `result` ends the reading.
- */
+/** Reads a body as it passes through, without holding it back. */
 export abstract class BodyReader<T> {
   readonly #streaming: boolean;
   readonly #decoder = new TextDecoder();
@@ -33,7 +30,7 @@ export abstract class BodyReader<T> {
     }
   }
 
-  /** What the response reported so far. Call it once the body has ended, or been cut off. */
+  /** Call it once the body has ended, or been cut off. */
   result(): T {
     if (!this.#ended) {
       this.#ended = true;
@@ -55,7 +52,6 @@ export abstract class BodyReader<T> {
 
   /** One complete event of a stream: its `event:` name ("" when it has none) and its `data:` lines joined. */
   protected abstract onEvent(event: string, data: string): void;
-  /** The whole body of a response that is not streamed. */
   protected abstract onJson(text: string): void;
   protected abstract read(): T;
 

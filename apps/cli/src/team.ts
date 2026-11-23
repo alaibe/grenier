@@ -43,7 +43,6 @@ export function withTomlValue(text: string, table: string, key: string, value: s
   return lines.join("\n");
 }
 
-/** Saves this machine's member token, readable by this user only. */
 export function saveToken(paths: GrenierPaths, token: string): void {
   writeFileSync(tokenFile(paths), `${token}\n`, { mode: 0o600 });
 }

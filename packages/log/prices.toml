@@ -1,7 +1,4 @@
 # Anthropic first-party API prices in USD per million tokens, checked 2026-11-16 against Anthropic's model list.
-# cache_write_5m and cache_write_1h are a cache write with that lifetime (1.25x and 2x input); cache_read is a cache
-# hit. `fast` multiplies every price for a response that reports `speed: "fast"`. A model id that ends in a date
-# (claude-…-20250929) is priced as the id without it. Override any model in config.toml under [prices."<id>"].
 
 [models."claude-fable-5-2"]
 input = 8.0

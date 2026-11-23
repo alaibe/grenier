@@ -38,15 +38,14 @@ export const ASK_FIRST =
 export interface McpDeps {
   store: Store;
   files: RepoFiles;
-  /** Loads the embedder on first use; null when embeddings are off or unavailable. */
+  /** Null when embeddings are off or unavailable. */
   embedder: () => Promise<Embedder | null>;
   /** The repository for a tool call: the `repo` argument (a path), or the server's own when it has one. */
   resolveRepo: (repo: string | undefined) => Promise<Repo | null>;
-  /** The client this connection belongs to, looked up again at every call, so a revoked token stops at once. */
+  /** Looked up again at every call, so a revoked token stops at once. */
   reader?: () => Promise<Reader | null>;
   me: () => Promise<Identity>;
   version: string;
-  /** The session the agent runs in, when it runs under `grenier run`. */
   sessionId?: string;
   /** In a routine's run, where its output goes: written without asking, since no one watches a run. */
   runSpace?: string;
@@ -72,7 +71,6 @@ async function answer(work: () => Promise<object>): Promise<ToolResult> {
 const repo = z.string().optional().describe("Path to the repository, when it is not the one the agent runs in");
 const link = z.object({ kind: z.enum(["record", "person", "repo", "path", "issue"]), ref: z.string().min(1) });
 
-/** The MCP server with the store's tools. A new one per connection. */
 export function createMcpServer(deps: McpDeps): McpServer {
   const server = new McpServer({ name: "grenier", version: deps.version }, { instructions: INSTRUCTIONS });
   const storeDeps = async () => ({
@@ -83,7 +81,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
   });
   const reader = async () => (deps.reader ? await deps.reader() : null);
 
-  /** Asks the person, through the client, before a record leaves this machine; null when the client cannot ask. */
+  /** Null when the client cannot ask. */
   const ask: AskConsent = async (record) => {
     if (!server.server.getClientCapabilities()?.elicitation) return null;
     const where = record.space === "team" ? "the whole team" : record.space;

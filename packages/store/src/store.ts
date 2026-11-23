@@ -20,9 +20,7 @@ import type {
   Usage,
 } from "./schema.ts";
 
-/** Every package reads and writes through this interface. */
 export interface Store {
-  /** The version of the newest migration applied to this database. */
   schemaVersion(): Promise<number>;
   close(): Promise<void>;
   sessions: SessionStore;
@@ -64,14 +62,12 @@ export interface UsageStore {
   add(row: NewUsage): Promise<void>;
   /** Rows with their session's repository, oldest first. */
   list(filter?: { since?: number; sessionId?: string }): Promise<UsageWithSession[]>;
-  /** Removes the rows older than `before`; returns how many. */
   prune(before: number): Promise<number>;
 }
 
 export interface EventStore {
   add(event: NewEvent): Promise<void>;
   list(filter?: { kind?: string }): Promise<Event[]>;
-  /** Removes the events older than `before`; returns how many. */
   prune(before: number): Promise<number>;
 }
 
@@ -95,7 +91,6 @@ export interface StepStore {
   list(sessionId: string): Promise<Step[]>;
   /** The sessions with steps since `since`, newest first, with how many steps and distinct files each has. */
   sessions(since: number): Promise<StepSummary[]>;
-  /** Removes the steps older than `before`; returns how many. */
   prune(before: number): Promise<number>;
 }
 
@@ -113,7 +108,6 @@ export interface SpaceStore {
   remove(id: string): Promise<void>;
 }
 
-/** A record with what it was worked out from and what it points at. */
 export interface FullRecord extends RecordRow {
   anchors: Pick<Anchor, "kind" | "repoId" | "ref" | "version">[];
   links: Pick<Link, "kind" | "ref">[];
@@ -125,7 +119,6 @@ export type RecordInput = Omit<RecordRow, "seq" | "hits"> & {
 };
 
 export interface RecordFilter {
-  /** Only records of these spaces. */
   spaces: readonly string[];
   type?: string;
   kind?: string;
@@ -137,10 +130,7 @@ export interface RecordFilter {
 }
 
 export interface RecordStore {
-  /**
-   * Adds or replaces the record with its anchors, links and vector. Its hit count stays. When `embedding` is not
-   * given, the vector it had stays only if its title and body did not change.
-   */
+  /** Keeps the hit count; without `embedding`, the old vector stays only if title and body are unchanged. */
   put(record: RecordInput, embedding?: { model: string; vector: Float32Array }): Promise<void>;
   get(id: string): Promise<FullRecord | undefined>;
   /** Newest first. */
@@ -149,7 +139,6 @@ export interface RecordStore {
   search(terms: readonly string[], spaces: readonly string[], limit: number): Promise<{ id: string; score: number }[]>;
   /** Every vector of these spaces' records made by `model`, without the retired ones. */
   vectors(spaces: readonly string[], model: string): Promise<{ id: string; vector: Float32Array }[]>;
-  /** Counts one more reuse. */
   hit(id: string): Promise<void>;
   /** The number the team store gave the record, once it took it. */
   setVersion(id: string, version: number): Promise<void>;
@@ -198,10 +187,7 @@ export interface ClientStore {
   /** The client holding this token, unless it was revoked. */
   findActive(tokenHash: string): Promise<Client | undefined>;
   list(): Promise<Client[]>;
-  /**
-   * Revokes the named client; false when there is no such active client. The revoked entry keeps its id (the audit
-   * log refers to it) but takes the name `<name>~<time>`, so the name can be given to a new client.
-   */
+  /** False when no such active client; the revoked one is renamed `<name>~<time>` so its name can be reused. */
   revoke(name: string, at: number): Promise<boolean>;
 }
 

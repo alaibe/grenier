@@ -1,7 +1,4 @@
-/**
- * End-to-end encryption for the `me` space: AES-256-GCM with Web Crypto, so the same code runs on Node and on
- * Workers. The key is made and kept on the user's devices; the server only stores what `seal` returns.
- */
+// End-to-end encryption for the `me` space: the key stays on the user's devices, the server stores only sealed bytes.
 
 const VERSION = 1;
 const IV_BYTES = 12;
@@ -32,10 +29,7 @@ async function importKey(key: string): ReturnType<typeof crypto.subtle.importKey
   return crypto.subtle.importKey("raw", fromBase64Url(match[1] as string), "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 
-/**
- * Encrypts `plaintext` for the object `name`: a version byte, a random 96-bit IV, then the ciphertext and its tag.
- * The name is authenticated too, so an object cannot be swapped for another.
- */
+/** The name is authenticated too, so one sealed object cannot be swapped for another. */
 export async function seal(key: string, name: string, plaintext: Uint8Array): Promise<Uint8Array> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const ciphertext = new Uint8Array(

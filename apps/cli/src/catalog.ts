@@ -39,10 +39,7 @@ export async function searchSkills(words: string, fetchImpl: typeof fetch = fetc
   return found.slice(0, MAX_RESULTS);
 }
 
-/**
- * The skill named `name` in the GitHub repository `source`, from one commit: the folder whose SKILL.md names it, with
- * every text file in it but hidden ones, within a shared skill's limits.
- */
+/** The skill named `name` in the GitHub repository `source`, from one commit, within a shared skill's limits. */
 export async function fetchSkill(source: string, name: string, fetchImpl: typeof fetch = fetch): Promise<SkillFiles> {
   if (!REPO.test(source)) throw new CommandError("a skill's source is a GitHub repository, as owner/repo");
   const github = async <T>(path: string): Promise<T> => {

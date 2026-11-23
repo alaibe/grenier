@@ -69,10 +69,7 @@ function hookProgram(command: string): string | null {
   }
 }
 
-/**
- * `grenier doctor`: checks what makes Grenier work end to end, and says what to do about each problem. Exits 1 when
- * something is broken (a fail), 0 otherwise.
- */
+/** `grenier doctor`: exits 1 when something is broken (a fail), 0 otherwise. */
 export async function doctor(
   io: Io,
   where: { home?: string; platform?: NodeJS.Platform } = {},

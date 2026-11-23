@@ -1,6 +1,5 @@
 import { MAX_SHARED_TEXT, sha256, unshareable } from "./policy.ts";
 
-/** A field of a record type, and the rule its value follows. */
 export interface FieldDef {
   name: string;
   kind: "text" | "number" | "date" | "person" | "record" | "select" | "list" | "json";
@@ -18,7 +17,6 @@ export interface TypeDef {
   fields: readonly FieldDef[];
   /** A Markdown body is part of it: a doc, a meeting's transcript, a memory's text. */
   body: boolean;
-  /** At most this many characters of body. */
   maxBody: number;
   /** The body may quote at most a short snippet of code, as a memory about code may. */
   limitCode?: boolean;
@@ -190,7 +188,6 @@ const SECRETS: readonly RegExp[] = [
   /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/,
 ];
 
-/** What in the text looks like a secret, or null. */
 export function secretIn(text: string): string | null {
   for (const pattern of SECRETS) if (pattern.test(text)) return "it holds what looks like a key or a token";
   return null;
@@ -238,7 +235,6 @@ export function recordProblem(record: RecordShape, type: TypeDef | undefined): s
   return null;
 }
 
-/** A routine's prompt version. */
 export interface RoutineVersion {
   version: number;
   prompt: string;
@@ -257,7 +253,7 @@ export function repoSpace(repoId: string): string {
   return `repo:${repoId}`;
 }
 
-/** The six digits both screens show while a device joins: from the hash of the invite's secret and the device's nonce. */
+/** The six digits both screens show while a device joins, from the invite secret's hash and the device's nonce. */
 export async function joinCode(secretHash: string, nonce: string): Promise<string> {
   const digest = await sha256(`${secretHash}:${nonce}`);
   return String(Number.parseInt(digest.slice(0, 12), 16) % 1_000_000).padStart(6, "0");

@@ -66,10 +66,7 @@ export function pickVersion(routine: RoutineShape, asked?: number): RoutineVersi
   );
 }
 
-/**
- * What a machine's person approves: every version's prompt, the tools, the repo, the agent, and for a collector its
- * owner. Any change to them waits for their approval again.
- */
+/** What a machine's person approves: any change to these fields waits for their approval again. */
 export async function routineHash(routine: RoutineShape): Promise<string> {
   const { fields } = routine;
   return sha256(
@@ -86,10 +83,7 @@ export async function routineHash(routine: RoutineShape): Promise<string> {
 
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
-/**
- * When a schedule next falls after `after`, in UTC: "hourly", "daily 09:00", "weekdays 09:00", "mon 09:00". Null for
- * one it cannot read.
- */
+/** When a schedule ("hourly", "daily 09:00", "weekdays 09:00", "mon 09:00") next falls, in UTC; null if unreadable. */
 export function nextDue(schedule: string, after: number): number | null {
   const text = schedule.trim().toLowerCase();
   if (text === "hourly") return (Math.floor(after / 3_600_000) + 1) * 3_600_000;

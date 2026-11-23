@@ -18,7 +18,6 @@ export interface Repo {
   id: string;
 }
 
-/** The repository operations the store needs, so tests can stand in for git. */
 export interface RepoFiles {
   /** Current blob hash of each path (relative to the root), null for a missing file. */
   hashes(root: string, paths: readonly string[]): Promise<Map<string, string | null>>;
@@ -67,7 +66,6 @@ const STOPWORDS = new Set(
   ),
 );
 
-/** The words of a question worth searching for: lowercase, without stopwords or one-letter words. */
 export function terms(question: string): string[] {
   const words = question.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
   return [...new Set(words.filter((word) => word.length > 1 && !STOPWORDS.has(word)))];
@@ -83,17 +81,13 @@ export function newId(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * The spaces a reader may read among those this machine has: every repository's, which hold what was worked out about
- * code, and those its scope names ("*" for all). A connection with no client reads repositories only.
- */
+/** Every repository's space, plus those the reader's scope names; with no reader, repositories only. */
 export async function readable(store: Store, reader: Reader | null): Promise<Space[]> {
   const all = await store.spaces.list();
   if (reader?.scopes.includes("*")) return all;
   return all.filter((space) => space.kind === "repo" || reader?.scopes.includes(space.id));
 }
 
-/** A repository's space, made here the first time a record is written for it. */
 export async function ensureRepoSpace(store: Store, repo: Repo): Promise<string> {
   const id = repoSpace(repo.id);
   const name = repo.root.split(/[\\/]/).filter(Boolean).at(-1) ?? repo.id.slice(0, 8);
@@ -118,11 +112,7 @@ export interface Checked {
   changed: string[];
 }
 
-/**
- * Whether a record still holds: `hit` while every file it came from has its recorded blob hash on this machine,
- * `stale` with the changed files when one does not, `unchecked` when it came from outside items, or from files of a
- * repository this machine does not have, which the agent checks with its own tools.
- */
+/** `unchecked` when a record came from outside items, or from a repository this machine does not have. */
 export async function check(deps: StoreDeps, record: FullRecord): Promise<Checked> {
   const git = record.anchors.filter((anchor) => anchor.kind === "git");
   let unchecked = record.anchors.some((anchor) => anchor.kind === "item");
@@ -216,10 +206,7 @@ export interface RecallResult {
   results: Found[];
 }
 
-/**
- * recall: the records closest to a question, by full-text and vector search fused by rank, the repository the agent
- * is in first. Each says whether it still holds. A `hit` on the best one counts as a reuse unless `count` is false.
- */
+/** Full-text and vector search fused by rank; a `hit` on the best one counts as a reuse unless `count` is false. */
 export async function recall(
   deps: StoreDeps,
   reader: Reader | null,
@@ -287,7 +274,7 @@ export async function recall(
   return { status: best?.status ?? "miss", results };
 }
 
-/** The spaces of the other repositories of the projects that link this one. */
+/** The other repositories' spaces of the projects that link this one. */
 async function projectRepos(store: Store, spaces: readonly string[], repoId: string): Promise<Set<string>> {
   const projects = await store.records.list({ spaces, type: "Project", linkedTo: { kind: "repo", ref: repoId } });
   const repos = new Set<string>();
@@ -303,7 +290,6 @@ export interface QueryResult {
   linked?: Found[];
 }
 
-/** query: records by type, space and fields; for one record, what it links to and what links to it, in one step. */
 export async function query(
   deps: StoreDeps,
   reader: Reader | null,
@@ -361,10 +347,7 @@ export interface RememberInput {
   title: string;
   body?: string;
   fields?: Record<string, unknown>;
-  /**
-   * Where it goes: a space id; by default the repository's space for what is about its code, else `team` when the
-   * client may write there, `me` otherwise.
-   */
+  /** By default the repository's space for what is about its code, else `team` when writable, else `me`. */
   space?: string;
   /** Every file it was worked out from, in the repository the agent is in. */
   files?: readonly string[];
@@ -376,7 +359,6 @@ export interface RememberInput {
   sessionId?: string;
 }
 
-/** What the person said when asked before a record left this machine. */
 export type Consent = { action: "share" } | { action: "me" } | { action: "cancel" } | { action: "edit"; body: string };
 
 /** Asks the person; null when the client cannot ask, and the record then stays in `me`. */
@@ -387,7 +369,6 @@ export type AskConsent = (record: {
   space: string;
 }) => Promise<Consent | null>;
 
-/** Whether the person is asked first: always, except for answers and summaries about code, checked by their files. */
 export function needsConsent(record: { type: string; kind?: string | null; anchors: FullRecord["anchors"] }): boolean {
   const aboutCode =
     record.type === "Memory" &&
@@ -397,11 +378,7 @@ export function needsConsent(record: { type: string; kind?: string | null; ancho
   return !aboutCode;
 }
 
-/**
- * remember: adds or replaces a record, with the current blob hash of every file it was worked out from. It follows
- * its type's rules; an answer to a question already answered in the same repository replaces that one. Before a
- * record other than an answer or summary about code leaves this machine, the person is asked.
- */
+/** An answer to a question already answered in the same repository replaces that one. */
 export async function remember(
   deps: StoreDeps,
   reader: Reader | null,
@@ -510,7 +487,6 @@ function changedFields(before: FullRecord | undefined, after: RecordInput): stri
   );
 }
 
-/** Keeps the record here and queues the change for the team store. */
 export async function write(deps: StoreDeps, record: RecordInput, before?: FullRecord): Promise<void> {
   const [vector] = deps.embedder ? await deps.embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)]) : [];
   await deps.store.records.put(record, vector && deps.embedder ? { model: deps.embedder.model, vector } : undefined);
@@ -528,7 +504,7 @@ export async function write(deps: StoreDeps, record: RecordInput, before?: FullR
   });
 }
 
-/** Retires a record: it stays in history, out of recall and query. */
+/** A retired record stays in history, out of recall and query. */
 export async function retire(deps: StoreDeps, id: string): Promise<boolean> {
   const record = await deps.store.records.get(id);
   if (!record || record.retiredAt !== null) return false;
@@ -548,7 +524,6 @@ function inRepo(deps: StoreDeps, repo: Repo, paths: readonly string[]): string[]
   return relative;
 }
 
-/** Against the files themselves, the text may not copy more than a short run of their lines. */
 async function checkCopies(deps: StoreDeps, repo: Repo, text: string, paths: readonly string[]) {
   if (!deps.files.text) return;
   for (const path of paths) {
@@ -562,7 +537,6 @@ async function checkCopies(deps: StoreDeps, repo: Repo, text: string, paths: rea
   }
 }
 
-/** file_summary: the summary recorded for a file or directory as it is now, or a miss. */
 export async function fileSummary(
   deps: StoreDeps,
   repo: Repo,
@@ -587,7 +561,6 @@ export interface RepoMapEntry {
   stale?: boolean;
 }
 
-/** repo_map: the repository's top-level entries, with the summaries recorded for them. */
 export async function repoMap(deps: StoreDeps, repo: Repo): Promise<{ entries: RepoMapEntry[] }> {
   const space = await ensureRepoSpace(deps.store, repo);
   const tracked = await deps.files.tracked(repo.root);
@@ -625,10 +598,7 @@ function nonce(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * What a client gets: the audit row is written first (no row, no read), and every record leaves redacted, its text
- * inside a block that marks it as untrusted.
- */
+/** The audit row is written first (no row, no read), and every record leaves redacted and marked untrusted. */
 export async function deliver<T extends { records?: Found[]; results?: Found[]; linked?: Found[] }>(
   deps: StoreDeps,
   reader: Reader | null,

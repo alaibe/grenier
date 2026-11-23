@@ -1,7 +1,4 @@
-/**
- * The app's screens, by the name its views go by: the url usage statistics send for it, and the title the sidebar
- * shows. The shell keeps the same list (src-tauri/src/usage.rs) and refuses any other url.
- */
+/** src-tauri/src/usage.rs keeps the same urls and refuses any other. */
 export const SCREENS = {
   dashboard: { url: "/dashboard", title: "Dashboard" },
   knowledge: { url: "/knowledge", title: "Knowledge" },

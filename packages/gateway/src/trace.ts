@@ -7,7 +7,6 @@ import type { ToolUse } from "./loops.ts";
 
 type Kind = NewStep["kind"];
 
-/** One step of a call, before it gets its session, time and position among the call's steps. */
 export interface Draft {
   kind: Kind;
   /** Relative to the repository's root; null for the root itself. */
@@ -53,7 +52,7 @@ const number = (input: unknown, ...keys: string[]) => {
   return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : undefined;
 };
 
-/** The path inside the repository: "" for its root, null for a path outside it. */
+/** "" for the root, null outside the repository. */
 function inside(where: Where, path: string): string | null {
   const absolute = isAbsolute(path) ? path : resolve(where.cwd, path);
   const rel = relative(where.root, absolute);
@@ -68,7 +67,7 @@ function at(where: Where, path: string | undefined, draft: Omit<Draft, "path">, 
   return [{ ...draft, path: found === "" ? null : found }];
 }
 
-/** The lines a result shows with their numbers (`cat -n`, as Claude Code's Read and Edit print them). */
+/** The range of `cat -n` numbers in a result, as Claude Code's Read and Edit print them. */
 function numberedLines(result: string): { startLine: number; endLine: number } | undefined {
   let first: number | undefined;
   let last: number | undefined;
@@ -86,7 +85,6 @@ function patchFiles(where: Where, patch: string): Draft[] {
   );
 }
 
-/** Splits a shell command into words, keeping quoted text together. Operators come out as words of their own. */
 function words(command: string): string[] {
   const out: string[] = [];
   let current = "";
@@ -156,7 +154,6 @@ const SEARCH_VALUE_FLAGS = new Set([
 
 const looksLikePath = (word: string) => word !== "" && !/[*?$`<>]/.test(word) && !word.startsWith("-");
 
-/** One simple command of a pipeline: what it reads, searches or lists, and a line range it narrows a read to. */
 function simple(
   where: Where,
   argv: string[],
@@ -240,7 +237,6 @@ function simple(
   return { drafts: [] };
 }
 
-/** Takes the redirections out of a command's words: `> f` and `>> f` change f, `< f` reads it. */
 function redirections(where: Where, argv: string[]): { argv: string[]; drafts: Draft[] } {
   const rest: string[] = [];
   const drafts: Draft[] = [];
@@ -259,7 +255,6 @@ function redirections(where: Where, argv: string[]): { argv: string[]; drafts: D
   return { argv: rest, drafts };
 }
 
-/** The command without its heredocs' bodies: those lines are data, not commands. */
 function withoutHeredocs(source: string): string {
   const kept: string[] = [];
   let end: string | null = null;
@@ -274,7 +269,6 @@ function withoutHeredocs(source: string): string {
   return kept.join("\n");
 }
 
-/** What a shell command read, searched, listed or changed in the repository, as far as its words tell. */
 export function shellSteps(where: Where, command: string | readonly string[]): Draft[] {
   let source = typeof command === "string" ? command : command.join(" ");
   if (Array.isArray(command)) {
@@ -319,7 +313,6 @@ export function shellSteps(where: Where, command: string | readonly string[]): D
   return exists ? drafts.filter((draft) => draft.path === null || exists(draft.path)) : drafts;
 }
 
-/** The step a tool of Grenier's own MCP server stands for: the store, asked instead of the code. */
 function cacheStep(where: Where, name: string, use: ToolUse): Draft[] | null {
   const outcome = /"status":\s*"(hit|stale|unchecked|miss)"/.exec(use.result?.text ?? "")?.[1];
   const base = { kind: "ask" as const, ...(outcome ? { outcome } : {}) };
@@ -406,10 +399,7 @@ function drafts(where: Where, use: ToolUse): Draft[] {
   return [];
 }
 
-/**
- * The steps a session's new tool calls took in its repository, ready to store. Reads, edits, searches and listings of
- * paths inside the repository only; a call that touched nothing there leaves no step.
- */
+/** A call that touched nothing inside the repository leaves no step. */
 export function stepsOf(
   session: { id: string; repoRoot: string; cwd: string | null },
   uses: readonly ToolUse[],
@@ -432,10 +422,7 @@ export function stepsOf(
 
 const lineOf = (text: string, index: number) => text.slice(0, index).split("\n").length;
 
-/**
- * A short hash of each line worth tracking in a text: trimmed, without lines too plain to tell apart ("}", "") so
- * that a common line elsewhere does not count as landed.
- */
+/** Lines too plain to tell apart ("}", "") are skipped, so a common line elsewhere does not count as landed. */
 export function lineHashes(text: string): string[] {
   const out: string[] = [];
   for (const raw of text.split("\n")) {
@@ -453,10 +440,7 @@ export function lineHashes(text: string): string[] {
   return out;
 }
 
-/**
- * Puts each edit whose result showed no line numbers (Claude Code's Edit says only that the file was updated) on the
- * lines its new text holds in the file now. An edit whose text is not found keeps no lines.
- */
+/** Claude Code's Edit prints no line numbers: an edit gets the lines its new text holds in the file now. */
 export async function placeEdits(
   root: string,
   rows: NewStep[],

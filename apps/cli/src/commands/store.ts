@@ -7,11 +7,7 @@ import { embedderLoader, repoResolver } from "../exploration.ts";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
 import { storeDeps } from "../runtime.ts";
 
-/**
- * `grenier store [list] [--type <t>] [--space <s>] [--retired]`, `store show <id>`, `store add <type> <title>
- * [--body <text> | --body-file <path>] [--field name=value] [--space <s>]`, `store retire <id>`,
- * `store clear [--repo <path>]`, `store stats`: the records on this machine.
- */
+/** `grenier store …`: the records on this machine. */
 export async function storeCommand(argv: string[], io: Io): Promise<string[]> {
   const [action = "list", ...rest] = argv;
   const { paths, config } = environment(io);

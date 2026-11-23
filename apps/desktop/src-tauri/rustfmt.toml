@@ -1,2 +1,1 @@
-# The shared code standard (homeserver's AGENTS.md › Code standards): rustfmt at 120 columns.
 max_width = 120

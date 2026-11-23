@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
 
-/**
- * A record's Markdown body as React elements, never as HTML: headings, paragraphs, lists, quotes, code, emphasis and
- * links. A link to `record:<id>` opens that record; other links only when they are http or https.
- */
+/** Markdown as React elements, never as HTML; a link opens only for `record:<id>`, http or https. */
 export function Markdown({ text, open }: { text: string; open: (id: string) => void }) {
   return <div className="flex flex-col gap-2.5">{blocks(text, open)}</div>;
 }

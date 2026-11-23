@@ -75,10 +75,7 @@ function randomId(bytes = 12): string {
 
 type Row = Record<string, SqlStorageValue>;
 
-/**
- * One team's store: members and their devices, spaces, records and every version of them, the work queue and each
- * machine's usage, in the Durable Object's own SQLite. Being one object, it puts every change in order.
- */
+/** One team's store; being one Durable Object, it puts every change in order. */
 export class TeamStore extends DurableObject<Env> {
   #app: Hono<{ Variables: Vars }>;
   /** Who has which record open in an editor, by record id: kept in memory, gone after a minute without news. */
@@ -444,10 +441,7 @@ export class TeamStore extends DurableObject<Env> {
     );
   }
 
-  /**
-   * The task to offer this machine: the oldest request it can run (its repo and agent are here), not already leased
-   * or declined by it, and only if no available machine that could run it has more room.
-   */
+  /** The oldest request this machine can run, unless an available machine that could run it has more room. */
   #offer(device: Device): { task: StoredRecord; routine: StoredRecord } | null {
     const now = Date.now();
     this.#sql("DELETE FROM claims WHERE leased_until < ?", now);
@@ -1221,11 +1215,7 @@ export class TeamStore extends DurableObject<Env> {
       .slice(0, limit);
   }
 
-  /**
-   * The remote MCP server, for agents that do not run on a teammate's machine: recall, query and request, under the
-   * spaces its member reads. It cannot check files, so records about code come back unchecked; it writes no record
-   * but requests, since it has no person to ask.
-   */
+  /** The remote MCP server: it can't check files or ask a person, so code records come back unchecked. */
   async #mcp(request: JsonRpc, member: Member, device: Device): Promise<object | null> {
     const reply = (result: unknown) => ({ jsonrpc: "2.0", id: request.id ?? null, result });
     const fail = (code: number, message: string) => ({

@@ -3,25 +3,21 @@ packages:
   - apps/*
   - bench
 
-# Exact versions only, and nothing published less than 7 days ago (in minutes): a compromised release is usually
-# caught and pulled within days.
+# 7 days, in minutes: a compromised release is usually caught and pulled within days.
 saveExact: true
 minimumReleaseAge: 10080
 
-# Install scripts run only for these. esbuild's fetches its binary. better-sqlite3 ships N-API prebuilds for every
-# platform, so its node-gyp build is skipped.
+# better-sqlite3 ships N-API prebuilds for every platform, so its node-gyp build is skipped.
 onlyBuiltDependencies:
   - esbuild
 ignoredBuiltDependencies:
   - better-sqlite3
 
-# drizzle-kit loads its config through @esbuild-kit, which asks for esbuild 0.18 (GHSA-67mh-4wv8-2f99). It works with
-# the patched 0.25 that drizzle-kit itself uses.
+# @esbuild-kit asks for esbuild 0.18 (GHSA-67mh-4wv8-2f99); it works with drizzle-kit's patched 0.25.
 overrides:
   "@esbuild-kit/core-utils>esbuild": 0.25.12
 
-# picomatch through 4.0.7 hangs on crafted extglobs (GHSA-fc5q-39xc-vjpf) and no release fixes it yet. Only vite and
-# vitest use it, on our own globs, and neither the CLI's bundle nor the app carries it. Remove this once one does.
+# No picomatch release fixes this yet; only vite and vitest use it, on our own globs. Remove once one does.
 auditConfig:
   ignoreGhsas:
     - GHSA-fc5q-39xc-vjpf

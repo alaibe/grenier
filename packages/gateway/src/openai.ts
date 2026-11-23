@@ -12,11 +12,7 @@ interface OpenAIUsage {
   input_tokens_details?: { cached_tokens?: number } | null;
 }
 
-/**
- * The usage of an OpenAI response: Chat Completions (a JSON body, or the last chunk of a stream when the client asked
- * for `stream_options.include_usage`) and the Responses API (`response.completed`). OpenAI counts cached input inside
- * the input total; it is moved to `cacheReadTokens` here.
- */
+/** OpenAI counts cached input inside the input total; it is moved to `cacheReadTokens` here. */
 export class OpenAIUsageReader extends BodyReader<ResponseUsage> {
   #model: string | null = null;
   #usage: OpenAIUsage | null = null;
