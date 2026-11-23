@@ -4,6 +4,7 @@ import {
   type Config,
   ConfigError,
   parseConfig,
+  pickVersion,
   ROUTINE_MODES,
   type RoutineMode,
   type RoutineVersion,
@@ -351,13 +352,7 @@ export function routineRoutes(deps: {
       approval && approval.hash === (await routineHash(routine))
         ? ((approval.settings.mode as RoutineMode) ?? "read-only")
         : "read-only";
-    const versionOf = () => {
-      const asked = typeof input.version === "number" ? input.version : undefined;
-      const versions = versionsOf(routine);
-      return asked !== undefined
-        ? versions.find((entry) => entry.version === asked)
-        : versions.find((entry) => entry.status === "production");
-    };
+    const versionOf = () => pickVersion(routine, typeof input.version === "number" ? input.version : undefined);
     try {
       switch (`${method} ${match[2]}`) {
         case "POST approve":

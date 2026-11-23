@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { repoId, repoRoot } from "@grenier/connectors/git";
-import { evalsOf, ROUTINE_MODES, type RoutineMode, versionsOf } from "@grenier/core";
+import { evalsOf, pickVersion, ROUTINE_MODES, type RoutineMode } from "@grenier/core";
 import { ensureRepoSpace } from "@grenier/index";
 import type { FullRecord, Run, Store } from "@grenier/store";
 import { adminToken, startDaemon } from "../daemon.ts";
@@ -185,9 +185,7 @@ export async function routines(argv: string[], io: Io): Promise<string[]> {
         const run = done[0] as Run;
         return [`${run.status}, ${run.actions} actions`, "", run.result ?? ""];
       }
-      const version = values.version
-        ? Number(values.version)
-        : versionsOf(routine).find((entry) => entry.status === "production")?.version;
+      const version = pickVersion(routine, values.version ? Number(values.version) : undefined)?.version;
       let score: number | null = null;
       for (let tries = 0; tries < 10; tries++) {
         const saved = await withStore(paths, (store) => store.state.get(`eval:${routine.id}:${version}`));
