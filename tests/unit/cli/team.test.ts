@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inviteLink, parseInvite, team, WRANGLER_VERSION } from "../../../apps/cli/src/commands/team.ts";
+import { inviteLink, parseInvite, team } from "../../../apps/cli/src/commands/team.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 import { saveTeam, withTomlValue } from "../../../apps/cli/src/team.ts";
 import { SETUP_TOKEN, startWorker } from "../../support/worker.ts";
@@ -72,18 +72,6 @@ describe("grenier team deploy", () => {
     expect(statSync(join(home, "team-token")).mode & 0o777).toBe(0o600);
     expect(statSync(join(home, "personal.key")).mode & 0o777).toBe(0o600);
     expect(lines[0]).toContain("you are its admin, ada");
-  });
-
-  it("says what to do when the name belongs to an older Grenier's Worker", async () => {
-    const wrangler = async (args: string[]) => {
-      if (args[0] !== "deploy") return "You are logged in.";
-      throw new Error(
-        "wrangler deploy failed:\n✘ [ERROR] New version of script does not export class 'TeamCounter' which is depended on by existing Durable Objects. [code: 10064]",
-      );
-    };
-    await expect(team(["deploy"], io(), { wrangler, serverDir })).rejects.toThrow(
-      `npx --yes wrangler@${WRANGLER_VERSION} delete --name grenier-team`,
-    );
   });
 });
 

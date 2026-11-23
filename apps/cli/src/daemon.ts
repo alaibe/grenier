@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -22,11 +22,6 @@ import { routineRoutes } from "./routines.ts";
 import { Runner } from "./runner.ts";
 import { ensureBaseSpaces, identity, storeDeps } from "./runtime.ts";
 import { teamClient } from "./team.ts";
-
-/** Where daemons before daemon.json wrote their pid. */
-export function pidFile(home: string): string {
-  return join(home, "daemon.pid");
-}
 
 export function logFile(home: string): string {
   return join(home, "daemon.log");
@@ -53,27 +48,19 @@ export interface DaemonInfo {
 }
 
 export type DaemonState =
-  | { state: "running"; pid: number; port: number; version: string | null }
+  | { state: "running"; pid: number; port: number; version: string }
   | { state: "stopped" }
   /** The recorded pid belongs to another program: the daemon stopped without cleaning up, and the pid was reused. */
   | { state: "stale"; pid: number };
 
-/** What the daemon recorded: daemon.json, or the pid file alone of a daemon from before it. */
-function recorded(home: string): { pid: number; port?: number } | null {
+function recorded(home: string): { pid: number; port: number } | null {
   try {
     const info = JSON.parse(readFileSync(infoFile(home), "utf8")) as Partial<DaemonInfo>;
-    if (Number.isInteger(info.pid) && (info.pid as number) > 0) {
-      return { pid: info.pid as number, ...(Number.isInteger(info.port) ? { port: info.port as number } : {}) };
-    }
+    return Number.isInteger(info.pid) && (info.pid as number) > 0 && Number.isInteger(info.port)
+      ? { pid: info.pid as number, port: info.port as number }
+      : null;
   } catch {
-    // No daemon.json, or one cut short: fall back to the pid file.
-  }
-  try {
-    const pid = Number.parseInt(readFileSync(pidFile(home), "utf8"), 10);
-    return Number.isInteger(pid) && pid > 0 ? { pid } : null;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
+    return null;
   }
 }
 
@@ -93,37 +80,17 @@ async function health(home: string, port: number): Promise<{ pid: number; versio
   }
 }
 
-/**
- * Whether a process's command line is a grenier daemon's, for a daemon too old to answer /admin/health. False where it
- * cannot be read (Windows), so such a pid is never signalled.
- */
-function looksLikeDaemon(pid: number): boolean {
-  if (process.platform === "win32") return false;
-  try {
-    const command = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" });
-    // The daemon's own command line ends with `grenier.js daemon` (or `grenier daemon`); a log viewer does not.
-    return /(?:^|[\\/\s])grenier(?:\.js)?\s+daemon\s*$/.test(command.trim());
-  } catch {
-    return false;
-  }
-}
-
-/** Whether the daemon runs, checked with the daemon itself: a pid file alone can name a pid since reused. */
-export async function daemonState(home: string, configuredPort: number): Promise<DaemonState> {
+/** Whether the daemon runs, checked with the daemon itself: a recorded pid can have been reused since. */
+export async function daemonState(home: string): Promise<DaemonState> {
   const found = recorded(home);
   if (found === null || !isAlive(found.pid)) return { state: "stopped" };
-  const port = found.port ?? configuredPort;
-  const answer = await health(home, port);
-  if (answer?.pid === found.pid) return { state: "running", pid: found.pid, port, version: answer.version };
-  if (answer === null && looksLikeDaemon(found.pid)) {
-    return { state: "running", pid: found.pid, port, version: null };
-  }
+  const answer = await health(home, found.port);
+  if (answer?.pid === found.pid) return { ...found, state: "running", version: answer.version };
   return { state: "stale", pid: found.pid };
 }
 
 function forget(home: string): void {
   rmSync(infoFile(home), { force: true });
-  rmSync(pidFile(home), { force: true });
 }
 
 function isAlive(pid: number): boolean {
@@ -153,7 +120,7 @@ const PRUNE_EVERY = 6 * 60 * 60 * 1000;
 /** `grenier daemon`: serves the proxy in the foreground until SIGTERM or SIGINT. */
 export async function runDaemon(io: Io): Promise<number> {
   const { paths, config } = environment(io);
-  const current = await daemonState(paths.home, config.proxy.port);
+  const current = await daemonState(paths.home);
   if (current.state === "running") throw new CommandError(`the daemon is already running (pid ${current.pid})`);
 
   const store = openSqliteStore(paths.db);
@@ -265,7 +232,6 @@ export async function runDaemon(io: Io): Promise<number> {
     );
   }
 
-  rmSync(pidFile(paths.home), { force: true });
   writeAtomically(infoFile(paths.home), `${JSON.stringify({ pid: process.pid, port, version })}\n`);
   io.err(`grenier ${version} daemon listening on 127.0.0.1:${port} (pid ${process.pid})`);
 
@@ -315,11 +281,9 @@ export async function runDaemon(io: Io): Promise<number> {
 }
 
 /** Starts the daemon in the background and waits until it answers; or finds the one already running. */
-export async function startDaemon(
-  io: Io,
-): Promise<{ pid: number; port: number; version: string | null; started: boolean }> {
-  const { paths, config } = environment(io);
-  const current = await daemonState(paths.home, config.proxy.port);
+export async function startDaemon(io: Io): Promise<{ pid: number; port: number; version: string; started: boolean }> {
+  const { paths } = environment(io);
+  const current = await daemonState(paths.home);
   if (current.state === "running") return { ...current, started: false };
 
   const log = openSync(logFile(paths.home), "a", 0o600);
@@ -333,7 +297,7 @@ export async function startDaemon(
   child.unref();
 
   for (let waited = 0; waited < 10_000; waited += 50) {
-    const now = await daemonState(paths.home, config.proxy.port);
+    const now = await daemonState(paths.home);
     // Another start may have won the race: its daemon is as good as ours.
     if (now.state === "running") return { ...now, started: now.pid === child.pid };
     if (exited) break;
@@ -348,8 +312,8 @@ export async function startDaemon(
  * another program's is never signalled: the stale record is removed instead.
  */
 export async function stopDaemon(io: Io): Promise<{ pid: number | null; stale?: number }> {
-  const { paths, config } = environment(io);
-  const current = await daemonState(paths.home, config.proxy.port);
+  const { paths } = environment(io);
+  const current = await daemonState(paths.home);
   if (current.state === "stale") {
     forget(paths.home);
     return { pid: null, stale: current.pid };

@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
 import { run } from "../../../apps/cli/src/cli.ts";
 import { agentArgs, asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
-import { daemonState, infoFile, pidFile, stopDaemon } from "../../../apps/cli/src/daemon.ts";
+import { daemonState, infoFile, stopDaemon } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
 let dir: string;
@@ -126,32 +126,26 @@ describe("grenier status", () => {
 describe("the daemon's identity", () => {
   it("is stopped without a record, or with one naming a dead pid or garbage", async () => {
     await grenier("status");
-    expect(await daemonState(home, 7799)).toEqual({ state: "stopped" });
-    writeFileSync(pidFile(home), "2147483646\n");
-    expect(await daemonState(home, 7799)).toEqual({ state: "stopped" });
+    expect(await daemonState(home)).toEqual({ state: "stopped" });
+    writeFileSync(infoFile(home), JSON.stringify({ pid: 2147483646, port: 7799, version: "0.0.0" }));
+    expect(await daemonState(home)).toEqual({ state: "stopped" });
     writeFileSync(infoFile(home), "not json");
-    writeFileSync(pidFile(home), "not a pid\n");
-    expect(await daemonState(home, 7799)).toEqual({ state: "stopped" });
+    expect(await daemonState(home)).toEqual({ state: "stopped" });
   });
 
   it("never signals another program that reused the daemon's pid, and removes the stale record", async () => {
     await grenier("status");
-    // Its command line names both words, as a log viewer's would: only the daemon's own ending counts.
-    const stranger = spawn(
-      process.execPath,
-      ["-e", "setTimeout(() => {}, 30000)", "/home/ada/.grenier/daemon.log", "grenier", "daemon", "--follow"],
-      { stdio: "ignore" },
-    );
+    const stranger = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
     try {
       const pid = stranger.pid as number;
       writeFileSync(infoFile(home), JSON.stringify({ pid, port: 7799, version: "0.0.0" }));
-      expect(await daemonState(home, 7799)).toEqual({ state: "stale", pid });
+      expect(await daemonState(home)).toEqual({ state: "stale", pid });
       expect(await stopDaemon(io())).toEqual({ pid: null, stale: pid });
       expect(stranger.exitCode).toBeNull();
       expect(() => process.kill(pid, 0)).not.toThrow();
       expect(existsSync(infoFile(home))).toBe(false);
 
-      writeFileSync(pidFile(home), `${pid}\n`);
+      writeFileSync(infoFile(home), JSON.stringify({ pid, port: 7799, version: "0.0.0" }));
       const out: string[] = [];
       await run(["status"], io(out));
       expect(out.join("\n")).toContain(`daemon    stopped (its record names pid ${pid}, now another program's)`);

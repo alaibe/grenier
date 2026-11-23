@@ -8,7 +8,7 @@ import { startDaemon } from "../daemon.ts";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
 
 export interface RunDependencies {
-  startDaemon: (io: Io) => Promise<{ pid: number; port?: number; version?: string | null }>;
+  startDaemon: (io: Io) => Promise<{ pid: number; port?: number; version?: string }>;
 }
 
 /** A short random session id, safe in a URL path. */

@@ -104,14 +104,9 @@ export async function doctor(
   }));
   add("ok", `database ${paths.db} (schema ${facts.schema})`);
 
-  const daemon = await daemonState(paths.home, config.proxy.port);
+  const daemon = await daemonState(paths.home);
   if (daemon.state === "running") {
-    if (daemon.version === null) {
-      add(
-        "warn",
-        `daemon runs (pid ${daemon.pid}) from a build without /admin/health, so its version is unknown: restart it with this build (grenier stop && grenier start)`,
-      );
-    } else if (daemon.version !== version) {
+    if (daemon.version !== version) {
       add("warn", `daemon runs ${daemon.version}, this command is ${version}: grenier stop && grenier start`);
     } else {
       add("ok", `daemon ${daemon.version} running (pid ${daemon.pid}, port ${daemon.port})`);

@@ -11,7 +11,7 @@ import { deviceName, ensureBaseSpaces, ensurePersonalKey, personalKey } from "..
 import { newTeamToken, saveTeam, teamClient, withTomlValue } from "../team.ts";
 
 /** The Wrangler that `grenier team deploy` runs, pinned like every other dependency. */
-export const WRANGLER_VERSION = "4.159.0";
+const WRANGLER_VERSION = "4.159.0";
 
 export type Wrangler = (args: string[], options?: { cwd?: string }) => Promise<string>;
 
@@ -118,13 +118,7 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
     )}\n`,
   );
   io.err("Deploying the team store…");
-  const deployed = await wrangler(["deploy"]).catch((error: Error) => {
-    // Cloudflare's 10064: the Worker already exists with Durable Objects of a class this one lacks, as Grenier 0.1.5's.
-    if (!/\[code: 10064\]/.test(error.message)) throw error;
-    throw new CommandError(
-      `a Worker named ${values.name} already runs in this Cloudflare account with Durable Objects this team store cannot take over. Deploy under another name (grenier team deploy --name <name>), or delete that Worker and its data first: cd ${dir} && npx --yes wrangler@${WRANGLER_VERSION} delete --name ${values.name}`,
-    );
-  });
+  const deployed = await wrangler(["deploy"]);
   const url = /https:\/\/[\w.-]+\.workers\.dev/.exec(deployed)?.[0];
   if (!url) throw new CommandError(`deployed, but Wrangler printed no workers.dev address:\n${deployed}`);
 
