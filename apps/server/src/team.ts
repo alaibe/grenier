@@ -464,6 +464,15 @@ export class TeamStore extends DurableObject<Env> {
        ORDER BY created_at`,
       device.id,
     ).map((row) => this.#record(row));
+    // A request and its routine go only to the machines of someone who reads both their spaces.
+    const spaces = new Map<string, string[]>();
+    const reads = (memberId: string, space: string) => {
+      if (!spaces.has(memberId)) {
+        const member = this.#one("SELECT id, name, role FROM members WHERE id = ?", memberId);
+        spaces.set(memberId, member ? this.#spacesOf(member as unknown as Member) : []);
+      }
+      return spaces.get(memberId)?.includes(space) ?? false;
+    };
     for (const task of tasks) {
       const routine = this.#get(String(task.fields.routine));
       if (!routine || routine.retiredAt !== null) continue;
@@ -478,6 +487,8 @@ export class TeamStore extends DurableObject<Env> {
       if (owner === null || (owner !== undefined && owner !== device.memberId)) continue;
       const can = (machine: Row) => {
         if (owner !== undefined && machine.member_id !== owner) return false;
+        const member = machine.member_id as string;
+        if (!reads(member, task.space) || !reads(member, routine.space)) return false;
         const repos = JSON.parse(machine.repos as string) as string[];
         const agents = JSON.parse(machine.agents as string) as string[];
         const repo = typeof routine.fields.repo === "string" ? routine.fields.repo : "";

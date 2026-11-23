@@ -279,6 +279,20 @@ describe("requests", () => {
     expect((await json<{ offer: unknown }>(await call("/api/work/claim", bob, { method: "POST" }))).offer).toBeNull();
   });
 
+  it("offers a request in a space only to the machines of its members", async () => {
+    const bob = await join("bob");
+    await call("/api/spaces", ADA, { body: { name: "leads", members: ["ada"] } });
+    await routineAndTask(ADA);
+    await push(ADA, { id: "task", space: "space:leads" }, 1);
+    await state(ADA, 0.3);
+    await state(bob, 0.8);
+    expect((await json<{ offer: unknown }>(await call("/api/work/claim", bob, { method: "POST" }))).offer).toBeNull();
+    const offer = await json<{ offer: { task: { id: string } } }>(
+      await call("/api/work/claim", ADA, { method: "POST" }),
+    );
+    expect(offer.offer.task.id).toBe("task");
+  });
+
   it("goes to the next machine when one declines, and to none without its repo", async () => {
     const bob = await join("bob");
     await routineAndTask(ADA);
