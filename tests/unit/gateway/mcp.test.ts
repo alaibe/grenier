@@ -125,6 +125,12 @@ describe("the MCP server", () => {
     expect((await store.records.get(String(filed.id)))?.fields).toMatchObject({ status: "to-do" });
     const unknown = await client.callTool({ name: "request", arguments: { routine: "nothing", title: "x" } });
     expect(unknown.isError).toBe(true);
+    const secret = await client.callTool({
+      name: "request",
+      arguments: { routine: "update dependencies", title: "Bump hono", body: "Use AKIAABCDEFGHIJKLMNOP to publish." },
+    });
+    expect(secret.isError).toBe(true);
+    expect((await store.outbox.list()).some((entry) => JSON.stringify(entry.change).includes("AKIA"))).toBe(false);
   });
 
   it("returns the store's refusals as tool errors, not crashes", async () => {

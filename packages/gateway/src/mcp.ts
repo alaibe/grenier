@@ -1,3 +1,4 @@
+import { builtinType, recordProblem } from "@grenier/core";
 import {
   type AskConsent,
   deliver,
@@ -245,16 +246,21 @@ export function createMcpServer(deps: McpDeps): McpServer {
             `no routine ${input.routine}; there are: ${routines.map((candidate) => candidate.title).join(", ") || "none"}`,
           );
         }
-        const now = Date.now();
-        const id = newId();
-        await write(store, {
-          id,
-          space: routine.space,
+        const task = {
           type: "Task",
-          kind: null,
           title: input.title.trim(),
           body: input.body?.trim() ?? "",
           fields: { status: "to-do", routine: routine.id },
+        };
+        const problem = recordProblem(task, builtinType("Task"));
+        if (problem) throw new StoreUseError(`the request is refused: ${problem}`);
+        const now = Date.now();
+        const id = newId();
+        await write(store, {
+          ...task,
+          id,
+          space: routine.space,
+          kind: null,
           author: store.me.member,
           device: store.me.device,
           sessionId: deps.sessionId ?? null,
