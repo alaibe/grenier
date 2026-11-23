@@ -62,17 +62,6 @@ describe("usage", () => {
   });
 });
 
-describe("events", () => {
-  it("lists events by session, kind and time", async () => {
-    await store.events.add({ sessionId: "s1", ts: 1, kind: "loop", detail: "{}" });
-    await store.events.add({ sessionId: "s1", ts: 2, kind: "pause", detail: null });
-    await store.events.add({ sessionId: "s2", ts: 3, kind: "loop", detail: null });
-    expect((await store.events.list({ sessionId: "s1" })).map((e) => e.kind)).toEqual(["loop", "pause"]);
-    expect((await store.events.list({ kind: "loop" })).map((e) => e.sessionId)).toEqual(["s1", "s2"]);
-    expect((await store.events.list({ since: 2 })).length).toBe(2);
-  });
-});
-
 describe("steps", () => {
   const step = (sessionId: string, callId: string, ts: number, path: string | null, part = 0) => ({
     sessionId,

@@ -47,7 +47,7 @@ export interface SessionStore {
   get(id: string): Promise<Session | undefined>;
   end(id: string, endedAt: number): Promise<void>;
   setPaused(id: string, paused: boolean): Promise<void>;
-  list(filter?: { since?: number }): Promise<Session[]>;
+  list(): Promise<Session[]>;
   /** The sessions the loop guard paused, oldest first. */
   paused(): Promise<Session[]>;
 }
@@ -70,7 +70,7 @@ export interface UsageStore {
 
 export interface EventStore {
   add(event: NewEvent): Promise<void>;
-  list(filter?: { sessionId?: string; kind?: string; since?: number }): Promise<Event[]>;
+  list(filter?: { kind?: string }): Promise<Event[]>;
   /** Removes the events older than `before`; returns how many. */
   prune(before: number): Promise<number>;
 }
@@ -190,7 +190,7 @@ export interface RunStore {
 
 export interface OutcomeStore {
   put(outcome: Outcome): Promise<void>;
-  list(filter?: { since?: number }): Promise<Outcome[]>;
+  list(): Promise<Outcome[]>;
 }
 
 export interface ClientStore {

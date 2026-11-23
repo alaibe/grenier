@@ -132,13 +132,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       setPaused: async (id, paused) => {
         db.update(sessions).set({ paused }).where(eq(sessions.id, id)).run();
       },
-      list: async (filter = {}) =>
-        db
-          .select()
-          .from(sessions)
-          .where(filter.since === undefined ? undefined : gte(sessions.startedAt, filter.since))
-          .orderBy(asc(sessions.startedAt))
-          .all(),
+      list: async () => db.select().from(sessions).orderBy(asc(sessions.startedAt)).all(),
       paused: async () =>
         db.select().from(sessions).where(eq(sessions.paused, true)).orderBy(asc(sessions.startedAt)).all(),
     },
@@ -187,13 +181,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
         db
           .select()
           .from(events)
-          .where(
-            and(
-              filter.sessionId === undefined ? undefined : eq(events.sessionId, filter.sessionId),
-              filter.kind === undefined ? undefined : eq(events.kind, filter.kind),
-              filter.since === undefined ? undefined : gte(events.ts, filter.since),
-            ),
-          )
+          .where(filter.kind === undefined ? undefined : eq(events.kind, filter.kind))
           .orderBy(asc(events.ts), asc(events.id))
           .all(),
       prune: async (before) => db.delete(events).where(lt(events.ts, before)).run().changes,
@@ -460,13 +448,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       put: async (outcome) => {
         db.insert(outcomes).values(outcome).onConflictDoUpdate({ target: outcomes.sessionId, set: outcome }).run();
       },
-      list: async (filter = {}) =>
-        db
-          .select()
-          .from(outcomes)
-          .where(filter.since === undefined ? undefined : gte(outcomes.computedAt, filter.since))
-          .orderBy(asc(outcomes.computedAt))
-          .all(),
+      list: async () => db.select().from(outcomes).orderBy(asc(outcomes.computedAt)).all(),
     },
 
     clients: {
