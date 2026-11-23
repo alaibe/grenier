@@ -128,6 +128,11 @@ async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
       record = await sealRecord(deps.personalKey, record);
       changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
     } else {
+      // Out of `me`, the team store holds only the sealed copy: every part goes again, in the clear.
+      if (changed.includes("space")) {
+        record = { ...record, sealed: null };
+        changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
+      }
       const space = await deps.store.spaces.get(String(record.space));
       if (space?.kind === "repo") record = { ...record, spaceName: space.name };
     }

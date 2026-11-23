@@ -383,6 +383,7 @@ export class TeamStore extends DurableObject<Env> {
         );
       } else return { refused: `there is no space ${next.space} you may write to` };
     }
+    if (next.sealed !== null && !next.space.startsWith("me:")) return { refused: "only a record in me is sealed" };
     if (next.sealed === null) {
       const defined = this.#one(
         "SELECT title, body, fields FROM records WHERE type = 'Type' AND title = ? AND retired_at IS NULL",

@@ -187,6 +187,8 @@ describe("changes", () => {
     expect(refused.refused[0]?.reason).toContain("needs date");
     const secret = await push(ADA, record("k1", { body: "AKIAABCDEFGHIJKLMNOP" }));
     expect(secret.refused[0]?.reason).toContain("looks like a key");
+    const sealed = await push(ADA, record("k2", { title: "AKIAABCDEFGHIJKLMNOP", sealed: "c2VhbGVk" }));
+    expect(sealed.refused[0]?.reason).toContain("only a record in me is sealed");
   });
 
   it("keeps a member's me space to that member, and a custom space to its members", async () => {

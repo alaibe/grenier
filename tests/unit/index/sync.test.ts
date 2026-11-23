@@ -105,6 +105,20 @@ describe("sync between machines", () => {
     expect(text).not.toContain("dentist");
   });
 
+  it("shares a me record moved to the team in the clear", async () => {
+    const adaDeps = await device(laptop, "ada", await meSpace(ada));
+    await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    const kept = await remember(adaDeps, PERSON, null, { kind: "fact", title: "Standup moves to ten", space: "me" });
+    await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
+    await remember(adaDeps, PERSON, null, { id: kept.id, kind: "fact", title: "Standup moves to ten", space: "team" });
+    await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
+
+    const bobDeps = await device(bobStore, "bob", await meSpace(bob));
+    await syncOnce({ store: bobStore, team: bob, embedder: null, personalKey: null });
+    const found = await recall(bobDeps, PERSON, { query: "standup ten", repo: null });
+    expect(found.results[0]).toMatchObject({ space: "team", title: "Standup moves to ten" });
+  });
+
   it("leaves a me record on the machine without the key, and says so", async () => {
     const adaDeps = await device(laptop, "ada", await meSpace(ada));
     await remember(adaDeps, PERSON, null, { kind: "fact", title: "Private", space: "me" });
