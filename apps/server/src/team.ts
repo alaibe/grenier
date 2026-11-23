@@ -982,23 +982,24 @@ export class TeamStore extends DurableObject<Env> {
       const type = c.req.query("type");
       const space = c.req.query("space");
       const words = query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+      // Filtered before the LIMIT, so a type or space with older records still gets them.
+      const where = [
+        `r.space IN (${spaces.map(() => "?").join(", ")})`,
+        "r.retired_at IS NULL AND r.sealed IS NULL",
+        "(? = '' OR r.type = ?) AND (? = '' OR r.space = ?)",
+      ];
+      const bindings = [...spaces, type ?? "", type ?? "", space ?? "", space ?? ""];
       const rows = words.length
         ? this.#sql(
-            `SELECT r.* FROM records_fts f JOIN records r ON r.id = f.id WHERE records_fts MATCH ? ORDER BY bm25(records_fts) LIMIT 200`,
+            `SELECT r.* FROM records_fts f JOIN records r ON r.id = f.id WHERE records_fts MATCH ? AND ${where.join(" AND ")} ORDER BY bm25(records_fts) LIMIT 200`,
             words.map((word) => `"${word}"`).join(" OR "),
+            ...bindings,
           )
-        : this.#sql("SELECT * FROM records WHERE retired_at IS NULL ORDER BY updated_at DESC LIMIT 500");
-      return c.json({
-        records: rows
-          .map((row) => this.#record(row))
-          .filter(
-            (record) =>
-              spaces.includes(record.space) &&
-              record.retiredAt === null &&
-              (!type || record.type === type) &&
-              (!space || record.space === space),
-          ),
-      });
+        : this.#sql(
+            `SELECT r.* FROM records r WHERE ${where.join(" AND ")} ORDER BY r.updated_at DESC LIMIT 500`,
+            ...bindings,
+          );
+      return c.json({ records: rows.map((row) => this.#record(row)) });
     });
 
     // The editor says every few seconds that it has a record open, and hears who else has.

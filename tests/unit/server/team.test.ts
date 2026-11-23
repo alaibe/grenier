@@ -135,6 +135,17 @@ describe("changes", () => {
     ...extra,
   });
 
+  it("lists a member's records by type and words, without sealed ones", async () => {
+    await push(ADA, record("t1", { type: "Task", kind: null, title: "Bump hono", fields: { status: "to-do" } }));
+    await push(ADA, record("r1"));
+    await push(ADA, { id: "m1", space: "me", type: "Sealed", title: "", body: "", sealed: "c2VhbGVk", fields: {} });
+    const list = async (query: string) =>
+      (await json<{ records: { id: string }[] }>(await call(`/api/records${query}`, ADA))).records.map((r) => r.id);
+    expect(await list("?type=Task")).toEqual(["t1"]);
+    expect((await list("")).sort()).toEqual(["r1", "t1"]);
+    expect(await list("?q=friday")).toEqual(["r1"]);
+  });
+
   it("numbers every change, and gives a teammate what changed after their cursor", async () => {
     const bob = await join("bob");
     const first = await push(ADA, record("r1"));
