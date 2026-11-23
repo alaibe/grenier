@@ -14,7 +14,6 @@ export {
   MAX_CODE_LINES,
   MAX_QUESTION,
   MAX_SHARED_TEXT,
-  money,
   redact,
   sha256,
   unshareable,

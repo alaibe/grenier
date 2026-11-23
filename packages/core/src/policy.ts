@@ -46,12 +46,6 @@ export class LoopDetector {
   }
 }
 
-/** Dollars with cents, or with the two digits that matter below ten cents: $1.25, $0.004, $0.0049. */
-export function money(amount: number): string {
-  if (amount === 0 || Math.abs(amount) >= 0.1) return `$${amount.toFixed(2)}`;
-  return `$${Number(amount.toPrecision(2))}`;
-}
-
 export const MAX_SHARED_TEXT = 4000;
 export const MAX_CODE_LINES = 10;
 export const MAX_QUESTION = 2000;
