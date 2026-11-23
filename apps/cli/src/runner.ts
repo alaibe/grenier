@@ -311,7 +311,6 @@ export class Runner {
       task,
       trigger: "request",
       mode: (approval.settings.mode as RoutineMode) ?? "read-only",
-      limit: Number(approval.settings.limit ?? 10),
     });
   }
 
@@ -360,7 +359,6 @@ export class Runner {
     checkout?: string;
     trigger: "request" | "manual" | "eval" | "schedule" | "github";
     mode: RoutineMode;
-    limit?: number;
   }): Promise<RunOutcome> {
     if (this.#current) throw new Error("a run is going on this machine already");
     const { routine, version, task, mode } = input;
@@ -410,7 +408,7 @@ export class Runner {
       routineId: routine.id,
       allowed: new Set(allowedTools(mode, toolsOf(routine))),
       mode,
-      limit: input.limit ?? 10,
+      limit: Number((await store.approvals.get(routine.id, "routine"))?.settings.limit ?? 10),
       usedToday,
       actions: 0,
       cut: null,

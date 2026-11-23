@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Config, defaultConfig } from "@grenier/core";
+import { type Config, defaultConfig, pickVersion } from "@grenier/core";
 import { ensureRepoSpace, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
@@ -221,8 +221,15 @@ describe("a machine that takes the team's routine runs", () => {
       for (let n = 0; n < 3; n++) seen.push(guard?.allows("mcp__linear__update_issue") ?? false);
       return { code: 0, text: JSON.stringify({ result: "Labelled two." }) };
     };
-    await newRunner().tick(true);
+    const runner = newRunner();
+    await runner.tick(true);
     expect(seen).toEqual([true, true, false]);
+
+    seen.length = 0;
+    const record = (await store.records.get(routine.id)) as FullRecord;
+    const version = pickVersion(record) as NonNullable<ReturnType<typeof pickVersion>>;
+    await runner.run({ routine: record, version, trigger: "manual", mode: "limited" });
+    expect(seen).toEqual([false, false, false]);
   });
 
   it("runs the librarian here, which suggests fixes instead of starting an agent", async () => {
