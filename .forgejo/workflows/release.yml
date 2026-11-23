@@ -1,6 +1,6 @@
 # Builds the desktop app for the three systems when a `v*` tag is pushed to git.laibe.cc (nightly.yml pushes it), on
 # Forgejo Actions, and releases it on the public GitHub repository alaibe/grenier, which mirrors this one, as Statim's
-# release does. docs/RELEASE.md is how a release is made.
+# release does.
 #
 # Runners (the homeserver repository has their setup):
 #   mac         forgejo-runner on the Mac, steps on the Mac itself with its Xcode, rustup, Node, pnpm and gh

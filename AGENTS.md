@@ -100,7 +100,7 @@ code.
 - The desktop app bundle: `pnpm build`, `pnpm --filter @grenier/desktop sidecar [--target <triple>]` (downloads Node's
   official build, checked against the SHA-256 pinned in `apps/desktop/scripts/prepare-sidecar.mjs`), then
   `pnpm --filter @grenier/desktop tauri build`. CI builds its web UI and sidecar and tests the shell; releases build
-  it for macOS, Linux and Windows (`docs/RELEASE.md`).
+  it for macOS, Linux and Windows.
 - Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `agents` with real agents,
   `fixtures` for recorded data, `support` for shared helpers.
   Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`). Test what matters,
@@ -110,7 +110,7 @@ code.
   installs Tauri's Linux packages, Rust and the shell tools, builds the desktop UI and sidecar, then runs Format
   (Biome, rustfmt, shfmt), Lint (Biome, Clippy, shellcheck, the audit, the version files), Types, Tests (Vitest, then
   `cargo test`) and E2e. `nightly.yml` runs Types and Tests on the Mac before it tags a release when main has changed,
-  and `release.yml` builds and publishes it on `github.com/alaibe/grenier` (`docs/RELEASE.md`). The nightly's version
+  and `release.yml` builds and publishes it on `github.com/alaibe/grenier`. The nightly's version
   commit (author `nightly@git.laibe.cc`) skips CI's job, as in Kestrel and Statim. Each home-linux job that builds
   keeps cargo's registry, its Rust builds and the pnpm store in the runner's `/cache` (its Caches step; homeserver's
   AGENTS.md › ci-cache), and the release's Linux and Windows builds run side by side. A job that runs apt points it at

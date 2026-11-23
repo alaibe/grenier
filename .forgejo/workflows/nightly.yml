@@ -1,7 +1,7 @@
 # Releases Grenier every night when main has commits since the last release, as Kestrel's nightly does.
 #
 # On the home runner, `due` counts the commits since the last `v*` tag that change what ships (not only the workflows,
-# docs/, tests/, bench/ or the top-level notes); with none, the run ends there, and with no tag yet the first release is
+# tests/, bench/ or Markdown); with none, the run ends there, and with no tag yet the first release is
 # due. Otherwise the Mac runs Types and Tests (Vitest, then the desktop shell's `cargo test`), moves a version that's
 # already tagged to its next patch in every version file (scripts/version.ts) and commits it, then tags `v<version>` and
 # pushes both over SSH, as Anthony. A tag pushed with the job's own token starts no workflow; this one starts
@@ -51,7 +51,7 @@ jobs:
             exit 0
           fi
           COUNT=$(git rev-list --count "$LAST..HEAD")
-          APP=$(git rev-list --count "$LAST..HEAD" -- . ':(exclude).forgejo' ':(exclude)docs' ':(exclude)tests' \
+          APP=$(git rev-list --count "$LAST..HEAD" -- . ':(exclude).forgejo' ':(exclude)tests' \
             ':(exclude)bench' ':(exclude,glob)*.md')
           echo "$COUNT commits since $LAST, $APP of them changing what ships"
           if [ "$APP" -gt 0 ]; then echo "due=true" >> "$GITHUB_OUTPUT"; else echo "due=false" >> "$GITHUB_OUTPUT"; fi

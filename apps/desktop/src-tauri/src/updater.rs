@@ -1,6 +1,6 @@
 //! Updates, on the Mac, Windows and Linux alike: Tauri's updater reads the `latest.json` at `plugins.updater.endpoints`
 //! (tauri.conf.json), the one each release on alaibe/grenier carries, and installs only an update signed for the
-//! version it announces with the key whose public half is `plugins.updater.pubkey` (docs/RELEASE.md). A release build
+//! version it announces with the key whose public half is `plugins.updater.pubkey`. A release build
 //! checks a minute after launch, then once a day, and asks before installing; the menu bar's Check for Updates checks
 //! at once.
 
