@@ -3,7 +3,7 @@ name: Nightly release
 on:
   schedule:
     # Forgejo reads a bare cron as UTC.
-    - cron: 'TZ=Europe/Paris 30 5 * * *'
+    - cron: "TZ=Europe/Paris 30 5 * * *"
   workflow_dispatch:
 
 # One run at a time, never cancelled: a cancelled one could stop between its version commit and its tag.
