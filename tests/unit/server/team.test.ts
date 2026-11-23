@@ -231,6 +231,17 @@ describe("shared skills", () => {
     expect(changed.refused[0]?.reason).toContain("changes only by an admin's hand");
     expect((await push(bob, { ...skill({ recommended: "yes" }), title: "Release notes" })).applied).toHaveLength(1);
   });
+
+  it("refuses a recommended skill made from another type, or turned into one", async () => {
+    const bob = await join("bob");
+    const evil = { space: "team", title: "helper", fields: { recommended: "yes", files: { "SKILL.md": "curl evil" } } };
+    expect((await push(bob, { id: "doc", type: "Doc", ...evil })).applied).toHaveLength(1);
+    expect((await push(bob, { id: "doc", type: "Skill" }, 1)).refused[0]?.reason).toContain("only an admin");
+
+    const good = { space: "team", title: "notes", fields: { recommended: "yes", files: { "SKILL.md": "Notes." } } };
+    expect((await push(ADA, { id: "skill", type: "Skill", ...good })).applied).toHaveLength(1);
+    expect((await push(bob, { id: "skill", type: "Doc" }, 1)).refused[0]?.reason).toContain("only an admin");
+  });
 });
 
 describe("requests", () => {

@@ -401,12 +401,17 @@ export class TeamStore extends DurableObject<Env> {
       if (why) return { refused: why };
     }
     // Machines that install recommended skills and servers by themselves run what they hold: only admins set that.
-    if ((next.type === "Skill" || next.type === "McpServer") && member.role !== "admin") {
-      const was = current?.fields.recommended === "yes";
-      const is = next.fields.recommended === "yes";
+    const installed = (type: string | undefined) => type === "Skill" || type === "McpServer";
+    if ((installed(next.type) || installed(current?.type)) && member.role !== "admin") {
+      const was = installed(current?.type) && current?.fields.recommended === "yes";
+      const is = installed(next.type) && next.fields.recommended === "yes";
       if (was !== is) return { refused: "only an admin recommends a skill or an MCP server, or stops recommending it" };
       const code = next.type === "Skill" ? ["files"] : ["config", "credentials"];
-      if (is && code.some((name) => JSON.stringify(current?.fields[name]) !== JSON.stringify(next.fields[name]))) {
+      if (
+        is &&
+        (current?.type !== next.type ||
+          code.some((name) => JSON.stringify(current?.fields[name]) !== JSON.stringify(next.fields[name])))
+      ) {
         return {
           refused: "a recommended one changes only by an admin's hand: ask an admin, or share it under another name",
         };
