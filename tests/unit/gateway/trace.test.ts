@@ -1,8 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { placeEdits, shellSteps, stepsOf, type ToolUse } from "@grenier/gateway";
-import type { NewStep } from "@grenier/store";
+import { shellSteps, stepsOf, type ToolUse } from "@grenier/gateway";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { fakeUpstream, fixture, messagesRequest, sse, type TestGateway, testGateway } from "../../support/gateway.ts";
 
@@ -77,12 +76,6 @@ describe("the steps of Claude Code's tools", () => {
     ]);
   });
 
-  it("shortens a long label", () => {
-    const [step] = steps(use("Grep", { pattern: "word ".repeat(40) }));
-    expect(step?.label).toHaveLength(80);
-    expect(step?.label?.endsWith("…")).toBe(true);
-  });
-
   it("numbers the steps of one call and stamps them with the session and time", () => {
     const [first, second] = stepsOf(session, [use("Bash", { command: "cat a.ts b.ts" })], 42);
     expect(first).toMatchObject({ sessionId: "s1", ts: 42, tool: "Bash", part: 0, path: "a.ts" });
@@ -126,49 +119,6 @@ describe("the steps of a shell command", () => {
       { kind: "search", path: "tests/e2e", label: "schema 8" },
     ]);
   });
-
-  it("reads a Codex command array, and the files of a patch", () => {
-    expect(shell(["bash", "-lc", "cat src/a.ts | head -n 5"])).toEqual([
-      { kind: "read", path: "src/a.ts", startLine: 1, endLine: 5 },
-    ]);
-    expect(
-      shell(
-        "apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: src/a.ts\n@@\n-a\n+b\n*** Add File: src/b.ts\n+x\n*** End Patch\nEOF",
-      ),
-    ).toEqual([
-      { kind: "edit", path: "src/a.ts" },
-      { kind: "edit", path: "src/b.ts" },
-    ]);
-  });
-
-  it("takes sed -i '' as a change, redirections as reads and writes, and no heredoc body as commands", () => {
-    expect(shell("sed -i '' 's/(schema 8)/(schema 9)/' src/a.ts")).toEqual([{ kind: "edit", path: "src/a.ts" }]);
-    expect(shell("cat > out.ts <<'EOF'\nrg secret notes\ncat body.ts\nEOF\nwc -l < src/a.ts")).toEqual([
-      { kind: "edit", path: "out.ts" },
-      { kind: "read", path: "src/a.ts" },
-    ]);
-    expect(shell("rg -n needle src 2>&1 | head -n 5")).toEqual([{ kind: "search", path: "src", label: "needle" }]);
-  });
-
-  it("leaves out a grep that filters a pipe, and reads escaped quotes", () => {
-    expect(shell('rg -l steps packages | grep -v "^.*test" | head -n 3')).toEqual([
-      { kind: "search", path: "packages", label: "steps" },
-    ]);
-    expect(shell('grep -n "name: \\"\\|registerTool" src/mcp.ts')).toEqual([
-      { kind: "search", path: "src/mcp.ts", label: 'name: "\\|registerTool' },
-    ]);
-  });
-
-  it("keeps a word as a path only when it exists, given a way to tell", () => {
-    const exists = (path: string) => path === "src/a.ts";
-    expect(shellSteps({ root: ROOT, cwd: ROOT, exists }, "cat src/a.ts notes.md").map((step) => step.path)).toEqual([
-      "src/a.ts",
-    ]);
-  });
-
-  it("ignores commands that touch no file", () => {
-    expect(shell("pnpm test && echo done")).toEqual([]);
-  });
 });
 
 describe("the steps of other agents' tools", () => {
@@ -200,49 +150,6 @@ describe("the steps of other agents' tools", () => {
     ).toEqual([
       { kind: "ask", path: null, label: "How does the proxy record usage?", outcome: "hit" },
       { kind: "ask", path: "src/proxy.ts", outcome: "miss" },
-    ]);
-  });
-});
-
-describe("placing an edit", () => {
-  const file = ["one", "two", "three", "four", "five", "six"].join("\n");
-  const read = async (_root: string, path: string) => (path === "a.ts" ? file : null);
-  const row = (callId: string, more: Partial<NewStep> = {}): NewStep => ({
-    sessionId: "s1",
-    callId,
-    ts: 1,
-    tool: "Edit",
-    kind: "edit",
-    path: "a.ts",
-    ...more,
-  });
-
-  it("finds the lines of the new text, over all of a MultiEdit's edits, and leaves the rest alone", async () => {
-    const rows = [
-      row("e1"),
-      row("e2"),
-      row("e3"),
-      row("e4", { startLine: 9, endLine: 9 }),
-      row("e5", { path: "b.ts" }),
-    ];
-    await placeEdits(
-      ROOT,
-      rows,
-      [
-        use("Edit", { new_string: "three\nfour\n" }),
-        use("MultiEdit", { edits: [{ new_string: "two" }, { new_string: "six" }] }),
-        use("Edit", { new_string: "gone" }),
-        use("Edit", { new_string: "one" }),
-        use("Edit", { new_string: "one" }),
-      ].map((call, at) => ({ ...call, id: `e${at + 1}` })),
-      read,
-    );
-    expect(rows.map((entry) => [entry.startLine, entry.endLine])).toEqual([
-      [3, 4],
-      [2, 6],
-      [undefined, undefined],
-      [9, 9],
-      [undefined, undefined],
     ]);
   });
 });

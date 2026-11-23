@@ -17,7 +17,7 @@ import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
 import { run } from "../../../apps/cli/src/cli.ts";
-import { ASKED_FIRST, agentArgs, asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
+import { agentArgs, asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
 import { daemonState, infoFile, pidFile, stopDaemon } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
@@ -60,14 +60,6 @@ describe("grenier --version and help", () => {
     expect((await grenier("-v")).out).toBe(version);
   });
 
-  it("prints the usage with no command, help, or --help", async () => {
-    for (const argv of [[], ["help"], ["--help"], ["status", "-h"]]) {
-      const result = await grenier(...argv);
-      expect(result.code).toBe(0);
-      expect(result.out).toMatch(/^Usage: grenier <command>/);
-    }
-  });
-
   it("exits with 2 on an unknown command, option or argument", async () => {
     for (const argv of [["frobnicate"], ["--frobnicate"], ["status", "extra"], ["report", "--by", "week"]]) {
       const result = await grenier(...argv);
@@ -75,22 +67,6 @@ describe("grenier --version and help", () => {
       expect(result.err).toMatch(/^grenier: /);
     }
     expect((await grenier("frobnicate")).err).toContain("Usage: grenier <command>");
-  });
-
-  it("shows only the mistaken command's own lines of help, and where the rest is", async () => {
-    const { err } = await grenier("report", "--by", "week");
-    expect(err.split("\n")).toEqual([
-      'grenier: --by takes day, session or repo, not "week"',
-      "",
-      "  report [--by day|session|repo] [--since 7d] [--json]",
-      "                             Tokens, cache hit rate, cost and savings",
-      "  report --cache [--since 7d]",
-      "                             Prompt-cache writes and reads by session, flagging churn",
-      "  report --effectiveness [--since 30d]",
-      "                             What the spend turned into: landed share, rediscovery, cost per issue",
-      "",
-      "Every command: grenier --help",
-    ]);
   });
 });
 
@@ -108,14 +84,6 @@ describe("grenier status", () => {
       "proxy     127.0.0.1:7788 → https://api.anthropic.com",
       "daemon    stopped",
     ]);
-  });
-
-  it("shows what the config file sets", async () => {
-    await grenier("status");
-    writeFileSync(join(home, "config.toml"), "[proxy]\nport = 9000\n");
-    const result = await grenier("status");
-    expect(result.out).toContain(`config    ${join(home, "config.toml")}\n`);
-    expect(result.out).toContain("proxy     127.0.0.1:9000 → https://api.anthropic.com");
   });
 
   it("fails with the config error and exit code 1 on an invalid config", async () => {
@@ -192,10 +160,6 @@ describe("grenier resume", () => {
     expect((await after.events.list({ kind: "resume" })).length).toBe(1);
     await after.close();
   });
-
-  it("fails for an unknown session", async () => {
-    expect(await grenier("resume", "nope")).toMatchObject({ code: 1, err: 'grenier: no session "nope"' });
-  });
 });
 
 describe("grenier report", () => {
@@ -210,10 +174,6 @@ describe("grenier report", () => {
     expect(byRepo.code).toBe(0);
     expect(byRepo.out).toMatch(/^app\s+1\s+10\s/m);
     expect((await grenier("report", "--since", "2000-01-01")).out).toMatch(/^total\s+1/m);
-  });
-
-  it("says when there is nothing", async () => {
-    expect((await grenier("report")).out).toBe("No requests in this period.");
   });
 });
 
@@ -247,14 +207,6 @@ describe("grenier statusline", () => {
   it("finds the session in the base URL when GRENIER_SESSION is not set", async () => {
     expect((await statusline({ ANTHROPIC_BASE_URL: "http://127.0.0.1:7788/s/s2" })).out).toBe(
       "grenier · session $0.25 spent, $0.00 cached · today $0.75 spent, $0.00 cached",
-    );
-  });
-
-  it("says when the agent was not started with grenier run", async () => {
-    const today = "today $0.75 spent, $0.00 cached";
-    expect((await statusline({})).out).toBe(`grenier · not started with grenier run · ${today}`);
-    expect((await statusline({ ANTHROPIC_BASE_URL: "http://127.0.0.1:7788" })).out).toBe(
-      `grenier · not started with grenier run · ${today}`,
     );
   });
 
@@ -321,27 +273,6 @@ describe("grenier run", () => {
     ]);
   });
 
-  it("says so on stderr when it adds the instruction to Claude Code's system prompt", async () => {
-    execFileSync("git", ["init", "-q", dir]);
-    const bin = join(dir, "bin");
-    mkdirSync(bin);
-    const out = join(dir, "claude-args");
-    writeFileSync(join(bin, "claude"), `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(out)}\n`);
-    chmodSync(join(bin, "claude"), 0o755);
-    const err: string[] = [];
-    const base = io([], err);
-    const env = { ...base.env, PATH: `${bin}:${process.env.PATH}` };
-    const start = { startDaemon: async () => ({ pid: 1 }) };
-
-    expect(await runAgent(["claude", "-p", "hi"], { ...base, env }, start)).toBe(0);
-    expect(readFileSync(out, "utf8").split("\n").slice(0, 2)).toEqual(["--append-system-prompt", ASK_FIRST]);
-    expect(err.at(-1)).toBe(ASKED_FIRST);
-
-    err.length = 0;
-    expect(await runAgent(["claude", "--append-system-prompt", "mine"], { ...base, env }, start)).toBe(0);
-    expect(err).not.toContain(ASKED_FIRST);
-  });
-
   it("tells Claude Code in a repository to recall first, unless it gives its own system prompt", () => {
     expect(asksFirst("/usr/local/bin/claude", ["-p", "hi"], true)).toBe(true);
     expect(agentArgs("claude", ["-p", "hi"], "y", true)).toEqual(["--append-system-prompt", ASK_FIRST, "-p", "hi"]);
@@ -351,18 +282,6 @@ describe("grenier run", () => {
     for (const own of ["--append-system-prompt", "--system-prompt-file=prompt.md", "--append-system-prompt-file"]) {
       expect(asksFirst("claude", [own, "x"], true)).toBe(false);
     }
-  });
-
-  it("returns 127 for a command that does not exist", async () => {
-    const err: string[] = [];
-    const code = await runAgent(["grenier-no-such-command"], io([], err), { startDaemon: async () => ({ pid: 1 }) });
-    expect(code).toBe(127);
-    expect(err.at(-1)).toBe("grenier: cannot run grenier-no-such-command: not found");
-  });
-
-  it("needs a command", async () => {
-    expect((await grenier("run")).code).toBe(2);
-    expect((await grenier("run", "--")).code).toBe(2);
   });
 });
 

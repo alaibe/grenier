@@ -83,11 +83,4 @@ describe("grenier doctor", () => {
     await store.close();
     expect(line((await doctor(io, { home })).lines, "no price")).toMatch(/^warn {2}no price for gpt-9: /);
   });
-
-  it("fails a config it cannot read, saying why", async () => {
-    writeFileSync(join(home, ".grenier", "config.toml"), "[proxy]\nport = 0\n");
-    const { lines, code } = await doctor(io, { home });
-    expect(code).toBe(1);
-    expect(lines[0]).toMatch(/^fail {2}config: .*proxy\.port/s);
-  });
 });

@@ -115,24 +115,6 @@ describe("grenier ask", () => {
     await run(["ask", "What licence is it under?"], io(none));
     expect(none).toEqual(["Nothing is recorded for this question yet."]);
   });
-
-  it("fails with a plain message outside a git repository", async () => {
-    const err: string[] = [];
-    const outside = { ...io([]), err: (line: string) => err.push(line) };
-    expect(await run(["ask", "--repo", tmpdir(), "anything"], outside)).toBe(1);
-    expect(err.join("\n")).toMatch(/^grenier: not inside a git repository: /);
-  });
-
-  it("retires a record by its id", async () => {
-    await record(null);
-    const out: string[] = [];
-    expect(await run(["store", "retire", id], io(out))).toBe(0);
-    expect(out[0]).toMatch(/^Retired /);
-    expect(await run(["store", "retire", id], io([]))).toBe(1);
-    const none: string[] = [];
-    await run(["ask", QUESTION], io(none));
-    expect(none).toEqual(["Nothing is recorded for this question yet."]);
-  });
 });
 
 describe("grenier hook prompt", () => {

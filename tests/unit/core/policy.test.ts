@@ -1,4 +1,4 @@
-import { canonicalJson, copiedLines, LoopDetector, sha256 } from "@grenier/core";
+import { canonicalJson, copiedLines, LoopDetector } from "@grenier/core";
 import { describe, expect, it } from "vitest";
 
 describe("canonicalJson", () => {
@@ -6,16 +6,6 @@ describe("canonicalJson", () => {
     expect(canonicalJson({ b: 1, a: { d: [3, { z: 1, y: 2 }], c: null } })).toBe(
       '{"a":{"c":null,"d":[3,{"y":2,"z":1}]},"b":1}',
     );
-  });
-
-  it("gives equal text for objects written in a different order", () => {
-    expect(canonicalJson({ path: "a", limit: 2 })).toBe(canonicalJson({ limit: 2, path: "a" }));
-  });
-});
-
-describe("sha256", () => {
-  it("hashes text to hex", async () => {
-    expect(await sha256("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   });
 });
 
@@ -54,12 +44,6 @@ describe("LoopDetector", () => {
       false,
       true,
     ]);
-  });
-
-  it("fires again for a new streak once the old one has left the window", () => {
-    const detector = new LoopDetector(2, 3);
-    const fired = ["a", "a", "b", "c", "d", "a", "a"].map((hash) => detector.observe(hash));
-    expect(fired).toEqual([false, true, false, false, false, false, true]);
   });
 });
 

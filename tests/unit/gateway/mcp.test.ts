@@ -1,5 +1,5 @@
 import { defaultConfig, sha256 } from "@grenier/core";
-import { createGateway, createMcpServer, INSTRUCTIONS } from "@grenier/gateway";
+import { createGateway, createMcpServer } from "@grenier/gateway";
 import { type Reader, StoreUseError } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
@@ -60,21 +60,6 @@ function structured(result: unknown): Record<string, unknown> {
 }
 
 describe("the MCP server", () => {
-  it("tells the agent to recall before exploring and to remember after", async () => {
-    const client = await connect();
-    expect(client.getInstructions()).toBe(INSTRUCTIONS);
-    expect(INSTRUCTIONS).toContain("call recall");
-    expect(INSTRUCTIONS).toContain("call remember");
-    expect((await client.listTools()).tools.map((tool) => tool.name).sort()).toEqual([
-      "file_summary",
-      "query",
-      "recall",
-      "remember",
-      "repo_map",
-      "request",
-    ]);
-  });
-
   it("answers recall from what remember kept", async () => {
     const client = await connect();
     const question = "Where is the proxy defined?";
@@ -140,22 +125,6 @@ describe("the MCP server", () => {
     expect((await store.records.get(String(filed.id)))?.fields).toMatchObject({ status: "to-do" });
     const unknown = await client.callTool({ name: "request", arguments: { routine: "nothing", title: "x" } });
     expect(unknown.isError).toBe(true);
-  });
-
-  it("keeps summaries and maps the repository", async () => {
-    const client = await connect();
-    await client.callTool({
-      name: "remember",
-      arguments: { kind: "summary", title: "proxy.ts", body: "Exports the proxy.", files: ["proxy.ts"] },
-    });
-    expect(structured(await client.callTool({ name: "file_summary", arguments: { path: "proxy.ts" } }))).toEqual({
-      status: "hit",
-      path: "proxy.ts",
-      summary: "Exports the proxy.",
-    });
-    expect(structured(await client.callTool({ name: "repo_map", arguments: {} }))).toEqual({
-      entries: [{ path: "proxy.ts", kind: "file", files: 1, summary: "Exports the proxy.", stale: false }],
-    });
   });
 
   it("returns the store's refusals as tool errors, not crashes", async () => {

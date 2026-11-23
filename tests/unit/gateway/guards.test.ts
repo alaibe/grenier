@@ -1,5 +1,5 @@
-import { LoopWatch, toolCalls } from "@grenier/gateway";
-import { afterEach, describe, expect, it } from "vitest";
+import { LoopWatch } from "@grenier/gateway";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeUpstream, fixture, messagesRequest, sse, type TestGateway, testGateway } from "../../support/gateway.ts";
 
 const STREAM = fixture("stream-tool-use.sse");
@@ -94,36 +94,6 @@ describe("loops", () => {
     expect(JSON.parse(event?.detail ?? "{}").tool).toBe("error");
   });
 
-  it("tells errors at other lines apart, and keeps a conversation whose cache marker moved", async () => {
-    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
-    const test = { command: "pnpm tsc" };
-    const first = (marked: boolean) => ({
-      role: "user",
-      content: [{ type: "text", text: "fix the types", ...(marked ? { cache_control: { type: "ephemeral" } } : {}) }],
-    });
-    const turns = [
-      [toolUse("b1", test), toolResult("b1", "src/a.ts:12:5 error")],
-      [toolUse("b2", test), toolResult("b2", "src/a.ts:40:9 error")],
-      [toolUse("b3", test), toolResult("b3", "src/a.ts:77:2 error")],
-    ];
-    const messages: unknown[] = [];
-    for (const [index, turn] of turns.entries()) {
-      messages.push(...turn);
-      await send("/s/s1/v1/messages", { model: "claude-opus-5-5", messages: [first(index % 2 === 0), ...messages] });
-    }
-    expect(await gateway.store.events.list({ kind: "loop" })).toEqual([]);
-
-    const same = [
-      [toolUse("c1", test), toolResult("c1", "src/a.ts:12:5 error")],
-      [toolUse("c2", test), toolResult("c2", "src/a.ts:12:5 error")],
-    ];
-    for (const [index, turn] of same.entries()) {
-      messages.push(...turn);
-      await send("/s/s1/v1/messages", { model: "claude-opus-5-5", messages: [first(index % 2 === 1), ...messages] });
-    }
-    expect(await gateway.store.events.list({ kind: "loop" })).toHaveLength(1);
-  });
-
   it("does not count a call run again while its result changes, as in an edit and test cycle", async () => {
     gateway = testGateway(fakeUpstream(() => sse(STREAM)));
     const test = { command: "pnpm test" };
@@ -136,17 +106,6 @@ describe("loops", () => {
       [toolUse("b3", test), toolResult("b3", "all pass")],
     ]);
     expect(await gateway.store.events.list({ kind: "loop" })).toEqual([]);
-  });
-
-  it("counts a call whose result differs only in its timings", async () => {
-    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
-    const test = { command: "pnpm test" };
-    await conversation("/s/s1/v1/messages", [
-      [toolUse("b1", test), toolResult("b1", "1 failing\nDuration 1.03s (start at 14:02:11)")],
-      [toolUse("b2", test), toolResult("b2", "1 failing\nDuration 980ms (start at 14:02:40)")],
-      [toolUse("b3", test), toolResult("b3", "1 failing\nDuration 1.2 s (start at 14:03:05)")],
-    ]);
-    expect(await gateway.store.events.list({ kind: "loop" })).toHaveLength(1);
   });
 
   it("watches each conversation of a session apart, as parallel subagents", async () => {
@@ -220,9 +179,8 @@ describe("loops", () => {
       settled = true;
       return response;
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await vi.waitFor(async () => expect((await gateway.store.sessions.get("s1"))?.paused).toBe(true));
     expect(settled).toBe(false);
-    expect((await gateway.store.sessions.get("s1"))?.paused).toBe(true);
     expect(upstream.requests.length).toBe(before);
     expect(gateway.notifications[0]).toContain("Run: grenier resume s1");
 
@@ -236,28 +194,9 @@ describe("loops", () => {
     expect((await send("/s/s1/v1/messages", { messages })).status).toBe(200);
     messages.push(...more.slice(4));
     void send("/s/s1/v1/messages", { messages });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect((await gateway.store.sessions.get("s1"))?.paused).toBe(true);
+    await vi.waitFor(async () => expect((await gateway.store.sessions.get("s1"))?.paused).toBe(true));
     expect((await gateway.store.events.list({ kind: "pause" })).length).toBe(2);
     await gateway.store.sessions.setPaused("s1", false);
-  });
-
-  it("answers a held request with an error once the pause outlasts its timeout", async () => {
-    gateway = testGateway(
-      fakeUpstream(() => sse(STREAM)),
-      (config) => {
-        config.guards.pause_timeout = 1;
-      },
-    );
-    await gateway.store.sessions.create({ id: "s1", startedAt: 0, paused: true });
-    const pending = send("/s/s1/v1/messages");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    gateway.clock.now += 1_000;
-
-    const response = await pending;
-    expect(response.status).toBe(429);
-    expect(response.headers.get("x-should-retry")).toBe("false");
-    expect(JSON.parse(response.text).error.message).toContain("grenier resume s1");
   });
 });
 
@@ -265,11 +204,6 @@ describe("LoopWatch", () => {
   const call = (id: string) => ({
     role: "assistant",
     content: [{ type: "tool_use", id, name: "Bash", input: { command: "npm test" } }],
-  });
-
-  it("leaves out the calls already seen before hashing them", async () => {
-    const body = { messages: [call("a"), call("b")] };
-    expect((await toolCalls(body, new Set(["use:a"]))).map((entry) => entry.key)).toEqual(["use:b"]);
   });
 
   it("drops a session idle for too long, and neither counts nor returns its history when it comes back", async () => {

@@ -101,7 +101,9 @@ code.
   it for macOS, Linux and Windows (`docs/RELEASE.md`).
 - Tests are in `tests/`: `unit/<package>` per workspace, `e2e` against the built CLI, `agents` with real agents,
   `fixtures` for recorded data, `support` for shared helpers.
-  Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`).
+  Unit tests import a package through its public entry (`@grenier/core`, `@grenier/store/sqlite`). Test what matters,
+  as unit tests: the core logic, data handling, security, money and the usage statistics. `e2e` is a few smoke tests
+  of the built CLI, for what a unit test cannot reach.
 - CI is `.forgejo/workflows/ci.yml`, on git.laibe.cc: one `check` job on every push, as in Kestrel and Statim. It
   installs Tauri's Linux packages, Rust and the shell tools, builds the desktop UI and sidecar, then runs Format
   (Biome, rustfmt, shfmt), Lint (Biome, Clippy, shellcheck, the audit, the version files), Types, Tests (Vitest, then
@@ -133,7 +135,7 @@ code.
   imported as text (esbuild's text loader, a Vitest plugin, `types/text.d.ts`), so they work inside the bundled CLI.
 - The embedding model is downloaded on first use and checked against the SHA-256 pinned in
   `packages/index/src/node.ts`; a new model or revision is a new pin, and its vectors never mix with the old ones'
-  (they are stored with the model's name). `tests/e2e/embeddings.test.ts` keeps its copy in `node_modules/.cache`.
+  (they are stored with the model's name).
 - The team store applies a change field by field, in the order it receives them, and numbers each one; the editor's
   save sends `check`, so a field someone changed since `baseVersion` comes back as a conflict for the person to settle.
   The store names the sender as a record's author and stamps its time.

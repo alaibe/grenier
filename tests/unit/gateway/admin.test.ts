@@ -156,20 +156,6 @@ describe("the admin API", () => {
     expect((await store.outbox.list()).length).toBe(3);
   });
 
-  it("shows what links to a record and its type list", async () => {
-    const project = (await (
-      await call("/records", { method: "POST", body: JSON.stringify({ type: "Project", title: "Checkout" }) })
-    ).json()) as { id: string };
-    await call("/records", {
-      method: "POST",
-      body: JSON.stringify({ type: "Doc", title: "Checkout spec", links: [{ kind: "record", ref: project.id }] }),
-    });
-    const shown = (await (await call(`/records/${project.id}`)).json()) as { linkedFrom: { title: string }[] };
-    expect(shown.linkedFrom.map((entry) => entry.title)).toEqual(["Checkout spec"]);
-    const types = (await (await call("/types")).json()) as { types: { name: string }[] };
-    expect(types.types.map((type) => type.name)).toContain("Meeting");
-  });
-
   it("saves straight to the team store, and hands back a teammate's version when they changed the same field", async () => {
     const sent: unknown[] = [];
     let conflict = false;

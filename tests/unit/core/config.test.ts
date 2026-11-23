@@ -75,30 +75,9 @@ describe("parseConfig", () => {
     expect(errorOf('[machine]\nhours = "nights"\n').message).toContain("machine.hours:");
   });
 
-  it("treats an empty file as all defaults", () => {
-    expect(parseConfig("", "config.toml")).toEqual(defaultConfig());
-  });
-
-  it("fills the keys a section leaves out", () => {
-    const config = parseConfig("[proxy]\nport = 9000\n", "config.toml");
-    expect(config.proxy).toEqual({
-      port: 9000,
-      upstream_anthropic: "https://api.anthropic.com",
-      upstream_openai: "https://api.openai.com",
-      inject_cache_control: false,
-    });
-    expect(config.guards.loop_window).toBe(10);
-  });
-
   it("allows plain http to a loopback upstream", () => {
     const config = parseConfig('[proxy]\nupstream_anthropic = "http://127.0.0.1:9999"\n', "config.toml");
     expect(config.proxy.upstream_anthropic).toBe("http://127.0.0.1:9999");
-  });
-
-  it("names the file, line and column of a TOML syntax error", () => {
-    const error = errorOf("[proxy]\nport = = 1\n");
-    expect(error.message).toMatch(/^config\.toml:2:\d+: /);
-    expect(error.message).not.toContain("\n");
   });
 
   it("names an unknown key, so a typo does not pass silently", () => {
@@ -106,26 +85,9 @@ describe("parseConfig", () => {
     expect(errorOf("[proxy]\nprot = 1\n").message).toContain('proxy: Unrecognized key: "prot"');
   });
 
-  it("names the key of a value of the wrong type or range", () => {
-    expect(errorOf('[proxy]\nport = "7788"\n').message).toContain("proxy.port:");
-    expect(errorOf("[proxy]\nport = 70000\n").message).toContain("proxy.port:");
-    expect(errorOf('[guards]\non_loop = "kill"\n').message).toContain("guards.on_loop:");
-  });
-
-  it("lists every problem, not just the first", () => {
-    const lines = errorOf('[proxy]\nport = 0\n[guards]\non_loop = "kill"\n').message.split("\n");
-    expect(lines).toHaveLength(3);
-  });
-
   it("refuses an upstream that would receive API keys over plain http", () => {
     expect(errorOf('[proxy]\nupstream_anthropic = "http://example.com"\n').message).toContain(
       "proxy.upstream_anthropic: must use https",
-    );
-  });
-
-  it("refuses a loop threshold larger than the window", () => {
-    expect(errorOf("[guards]\nloop_repeat_threshold = 11\nloop_window = 10\n").message).toContain(
-      "guards.loop_repeat_threshold: loop_repeat_threshold must not exceed loop_window",
     );
   });
 

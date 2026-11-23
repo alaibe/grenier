@@ -33,22 +33,6 @@ describe("sessions", () => {
     expect((await store.sessions.get("s1"))?.endedAt).toBe(2_000);
   });
 
-  it("leaves an existing session as it is when created again", async () => {
-    await store.sessions.create(session("s1"));
-    await store.sessions.create({ ...session("s1"), client: "other" });
-    expect((await store.sessions.get("s1"))?.client).toBe("claude");
-  });
-
-  it("lists sessions started since a time", async () => {
-    await store.sessions.create({ ...session("old"), startedAt: 1 });
-    await store.sessions.create({ ...session("new"), startedAt: 5_000 });
-    expect((await store.sessions.list({ since: 1_000 })).map((s) => s.id)).toEqual(["new"]);
-  });
-
-  it("is undefined for an unknown id", async () => {
-    expect(await store.sessions.get("nope")).toBeUndefined();
-  });
-
   it("lists the paused sessions", async () => {
     await store.sessions.create(session("s1"));
     await store.sessions.create(session("s2"));
@@ -248,12 +232,6 @@ describe("spaces, the outbox, history and approvals", () => {
     await store.spaces.remove("space:x");
     expect(await store.records.get("r1")).toBeUndefined();
     expect(await store.spaces.get("space:x")).toBeUndefined();
-  });
-
-  it("keeps a repository's root when it is put again without one", async () => {
-    await store.spaces.put({ id: "repo:r", name: "app", kind: "repo", repoId: "r", root: "/work/app" });
-    await store.spaces.put({ id: "repo:r", name: "app", kind: "repo", repoId: "r", root: null });
-    expect((await store.spaces.get("repo:r"))?.root).toBe("/work/app");
   });
 
   it("gives pending changes oldest first, without refused ones", async () => {

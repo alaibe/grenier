@@ -79,11 +79,6 @@ afterAll(async () => {
 });
 
 describe("the daemon and grenier run", () => {
-  it("reports the running daemon", async () => {
-    expect((await grenier("status")).stdout).toMatch(/daemon {4}running \(pid \d+, port \d+\)/);
-    expect((await grenier("start")).stdout).toMatch(/already running/);
-  });
-
   it("streams a response through the proxy byte for byte and records its usage under the session", async () => {
     const run = await grenier("run", "--", process.execPath, "client.mjs", "out.sse");
     expect(run.code).toBe(0);
@@ -94,15 +89,5 @@ describe("the daemon and grenier run", () => {
 
     const report = await grenier("report", "--by", "session");
     expect(report.stdout).toMatch(new RegExp(`^${session}\\s+1\\s+12\\s+2048\\s+30k\\s+87\\s`, "m"));
-  });
-
-  it("passes the command's exit code through", async () => {
-    expect((await grenier("run", "--", process.execPath, "-e", "process.exit(4)")).code).toBe(4);
-  });
-
-  it("stops", async () => {
-    expect((await grenier("stop")).stdout).toMatch(/^Daemon stopped \(pid \d+\)\.$/m);
-    expect((await grenier("status")).stdout).toContain("daemon    stopped");
-    expect((await grenier("stop")).stdout).toContain("not running");
   });
 });

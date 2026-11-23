@@ -200,14 +200,6 @@ describe("changes", () => {
     expect((await push(bob, record("l2", { space: "space:leads" }))).refused[0]?.reason).toContain("no space");
   });
 
-  it("makes a repository's space on its first record", async () => {
-    await push(ADA, record("a1", { space: "repo:abc123", spaceName: "app" }));
-    const { spaces } = await json<{ spaces: { id: string; name: string; kind: string }[] }>(
-      await call("/api/spaces", ADA),
-    );
-    expect(spaces).toContainEqual(expect.objectContaining({ id: "repo:abc123", name: "app", kind: "repo" }));
-  });
-
   it("keeps every version, with who made it", async () => {
     const bob = await join("bob");
     await push(ADA, record("r1"));

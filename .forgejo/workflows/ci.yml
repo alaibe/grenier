@@ -80,15 +80,14 @@ jobs:
           node-version-file: .node-version
 
       # The runner's ci-cache volume (homeserver's AGENTS.md › ci-cache), as in Kestrel and Statim: cargo's registry,
-      # this job's Rust builds, the pnpm store and the e2e tests' embedding model. Set after the installers, which keep
-      # rustup's and the tools' binaries in the job's own ~/.cargo.
+      # this job's Rust builds and the pnpm store. Set after the installers, which keep rustup's and the tools' binaries
+      # in the job's own ~/.cargo.
       - name: Caches
         run: |
           {
             echo "CARGO_HOME=/cache/cargo"
             echo "CARGO_TARGET_DIR=/cache/target/grenier/check"
             echo "npm_config_store_dir=/cache/pnpm-store"
-            echo "GRENIER_TEST_MODELS=/cache/models/grenier"
           } >> "$GITHUB_ENV"
 
       - name: JavaScript packages

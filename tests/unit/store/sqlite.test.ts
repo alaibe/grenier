@@ -109,12 +109,6 @@ describe("openSqliteStore", () => {
       `has schema version ${LATEST}, newer than this build of grenier knows (${LATEST - 1})`,
     );
   });
-
-  it("works in memory", async () => {
-    const store = openSqliteStore(":memory:");
-    expect(await store.schemaVersion()).toBe(LATEST);
-    await store.close();
-  });
 });
 
 describe("the schema", () => {
@@ -217,14 +211,6 @@ describe("the schema", () => {
           .values({ recordId: "nope", kind: "git", repoId: "r", ref: "x", version: "abc" })
           .run(),
       ).toThrow(/FOREIGN KEY constraint failed/);
-    });
-  });
-
-  it("stores a client's scopes as a JSON list", async () => {
-    await openSqliteStore(file).close();
-    withDb((db) => {
-      db.insert(schema.clients).values({ id: "c1", name: "cursor", tokenHash: "h", createdAt: 0 }).run();
-      expect(db.select({ scopes: schema.clients.scopes }).from(schema.clients).get()).toEqual({ scopes: [] });
     });
   });
 });

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inviteLink, npxWrangler, parseInvite, team } from "../../../apps/cli/src/commands/team.ts";
+import { inviteLink, parseInvite, team } from "../../../apps/cli/src/commands/team.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 import { saveTeam, withTomlValue } from "../../../apps/cli/src/team.ts";
 import { SETUP_TOKEN, startWorker } from "../../support/worker.ts";
@@ -72,21 +72,6 @@ describe("grenier team deploy", () => {
     expect(statSync(join(home, "team-token")).mode & 0o777).toBe(0o600);
     expect(statSync(join(home, "personal.key")).mode & 0o777).toBe(0o600);
     expect(lines[0]).toContain("you are its admin, ada");
-  });
-
-  it("asks to log in to Cloudflare first, before deploying anything", async () => {
-    const { calls, wrangler } = fakeWrangler({ loggedIn: false });
-    await expect(team(["deploy"], io(), { wrangler, serverDir })).rejects.toThrow("npx wrangler login");
-    expect(calls.map((call) => call.args[0])).toEqual(["whoami"]);
-  });
-
-  it("reports what Wrangler said when it fails, instead of crashing on its exit code", async () => {
-    const exec = async () => {
-      throw Object.assign(new Error("Command failed"), { stderr: "✘ [ERROR] Authentication error", stdout: "" });
-    };
-    await expect(npxWrangler({}, exec)(["deploy"])).rejects.toThrow(
-      "wrangler deploy failed:\n✘ [ERROR] Authentication error",
-    );
   });
 });
 

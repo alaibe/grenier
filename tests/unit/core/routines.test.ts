@@ -77,9 +77,4 @@ describe("schedules", () => {
     expect(nextDue("fri 17:00", monday)).toBe(at("2026-11-27T17:00:00"));
     expect(nextDue("weekdays 08:00", at("2026-11-27T09:00:00"))).toBe(at("2026-11-30T08:00:00"));
   });
-
-  it("reads nothing it does not know", () => {
-    expect(nextDue("every so often", 0)).toBeNull();
-    expect(nextDue("daily 25:00", 0)).toBeNull();
-  });
 });

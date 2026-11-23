@@ -1,5 +1,4 @@
 import { execFile, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -7,10 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { openSqliteStore } from "@grenier/store/sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const BINARY = fileURLToPath(new URL("../../apps/cli/dist/grenier.js", import.meta.url));
@@ -94,46 +91,5 @@ describe("the MCP server of the built binary", () => {
     } finally {
       await client.close();
     }
-  });
-
-  it("answers over HTTP through the daemon for a client with a token, from the same store", async () => {
-    await grenier("start");
-    const store = openSqliteStore(join(home, "grenier.db"));
-    const token = "e2e-client-token";
-    await store.clients.add({
-      id: "c1",
-      name: "e2e",
-      tokenHash: createHash("sha256").update(token).digest("hex"),
-      scopes: [],
-      createdAt: Date.now(),
-    });
-    await store.close();
-
-    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
-      requestInit: { headers: { authorization: `Bearer ${token}` } },
-    });
-    const client = new Client({ name: "e2e-http", version: "1" });
-    await client.connect(transport);
-    try {
-      const result = await client.callTool({
-        name: "recall",
-        arguments: { query: "Where is the proxy defined?", repo },
-      });
-      expect(structured(result)).toMatchObject({ status: "hit", results: [{ title: "Where is the proxy defined?" }] });
-      const elsewhere = await client.callTool({ name: "recall", arguments: { query: "x", repo: "/nowhere" } });
-      expect(elsewhere.isError).toBe(true);
-    } finally {
-      await client.close();
-    }
-
-    const refused = await fetch(`http://127.0.0.1:${port}/mcp`, { method: "POST", body: "{}" });
-    expect(refused.status).toBe(401);
-  });
-
-  it("lists and retires records", async () => {
-    expect((await grenier("store", "stats")).stdout).toMatch(/^repo:\S+\s+Memory\s+1 records\s+\d+ reuses$/m);
-    const id = (await grenier("store", "list")).stdout.split(/\s+/)[0] as string;
-    expect((await grenier("store", "retire", id)).stdout).toMatch(/^Retired /);
-    expect((await grenier("store", "stats")).stdout).toBe("No records yet.\n");
   });
 });

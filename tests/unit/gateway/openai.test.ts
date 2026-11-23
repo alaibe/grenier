@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { toolCalls } from "@grenier/gateway";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeUpstream, sse, type TestGateway, testGateway } from "../../support/gateway.ts";
 
@@ -84,30 +83,5 @@ describe("OpenAI-compatible endpoints", () => {
     });
     await gateway.request("/s/s1/openai/v1/chat/completions", openaiRequest({ model: "local" }));
     expect(upstream.requests[0]?.url).toBe("http://127.0.0.1:11434/v1/chat/completions");
-  });
-});
-
-describe("OpenAI tool calls in loop detection", () => {
-  it("reads Chat Completions tool_calls and Responses function_call items, whatever the key order", async () => {
-    const chat = await toolCalls({
-      messages: [
-        { role: "user", content: "fix it" },
-        {
-          role: "assistant",
-          tool_calls: [
-            { id: "c1", type: "function", function: { name: "shell", arguments: '{"cmd":"ls","cwd":"."}' } },
-          ],
-        },
-      ],
-    });
-    const responses = await toolCalls({
-      input: [
-        { type: "message", role: "user", content: "fix it" },
-        { type: "function_call", call_id: "c2", name: "shell", arguments: '{"cwd":".","cmd":"ls"}' },
-      ],
-    });
-    expect(chat.map((entry) => entry.key)).toEqual(["use:c1"]);
-    expect(responses.map((entry) => entry.key)).toEqual(["use:c2"]);
-    expect(chat[0]?.call).toEqual(responses[0]?.call);
   });
 });

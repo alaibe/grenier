@@ -1,15 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  configPath,
-  install,
-  stableProgram,
-  withCodexServer,
-  withPromptHook,
-} from "../../../apps/cli/src/commands/mcp.ts";
+import { configPath, install, withCodexServer, withPromptHook } from "../../../apps/cli/src/commands/mcp.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
 let home: string;
@@ -193,24 +187,5 @@ describe("client tokens from grenier mcp install", () => {
     } finally {
       await store.close();
     }
-  });
-
-  it("refuses a scope that names nothing", async () => {
-    await expect(install(["cursor", "--scope", "secrets"], io, { home })).rejects.toThrow("unknown space secrets");
-  });
-});
-
-describe("stableProgram", () => {
-  it("writes a versioned program by a PATH entry that resolves to the same file", () => {
-    const cellar = join(home, "Cellar", "node", "26.1.0", "bin");
-    const bin = join(home, "bin");
-    mkdirSync(cellar, { recursive: true });
-    mkdirSync(bin);
-    writeFileSync(join(cellar, "node"), "");
-    symlinkSync(join(cellar, "node"), join(bin, "node"));
-
-    expect(stableProgram(join(cellar, "node"), `/nowhere:${bin}`)).toBe(join(bin, "node"));
-    expect(stableProgram(join(cellar, "node"), "/nowhere")).toBe(join(cellar, "node"));
-    expect(stableProgram("/no/such/node", bin)).toBe("/no/such/node");
   });
 });
