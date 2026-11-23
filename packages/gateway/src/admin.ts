@@ -14,15 +14,7 @@ import {
   teamApi,
   write,
 } from "@grenier/index";
-import {
-  buildReport,
-  cacheReport,
-  type GroupBy,
-  mostSpentFirst,
-  type Prices,
-  parseSince,
-  projectOf,
-} from "@grenier/log";
+import { buildReport, mostSpentFirst, type Prices, parseSince, projectOf } from "@grenier/log";
 import type { FullRecord, RecordInput, Store, UsageWithSession } from "@grenier/store";
 import { Hono } from "hono";
 
@@ -81,8 +73,6 @@ const APP_ORIGINS = new Set([
   "https://tauri.localhost",
   "http://localhost:1420",
 ]);
-
-const GROUPS: readonly GroupBy[] = ["day", "session", "repo"];
 
 function problem(status: number, message: string): Response {
   return Response.json({ error: message }, { status });
@@ -176,13 +166,6 @@ export function createAdmin(options: AdminOptions): Hono {
       clients: (await store.clients.list()).filter((client) => client.revokedAt === null).length,
       paused: (await store.sessions.paused()).length,
     });
-  });
-
-  app.get("/report", async (c) => {
-    const by = (c.req.query("by") ?? "day") as GroupBy;
-    if (!GROUPS.includes(by)) return problem(400, "by takes day, session or repo");
-    const rows = await store.usage.list({ since: parseSince(c.req.query("since") ?? "7d", Date.now()) });
-    return c.json({ rows: buildReport(rows, by, prices), cache: cacheReport(rows) });
   });
 
   app.get("/traces", async (c) => {

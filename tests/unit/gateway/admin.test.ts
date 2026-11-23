@@ -255,8 +255,7 @@ describe("the admin API", () => {
       ["s1", true],
       ["untagged", false],
     ]);
-    expect((await call("/report?by=week")).status).toBe(400);
-    expect((await call("/report?since=forever")).status).toBe(400);
+    expect((await call("/traces?since=forever")).status).toBe(400);
   });
 
   it("lists traces, gives one with its requests' cost, and shows only the files it touched", async () => {
