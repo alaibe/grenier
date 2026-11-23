@@ -111,8 +111,10 @@ code.
   and `release.yml` builds and publishes it on `github.com/alaibe/grenier` (`docs/RELEASE.md`). The nightly's version
   commit (author `nightly@git.laibe.cc`) skips CI's job, as in Kestrel and Statim. Each home-linux job that builds
   keeps cargo's registry, its Rust builds and the pnpm store in the runner's `/cache` (its Caches step; homeserver's
-  AGENTS.md › ci-cache), and the release's Linux and Windows builds run side by side. Tests run the same on every
-  system: no test is skipped, or expects something else, by platform; one that can't is rewritten or deleted.
+  AGENTS.md › ci-cache), and the release's Linux and Windows builds run side by side. A job that runs apt points it at
+  fr.archive.ubuntu.com first, as in Kestrel and Statim: archive and security.ubuntu.com crawl from the home server.
+  Tests run the same on every system: no test is skipped, or expects something else, by platform; one that can't is
+  rewritten or deleted.
 - `priv/` is gitignored except its `.gitkeep`: the maintainer's own material (launch posts, the demo script, Product
   Hunt's images) lives there, and new material of that kind goes there too. Its README lists what is in it. A worktree
   has no `priv/`; use the main checkout's.

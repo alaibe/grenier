@@ -316,6 +316,8 @@ jobs:
       # rpm.
       - name: Linux packages and gh
         run: |
+          # Ubuntu's main servers crawl from the home server; its French mirror is fast and carries -security too.
+          sudo sed -i -E 's#https?://(archive|security)\.ubuntu\.com/ubuntu#http://fr.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get update
           sudo mkdir -p /cache/apt/archives/partial
           sudo flock /cache/apt/lock apt-get install -y --no-install-recommends \
@@ -430,6 +432,8 @@ jobs:
       # unzip opens Node's Windows build, which GNU tar can't.
       - name: NSIS, LLVM, unzip and gh
         run: |
+          # Ubuntu's main servers crawl from the home server; its French mirror is fast and carries -security too.
+          sudo sed -i -E 's#https?://(archive|security)\.ubuntu\.com/ubuntu#http://fr.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get update
           # The Mac's menu bar turns on Tauri's tray-icon feature, and tauri-cli then looks for Linux's tray library on
           # the machine it runs on, even for a Windows build.
