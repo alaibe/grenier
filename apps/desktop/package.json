@@ -1,6 +1,6 @@
 {
   "name": "@grenier/desktop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "Grenier's desktop app: the team store and its editor, requests, the team and its machines, routines, shared skills and MCP servers, usage and traces. A Tauri shell that runs the daemon as a sidecar.",
   "license": "MIT",

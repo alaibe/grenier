@@ -1,6 +1,6 @@
 {
   "name": "@grenier/cli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "The grenier command and local daemon.",
   "license": "MIT",

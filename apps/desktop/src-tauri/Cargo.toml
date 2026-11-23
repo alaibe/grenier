@@ -1,7 +1,7 @@
 [package]
 name = "grenier-desktop"
 description = "Grenier's desktop app: a window on the local daemon, which it runs as a sidecar"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 license = "MIT"
 publish = false
