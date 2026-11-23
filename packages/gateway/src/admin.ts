@@ -35,9 +35,9 @@ export interface AdminOptions {
   /** The token the desktop app reads from ~/.grenier/admin-token; every /admin call needs it. */
   token: string;
   version: string;
-  host?: AdminHost;
-  /** A text file of a repository's work tree, or null when it cannot be shown. Without it, traces show no code. */
-  readFile?: (root: string, path: string) => Promise<string | null>;
+  host: AdminHost;
+  /** A text file of a repository's work tree, or null when it cannot be shown. */
+  readFile: (root: string, path: string) => Promise<string | null>;
   /** Who the daemon is, so a client can tell it from another program that reused its pid. */
   identity?: { pid: number; port: number };
 }
@@ -138,10 +138,7 @@ export function createAdmin(options: AdminOptions): Hono {
     throw error;
   });
 
-  const deps = async () => {
-    if (!host) throw new StoreUseError("the store is not served here");
-    return host.storeDeps();
-  };
+  const deps = () => host.storeDeps();
   /** The desktop app is the person: it reads every space this machine has. */
   const everything = { id: "desktop", name: "desktop", scopes: ["*"] };
   const allSpaces = async () => (await store.spaces.list()).map((space) => space.id);
@@ -152,10 +149,10 @@ export function createAdmin(options: AdminOptions): Hono {
     const since = parseSince("7d", Date.now());
     const rows = await store.usage.list({ since });
     const stats = await store.records.stats();
-    const team = host?.team() ?? null;
+    const team = host.team() ?? null;
     return c.json({
       version: options.version,
-      me: host ? (await host.storeDeps()).me.member : null,
+      me: (await host.storeDeps()).me.member,
       days: buildReport(rows, "day", prices),
       projects: mostSpentFirst(buildReport(rows, "repo", prices)),
       sessions: await sessionReport(store, rows, prices, since),
@@ -201,9 +198,8 @@ export function createAdmin(options: AdminOptions): Hono {
   app.get("/traces/:id/file", async (c) => {
     const path = c.req.query("path") ?? "";
     const session = await store.sessions.get(c.req.param("id"));
-    const touched =
-      session?.repoRoot && options.readFile && (await store.steps.list(session.id)).some((step) => step.path === path);
-    const text = touched ? await options.readFile?.(session.repoRoot as string, path) : null;
+    const touched = session?.repoRoot && (await store.steps.list(session.id)).some((step) => step.path === path);
+    const text = touched ? await options.readFile(session.repoRoot as string, path) : null;
     if (typeof text !== "string") {
       return problem(404, `${path} cannot be shown: it is not a text file this session touched, or it is gone`);
     }
@@ -265,7 +261,7 @@ export function createAdmin(options: AdminOptions): Hono {
 
   app.get("/records/:id/history", async (c) => {
     const id = c.req.param("id");
-    const team = host?.team();
+    const team = host.team();
     if (team) {
       try {
         return c.json(await teamApi(team, `/api/records/${encodeURIComponent(id)}/history`));
@@ -288,7 +284,7 @@ export function createAdmin(options: AdminOptions): Hono {
     );
     const why = recordProblem(record, builtinType(record.type) ?? (custom ? customType(custom) : undefined));
     if (why) throw new StoreUseError(`the record is refused: ${why}`);
-    const team = host?.team();
+    const team = host.team();
     if (team && record.space !== "me" && (await store.spaces.get(record.space))?.kind !== undefined) {
       const changed = ["space", "type", "kind", "title", "body", "fields", "retiredAt", "links"].filter(
         (key) =>
@@ -309,7 +305,7 @@ export function createAdmin(options: AdminOptions): Hono {
         if (answer.conflicts[0]) return { conflict: answer.conflicts[0].current };
         if (answer.refused[0]) throw new StoreUseError(`the team store refused it: ${answer.refused[0].reason}`);
         await store.records.put({ ...record, version: answer.applied[0]?.version ?? record.version });
-        await host?.syncNow().catch(() => undefined);
+        await host.syncNow().catch(() => undefined);
         return { saved: record.id };
       } catch (error) {
         if (error instanceof StoreUseError) throw error;
@@ -378,7 +374,7 @@ export function createAdmin(options: AdminOptions): Hono {
 
   /** The team's own pages, through this device's token: members, invites, machines, usage, runs. */
   app.all("/team/*", async (c) => {
-    const team = host?.team();
+    const team = host.team();
     if (!team) return problem(409, "this machine is in no team: grenier team deploy, or open an invite link");
     const path = c.req.path.replace(/^.*?\/team\//, "/api/");
     const body = c.req.method === "GET" || c.req.method === "DELETE" ? undefined : await c.req.json().catch(() => ({}));
@@ -438,7 +434,7 @@ export function createAdmin(options: AdminOptions): Hono {
   app.all("*", async (c) => {
     const body = c.req.method === "GET" ? undefined : await c.req.json().catch(() => ({}));
     const path = c.req.path.replace(/^\/admin/, "");
-    const handled = host?.extra ? await host.extra(c.req.method, `${path}${new URL(c.req.url).search}`, body) : null;
+    const handled = host.extra ? await host.extra(c.req.method, `${path}${new URL(c.req.url).search}`, body) : null;
     if (!handled) return problem(404, `no ${c.req.method} ${path}`);
     return c.json(handled.body, handled.status as 200);
   });
