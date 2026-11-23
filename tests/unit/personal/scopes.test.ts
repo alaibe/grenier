@@ -130,6 +130,13 @@ describe("scopes, against every read tool", () => {
     });
   }
 
+  it("lets a client replace only a record in a space it may write to", async () => {
+    const client = await connect(reader(["team"]));
+    const replace = { id: ids.leads, kind: "fact", title: "Salaries are public now", space: "team" };
+    expect((await client.callTool({ name: "remember", arguments: replace })).isError).toBe(true);
+    expect((await store.records.get(ids.leads as string))?.title).toBe("Budget review salaries");
+  });
+
   it("answers query for a record out of scope exactly as for one that does not exist", async () => {
     const client = await connect(reader(["team"]));
     const outside = await client.callTool({ name: "query", arguments: { id: ids.me } });

@@ -453,7 +453,8 @@ export async function remember(
   if (problem) throw new StoreUseError(`the record is refused: ${problem}`);
 
   let existing = input.id ? await deps.store.records.get(input.id) : undefined;
-  if (input.id && !existing) throw new StoreUseError(`there is no record ${input.id}`);
+  if (input.id && (!existing || (reader && existing.space !== "me" && !writable.includes(existing.space))))
+    throw new StoreUseError(`there is no record ${input.id}`);
   if (!existing && type === "Memory" && (kind === "answer" || kind === "summary")) {
     existing = (await deps.store.records.list({ spaces: [space], type: "Memory", kind })).find((record) =>
       kind === "summary"
