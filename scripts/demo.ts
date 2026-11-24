@@ -482,9 +482,11 @@ const preview = spawn(
   },
 );
 
+// On any way out, Ctrl-C cutting the awaits below short included, the demo leaves nothing behind.
 process.on("exit", () => {
   preview.kill();
   daemon.kill();
+  rmSync(dir, { recursive: true, force: true });
 });
 process.stdout.write(
   `Grenier's demo: http://localhost:1420/demo#knowledge (or #knowledge/${project}, #cost, #routines, #skills, #mcp, #team, #settings). Ctrl-C stops it.\n`,
@@ -497,4 +499,3 @@ clearInterval(stateTimer);
 preview.kill();
 daemon.kill();
 await mf.dispose();
-rmSync(dir, { recursive: true, force: true });

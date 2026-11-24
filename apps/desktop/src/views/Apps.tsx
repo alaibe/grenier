@@ -117,7 +117,7 @@ export function Apps() {
 
       {adding.open && (
         <FormCard className="max-w-150" onSubmit={add}>
-          <h3 className="font-semibold">New client</h3>
+          <h3 className="font-semibold">Another app</h3>
           <p className="text-sm text-muted">You get a token to give the app yourself. It is not installed anywhere.</p>
           <Field>
             Name
@@ -142,7 +142,7 @@ export function Apps() {
           </fieldset>
           <Actions>
             <Button type="submit" disabled={action.busy !== null}>
-              Create client
+              Make its key
             </Button>
             <Button quiet onClick={adding.done}>
               Cancel
@@ -151,7 +151,7 @@ export function Apps() {
         </FormCard>
       )}
 
-      {!data && !error && <Loading what="clients" />}
+      {!data && !error && <Loading what="apps" />}
       {data && data.clients.length === 0 && !adding.open && !created && (
         <Empty>
           <p>No app reads Grenier yet: add it to one above.</p>
@@ -161,7 +161,7 @@ export function Apps() {
         <Table>
           <thead>
             <tr>
-              <th>Client</th>
+              <th>App</th>
               <th>May read</th>
               <th>Created</th>
               <th>

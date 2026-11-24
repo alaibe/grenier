@@ -122,7 +122,7 @@ export async function runDaemon(io: Io): Promise<number> {
     config: () => rules,
     port,
     team: () => team,
-    storeDeps: () => storeDeps(store, config, embedder),
+    storeDeps: () => storeDeps(store, rules, embedder),
     tell: async (state) => {
       await link?.tell(state);
     },
@@ -163,7 +163,7 @@ export async function runDaemon(io: Io): Promise<number> {
     token: adminToken(paths),
     version,
     identity: { pid: process.pid, port },
-    storeDeps: () => storeDeps(store, config, embedder),
+    storeDeps: () => storeDeps(store, rules, embedder),
     team: () => team,
     sync: async (between) => {
       if (link) return link.sync(between);
@@ -182,7 +182,7 @@ export async function runDaemon(io: Io): Promise<number> {
     notify,
     runGuard: async (session) => runner.guard(session),
     log: io.err,
-    mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), me: () => identity(store, config), version },
+    mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), me: () => identity(store, rules), version },
     admin,
   });
 

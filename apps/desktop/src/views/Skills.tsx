@@ -160,7 +160,11 @@ export function Skills({ go, member }: ViewProps) {
           <p>{member ? "No skill shared yet." : "No skill shared yet. Write one, or find one on skills.sh below."}</p>
         }
       />
-      {!member && <NewSkill added={again} />}
+      {!member && (
+        <div className="mb-7">
+          <NewSkill added={again} />
+        </div>
+      )}
       {!member && <FindSkills shared={again} />}
     </Page>
   );
