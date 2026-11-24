@@ -6,12 +6,11 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { blobHashes, repoId, repoPath, repoText, trackedFiles } from "@grenier/connectors/git";
-import { joinCode, newVaultKey, routineHash, sha256 } from "@grenier/core";
+import { joinCode, newVaultKey, routineHash, sha256, sharedHash } from "@grenier/core";
 import { newId, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
 import type { RecordInput, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
-import { sharedHash } from "../apps/cli/src/installs.ts";
 
 // Run from the repository's root by `pnpm demo`, after `pnpm build`.
 const ROOT = process.cwd();

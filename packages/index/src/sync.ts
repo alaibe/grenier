@@ -1,7 +1,7 @@
-import { open, seal, VaultError } from "@grenier/core";
+import { open, RECORD_PARTS, SEALED_PARTS, seal, TEAM_PROTOCOL, VaultError } from "@grenier/core";
 import type { FullRecord, OutboxEntry, RecordInput, Store } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
-import { newId, RECORD_PARTS } from "./records.ts";
+import { newId } from "./records.ts";
 
 export interface TeamClient {
   url: string;
@@ -67,8 +67,6 @@ interface Remote {
   links: FullRecord["links"];
   sealed: string | null;
 }
-
-const SEALED_PARTS = ["type", "kind", "title", "folder", "body", "fields", "anchors", "links"] as const;
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -145,9 +143,6 @@ async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
   }
   return changes;
 }
-
-/** What this Grenier needs the team store to speak: 2 added folders, 3 named top folders, 4 one text per routine, 5 claimed runs and removable machines. */
-export const TEAM_PROTOCOL = 5;
 
 /** Pushes this machine's changes, then pulls the store's since the last round; offline, it throws and loses nothing. */
 export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {

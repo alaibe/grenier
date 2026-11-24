@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig } from "@grenier/core";
+import { defaultConfig, TEAM_PROTOCOL } from "@grenier/core";
 import { createGateway } from "@grenier/gateway";
-import { TEAM_PROTOCOL, type TeamClient } from "@grenier/index";
+import type { TeamClient } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";

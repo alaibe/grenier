@@ -1,26 +1,24 @@
+import { topName } from "@grenier/core";
 import {
   type AskConsent,
+  type AskRequest,
   deliver,
   type Embedder,
   fileSummary,
   type Identity,
   needsConsent,
-  newId,
   placeOf,
   query,
   type Reader,
   type Repo,
   type RepoFiles,
-  readable,
   recall,
-  refusal,
   remember,
   repoMap,
+  request,
   StoreUseError,
-  topName,
-  write,
 } from "@grenier/index";
-import type { RecordInput, Store } from "@grenier/store";
+import type { Store } from "@grenier/store";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -114,8 +112,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
   };
 
   /** Whether the person says yes; null when the client cannot ask. */
-  const confirm = async (message: string): Promise<boolean | null> => {
+  const confirm: AskRequest = async (task) => {
     if (!server.server.getClientCapabilities()?.elicitation) return null;
+    const message = `File this request for ${task.routine}? An idle teammate's machine runs it.\n\n${task.title}\n\n${task.body}`;
     const result = await server.server.elicitInput({
       message: message.slice(0, 4000),
       requestedSchema: {
@@ -286,54 +285,18 @@ export function createMcpServer(deps: McpDeps): McpServer {
       answer(async () => {
         const store = await storeDeps();
         const client = await reader();
-        const tops = (await readable(store.store, client)).map((top) => top.id);
-        const routines = await store.store.records.list({ tops, type: "Routine" });
-        const routine = routines.find(
-          (candidate) =>
-            candidate.id === input.routine || candidate.title.toLowerCase() === input.routine.toLowerCase(),
+        return request(
+          store,
+          client,
+          {
+            routine: input.routine,
+            title: input.title,
+            ...(input.body !== undefined ? { body: input.body } : {}),
+            ...(deps.sessionId !== undefined ? { sessionId: deps.sessionId } : {}),
+          },
+          // No one watches a routine's run; anywhere else the person says yes before a task leaves this machine.
+          deps.runTop ? async () => true : confirm,
         );
-        if (!routine) {
-          throw new StoreUseError(
-            `no routine ${input.routine}; there are: ${routines.map((candidate) => candidate.title).join(", ") || "none"}`,
-          );
-        }
-        const now = Date.now();
-        const task: RecordInput = {
-          id: newId(),
-          top: routine.top,
-          type: "Task",
-          kind: null,
-          title: input.title.trim(),
-          folder: "",
-          body: input.body?.trim() ?? "",
-          fields: { status: "to-do", routine: routine.id },
-          author: store.me.member,
-          device: store.me.device,
-          sessionId: deps.sessionId ?? null,
-          createdAt: now,
-          updatedAt: now,
-          retiredAt: null,
-          version: 0,
-          anchors: [],
-          links: [{ kind: "record", ref: routine.id }],
-        };
-        // Refused before asking: the person is not asked to file what the team store would refuse.
-        const problem = await refusal(store.store, task);
-        if (problem) throw new StoreUseError(`the request is refused: ${problem}`);
-        // No one watches a routine's run; anywhere else the person says yes before a task leaves this machine.
-        if (!deps.runTop && task.top !== "me") {
-          const filed = await confirm(
-            `File this request for ${routine.title}? An idle teammate's machine runs it.\n\n${task.title}\n\n${task.body}`,
-          );
-          if (filed === null) {
-            throw new StoreUseError(
-              "the request is not filed: this client cannot ask you first. File it on the app's Routines screen.",
-            );
-          }
-          if (!filed) throw new StoreUseError("the person chose not to file it");
-        }
-        await write(store, task);
-        return { id: task.id, routine: routine.title, status: "to-do" };
       }),
   );
 

@@ -83,6 +83,29 @@ export async function routineHash(routine: RoutineShape): Promise<string> {
   );
 }
 
+/** A request for a routine: a task to do in the routine's top folder, which names the routine and links to it. */
+export function taskFor(routine: { id: string; top: string }, title: string, body: string) {
+  return {
+    top: routine.top,
+    type: "Task",
+    title,
+    body,
+    fields: { status: "to-do", routine: routine.id },
+    links: [{ kind: "record" as const, ref: routine.id }],
+  };
+}
+
+/** What an approval of a shared skill or MCP server pins: the hash of exactly what gets installed. */
+export async function sharedHash(record: { type: string; fields: Record<string, unknown> }): Promise<string> {
+  const value =
+    record.type === "Skill"
+      ? record.fields.files
+      : { config: record.fields.config ?? null, credentials: record.fields.credentials ?? [] };
+  const entries =
+    value && typeof value === "object" ? Object.entries(value).sort(([a], [b]) => a.localeCompare(b)) : [];
+  return sha256(JSON.stringify(entries));
+}
+
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
 /** When a schedule ("hourly", "daily 09:00", "weekdays 09:00", "mon 09:00") next falls, in UTC; null if unreadable. */

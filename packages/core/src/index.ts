@@ -10,12 +10,12 @@ export {
 export {
   canonicalJson,
   copiedLines,
-  LoopDetector,
   MAX_CODE_LINES,
   MAX_SHARED_TEXT,
   redact,
   sha256,
   unshareable,
+  untrusted,
 } from "./policy.ts";
 export {
   BUILTIN_TYPES,
@@ -47,6 +47,9 @@ export {
   readsByName,
   routineHash,
   STORE_TOOLS,
+  sharedHash,
+  taskFor,
   toolsOf,
 } from "./routines.ts";
+export { RECORD_PARTS, SEALED_PARTS, TEAM_PROTOCOL, topName } from "./team.ts";
 export { newVaultKey, open, seal, VaultError } from "./vault.ts";

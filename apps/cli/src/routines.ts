@@ -10,7 +10,7 @@ import {
   routineHash,
 } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
-import { newId, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
+import { newRecord, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import type { Reply, Route } from "./host.ts";
 import { CommandError, writeAtomically } from "./io.ts";
@@ -194,28 +194,16 @@ export async function addRoutine(
     (record) => record.title.toLowerCase() === input.title.toLowerCase(),
   );
   if (taken) throw new CommandError(`there is a routine named ${input.title} already: edit it`);
-  const id = newId();
-  const now = Date.now();
-  await write(deps, {
-    id,
+  const routine = newRecord(deps.me, {
     top: input.top,
     type: "Routine",
-    kind: null,
     title: input.title,
     folder: input.folder ?? "",
     body: input.prompt,
     fields: routineFields(deps, input),
-    author: deps.me.member,
-    device: deps.me.device,
-    sessionId: null,
-    createdAt: now,
-    updatedAt: now,
-    retiredAt: null,
-    version: 0,
-    anchors: [],
-    links: [],
   });
-  return { id };
+  await write(deps, routine);
+  return { id: routine.id };
 }
 
 /** Changes a routine in place: a run going on keeps what it started with, and the next one takes the change. */

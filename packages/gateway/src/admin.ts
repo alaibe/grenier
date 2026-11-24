@@ -1,17 +1,18 @@
-import { folderProblem } from "@grenier/core";
+import { folderProblem, TEAM_PROTOCOL } from "@grenier/core";
 import {
   addClient,
+  changedFields,
   check,
   embedding,
   type Found,
   newId,
+  newRecord,
   query,
   recall,
   refusal,
   retire,
   type StoreDeps,
   StoreUseError,
-  TEAM_PROTOCOL,
   type TeamClient,
   TeamError,
   teamApi,
@@ -264,12 +265,7 @@ export function createAdmin(options: AdminOptions): Hono {
     const current = Number((await store.state.get("team_protocol")) ?? 0) >= TEAM_PROTOCOL;
     const top = await store.tops.get(record.top);
     if (team && current && record.top !== "me" && top) {
-      const changed = ["top", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "links"].filter(
-        (key) =>
-          !before ||
-          JSON.stringify((before as unknown as Record<string, unknown>)[key]) !==
-            JSON.stringify((record as unknown as Record<string, unknown>)[key]),
-      );
+      const changed = changedFields(before, record);
       try {
         const answer = await teamApi<{
           applied: { version: number }[];
@@ -310,11 +306,9 @@ export function createAdmin(options: AdminOptions): Hono {
   app.post("/records", async (c) => {
     const storeDeps = await deps();
     const body = await c.req.json<Partial<RecordInput>>().catch(() => ({}) as Partial<RecordInput>);
-    const now = Date.now();
     const top = typeof body.top === "string" ? body.top : "team";
     if (top !== "me" && !(await store.tops.get(top))) return problem(400, `there is no top folder ${top}`);
-    const record: RecordInput = {
-      id: newId(),
+    const record = newRecord(storeDeps.me, {
       top,
       type: typeof body.type === "string" ? body.type : "Doc",
       kind: typeof body.kind === "string" ? body.kind : body.type === "Memory" ? "fact" : null,
@@ -322,16 +316,8 @@ export function createAdmin(options: AdminOptions): Hono {
       folder: typeof body.folder === "string" ? body.folder : "",
       body: String(body.body ?? ""),
       fields: body.fields && typeof body.fields === "object" ? body.fields : {},
-      author: storeDeps.me.member,
-      device: storeDeps.me.device,
-      sessionId: null,
-      createdAt: now,
-      updatedAt: now,
-      retiredAt: null,
-      version: 0,
-      anchors: [],
       links: Array.isArray(body.links) ? body.links : [],
-    };
+    });
     if (record.type === "Memory" && !record.fields.kind) record.fields = { ...record.fields, kind: record.kind };
     const result = await save(record, undefined, 0);
     return c.json({ ...result, id: record.id }, 201);

@@ -1,5 +1,5 @@
-import { builtinType, customType, recordProblem } from "@grenier/core";
-import { check, newId, type StoreDeps, write } from "@grenier/index";
+import { recordProblem } from "@grenier/core";
+import { check, newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
 import type { FullRecord } from "@grenier/store";
 
 /** The librarian's mark on its routine: a run of it checks the store here instead of starting an agent. */
@@ -15,7 +15,6 @@ const normal = (title: string) =>
 export async function librarian(deps: StoreDeps): Promise<{ suggested: number; lines: string[] }> {
   const tops = (await deps.store.tops.list()).filter((top) => top.kind !== "me").map((top) => top.id);
   const records = await deps.store.records.list({ tops });
-  const types = records.filter((record) => record.type === "Type");
   const open = new Set(
     records
       .filter((record) => record.type === "Suggestion")
@@ -52,8 +51,7 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
     } else {
       seen.set(key, record);
     }
-    const custom = types.find((type) => type.title === record.type);
-    const problem = recordProblem(record, builtinType(record.type) ?? (custom ? customType(custom) : undefined));
+    const problem = recordProblem(record, await typeOf(deps.store, record.type, tops));
     if (problem) found.push({ target: record, change: {}, reason: `It breaks its type's rules: ${problem}.` });
     if (record.type === "Task" && record.fields.status !== "done" && typeof record.fields.routine === "string") {
       const routine = await deps.store.records.get(record.fields.routine);
@@ -65,29 +63,20 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
 
   const lines: string[] = [];
   let suggested = 0;
-  const now = Date.now();
   for (const finding of found) {
     if (open.has(`${finding.target.id}:${finding.reason}`)) continue;
     open.add(`${finding.target.id}:${finding.reason}`);
-    await write(deps, {
-      id: newId(),
-      top: finding.target.top,
-      type: "Suggestion",
-      kind: null,
-      title: `${finding.target.title}: ${finding.reason.split(":")[0]}`.slice(0, 300),
-      folder: "Suggestions",
-      body: "",
-      fields: { target: finding.target.id, change: finding.change, reason: finding.reason },
-      author: deps.me.member,
-      device: deps.me.device,
-      sessionId: null,
-      createdAt: now,
-      updatedAt: now,
-      retiredAt: null,
-      version: 0,
-      anchors: [],
-      links: [{ kind: "record", ref: finding.target.id }],
-    });
+    await write(
+      deps,
+      newRecord(deps.me, {
+        top: finding.target.top,
+        type: "Suggestion",
+        title: `${finding.target.title}: ${finding.reason.split(":")[0]}`.slice(0, 300),
+        folder: "Suggestions",
+        fields: { target: finding.target.id, change: finding.change, reason: finding.reason },
+        links: [{ kind: "record", ref: finding.target.id }],
+      }),
+    );
     suggested++;
     lines.push(`${finding.target.title}: ${finding.reason}`);
   }

@@ -1,4 +1,4 @@
-import { canonicalJson, LoopDetector, sha256 } from "@grenier/core";
+import { canonicalJson, sha256 } from "@grenier/core";
 
 export interface ToolCall {
   /** The tool's name, or "error" for a failed tool result. */
@@ -142,6 +142,29 @@ async function conversationOf(body: MessagesBody): Promise<string> {
   // Its text only: an agent moves cache markers between requests, and the conversation stays the same.
   const content = first && typeof first === "object" && "content" in first ? first.content : first;
   return sha256(textOf(content) || canonicalJson(content ?? null));
+}
+
+/** Fires once a hash repeats `threshold` times in the last `window`, then forgets those repeats. */
+export class LoopDetector {
+  #recent: string[] = [];
+
+  constructor(
+    readonly threshold: number,
+    readonly window: number,
+  ) {}
+
+  observe(hash: string): boolean {
+    this.#recent.push(hash);
+    if (this.#recent.length > this.window) this.#recent.shift();
+
+    if (this.count(hash) < this.threshold) return false;
+    this.#recent = this.#recent.filter((seen) => seen !== hash);
+    return true;
+  }
+
+  count(hash: string): number {
+    return this.#recent.filter((seen) => seen === hash).length;
+  }
 }
 
 export const IDLE_SESSION = 6 * 60 * 60 * 1000;

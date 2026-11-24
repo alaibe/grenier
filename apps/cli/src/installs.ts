@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, posix } from "node:path";
-import { builtinType, recordProblem, secretIn, sha256 } from "@grenier/core";
-import { newId, type StoreDeps, write } from "@grenier/index";
+import { recordProblem, secretIn, sharedHash } from "@grenier/core";
+import { newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
 import type { Approval, FullRecord, Store } from "@grenier/store";
 import { CommandError, writeAtomically } from "./io.ts";
 
@@ -47,17 +47,6 @@ export function skillFromFiles(files: Record<string, string>, folderName: string
   if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) throw new CommandError(TOO_BIG);
   const name = skillField(manifest, "name") ?? (folderName || "skill");
   return { name, description: skillField(manifest, "description") ?? "", files };
-}
-
-/** What an approval pins: the hash of exactly what gets installed. */
-export async function sharedHash(record: Pick<FullRecord, "type" | "fields">): Promise<string> {
-  const value =
-    record.type === "Skill"
-      ? record.fields.files
-      : { config: record.fields.config ?? null, credentials: record.fields.credentials ?? [] };
-  const entries =
-    value && typeof value === "object" ? Object.entries(value).sort(([a], [b]) => a.localeCompare(b)) : [];
-  return sha256(JSON.stringify(entries));
 }
 
 const slug = (name: string) =>
@@ -395,36 +384,13 @@ export async function share(
   const existing = (await deps.store.records.list({ tops: ["team"], type: input.type })).find(
     (record) => slug(record.title) === slug(input.title),
   );
-  const why = recordProblem(
-    { ...input, fields: { ...(existing?.fields ?? {}), ...input.fields } },
-    builtinType(input.type),
-  );
+  const fields = { ...(existing?.fields ?? {}), ...input.fields };
+  const why = recordProblem({ ...input, fields }, await typeOf(deps.store, input.type, tops));
   if (why) throw new CommandError(`the team store would refuse it: ${why}`);
-  const now = Date.now();
-  const record = existing
-    ? (({ seq: _seq, hits: _hits, ...rest }) => rest)(existing)
-    : {
-        id: newId(),
-        top: "team",
-        type: input.type,
-        kind: null,
-        folder: "",
-        author: deps.me.member,
-        device: deps.me.device,
-        sessionId: null,
-        createdAt: now,
-        retiredAt: null,
-        version: 0,
-        anchors: [],
-        links: [],
-      };
-  const next = {
-    ...record,
-    title: input.title,
-    body: input.body,
-    fields: { ...(existing?.fields ?? {}), ...input.fields },
-    updatedAt: now,
-  };
+  const parts = { title: input.title, body: input.body, fields };
+  const next = existing
+    ? { ...(({ seq: _seq, hits: _hits, ...rest }) => rest)(existing), ...parts, updatedAt: Date.now() }
+    : newRecord(deps.me, { top: "team", type: input.type, ...parts });
   await write(deps, next, existing);
   return { id: next.id, updated: Boolean(existing) };
 }
