@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, delimiter, join } from "node:path";
 import { open, seal, VaultError } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
-import { addClient, resolveScopes } from "@grenier/index";
+import { addClient, rekeyed, resolveScopes, unopenedCount } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import type { Route } from "./host.ts";
 import { CommandError, writeAtomically } from "./io.ts";
@@ -156,8 +156,13 @@ export async function connectApp(store: Store, app: McpClient, scopes: string[],
   return path;
 }
 
-/** The apps on this computer Grenier can be added to, and this machine's personal key for the Me folder. */
-export function machineRoutes(store: Store, paths: GrenierPaths, where: Where): Route {
+/** The apps on this computer Grenier can be added to, and the personal key; `resync` runs a step between sync rounds. */
+export function machineRoutes(
+  store: Store,
+  paths: GrenierPaths,
+  where: Where,
+  resync: (between: () => Promise<void>) => Promise<unknown>,
+): Route {
   const ok = (body: unknown) => ({ status: 200, body });
   const no = (status: number, error: string) => ({ status, body: { error } });
   return async (method, path, body) => {
@@ -183,6 +188,7 @@ export function machineRoutes(store: Store, paths: GrenierPaths, where: Where): 
       }
     }
     // The key is shown only when asked for, and never written anywhere but its own file.
+    if (path === "/key" && method === "GET") return ok({ unopened: await unopenedCount(store) });
     if (path === "/key" && method === "POST") return ok({ key: ensurePersonalKey(paths) });
     if (path === "/key" && method === "PUT") {
       const key = String((body as { key?: unknown } | undefined)?.key ?? "").trim();
@@ -191,12 +197,13 @@ export function machineRoutes(store: Store, paths: GrenierPaths, where: Where): 
       } catch (error) {
         return no(400, error instanceof VaultError ? error.message : "that is not a personal key");
       }
-      const existing = personalKey(paths);
-      if (existing && existing !== key) {
-        return no(409, `this machine has another personal key (${personalKeyFile(paths)}); move it aside first`);
+      if (personalKey(paths) !== key) {
+        await resync(async () => {
+          writeFileSync(personalKeyFile(paths), `${key}\n`, { mode: 0o600 });
+          await rekeyed(store);
+        });
       }
-      writeFileSync(personalKeyFile(paths), `${key}\n`, { mode: 0o600 });
-      return ok({ saved: true });
+      return ok({ saved: true, unopened: await unopenedCount(store) });
     }
     return null;
   };

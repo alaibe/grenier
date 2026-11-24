@@ -140,7 +140,7 @@ describe("grenier run", () => {
 
     expect(code).toBe(3);
     const store = db();
-    const [session] = await store.sessions.list();
+    const session = await store.sessions.get(readFileSync(out, "utf8").split(" ")[1] as string);
     await store.close();
     expect(session).toMatchObject({ client: "node", cwd: dir, repoRoot: dir, repoId: null });
     expect(session?.endedAt).not.toBeNull();
@@ -163,7 +163,8 @@ describe("grenier run", () => {
 
     expect(code).toBe(0);
     const store = db();
-    const [session] = await store.sessions.list();
+    const id = /\/s\/([^/]+)\/openai/.exec(readFileSync(out, "utf8"))?.[1] as string;
+    const session = await store.sessions.get(id);
     await store.close();
     expect(readFileSync(out, "utf8").split("\n")).toEqual([
       "-c",

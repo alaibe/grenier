@@ -48,7 +48,6 @@ export const BUILTIN_TYPES: readonly TypeDef[] = [
       { name: "status", kind: "select", options: TASK_STATUSES, required: true },
       { name: "owner", kind: "person" },
       { name: "routine", kind: "record", type: "Routine" },
-      { name: "version", kind: "number" },
       { name: "result", kind: "text" },
       { name: "machine", kind: "text" },
     ],
@@ -224,7 +223,7 @@ interface MemberChange {
 }
 
 /** The fields of a request the machine that runs it sets. */
-const RUN_FIELDS = new Set(["status", "result", "machine", "version"]);
+const RUN_FIELDS = new Set(["status", "result", "machine"]);
 
 export const MEMBER_WRITES =
   "only an admin writes there: a member writes in me, and their agents' answers in a repository's folder";

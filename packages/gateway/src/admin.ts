@@ -1,11 +1,13 @@
-import { BUILTIN_TYPES, builtinType, customType, folderProblem, recordProblem } from "@grenier/core";
+import { folderProblem } from "@grenier/core";
 import {
   addClient,
   check,
+  embedding,
   type Found,
   newId,
   query,
   recall,
+  refusal,
   retire,
   type StoreDeps,
   StoreUseError,
@@ -197,11 +199,6 @@ export function createAdmin(options: AdminOptions): Hono {
     return c.json({ moved: inside.length });
   });
 
-  app.get("/types", async (c) => {
-    const custom = await store.records.list({ tops: await allTops(), type: "Type" });
-    return c.json({ types: [...BUILTIN_TYPES, ...custom.map((record) => ({ ...customType(record), id: record.id }))] });
-  });
-
   app.get("/records", async (c) => {
     const storeDeps = await deps();
     const tops = c.req.query("top") ? [c.req.query("top") as string] : await allTops();
@@ -242,7 +239,8 @@ export function createAdmin(options: AdminOptions): Hono {
   app.get("/records/:id/history", async (c) => {
     const id = c.req.param("id");
     const team = host.team();
-    if (team) {
+    // The team store keeps a Me page sealed, so its versions say nothing: this machine's own do.
+    if (team && (await store.records.get(id))?.top !== "me") {
       try {
         return c.json(await teamApi(team, `/api/records/${encodeURIComponent(id)}/history`));
       } catch {
@@ -255,15 +253,13 @@ export function createAdmin(options: AdminOptions): Hono {
   /** With a team, a field changed since `baseVersion` comes back as a conflict; offline, the latest write wins. */
   async function save(record: RecordInput, before: FullRecord | undefined, baseVersion: number) {
     const storeDeps = await deps();
-    const custom = (await store.records.list({ tops: await allTops(), type: "Type" })).find(
-      (type) => type.title === record.type,
-    );
-    const why = recordProblem(record, builtinType(record.type) ?? (custom ? customType(custom) : undefined));
+    const why = await refusal(store, record, before);
     if (why) throw new StoreUseError(`the record is refused: ${why}`);
     const team = host.team();
     // Straight to the team store only once a sync found it speaks this Grenier's protocol; else it waits here.
     const current = Number((await store.state.get("team_protocol")) ?? 0) >= TEAM_PROTOCOL;
-    if (team && current && record.top !== "me" && (await store.tops.get(record.top))?.kind !== undefined) {
+    const top = await store.tops.get(record.top);
+    if (team && current && record.top !== "me" && top) {
       const changed = ["top", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "links"].filter(
         (key) =>
           !before ||
@@ -277,12 +273,25 @@ export function createAdmin(options: AdminOptions): Hono {
           conflicts: { current: unknown }[];
         }>(team, "/api/changes", {
           body: {
-            changes: [{ id: newId(), recordId: record.id, baseVersion, changed, record, check: true }],
+            changes: [
+              {
+                id: newId(),
+                recordId: record.id,
+                baseVersion,
+                changed,
+                // As sync sends it: the store names a repository's folder it has not seen yet.
+                record: top.kind === "repo" ? { ...record, topName: top.name } : record,
+                check: true,
+              },
+            ],
           },
         });
         if (answer.conflicts[0]) return { conflict: answer.conflicts[0].current };
         if (answer.refused[0]) throw new StoreUseError(`the team store refused it: ${answer.refused[0].reason}`);
-        await store.records.put({ ...record, version: answer.applied[0]?.version ?? record.version });
+        await store.records.put(
+          { ...record, version: answer.applied[0]?.version ?? record.version },
+          await embedding(storeDeps, record),
+        );
         await host.syncNow().catch(() => undefined);
         return { saved: record.id };
       } catch (error) {

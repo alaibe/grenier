@@ -140,32 +140,6 @@ describe("records", () => {
 });
 
 describe("tops, the outbox, history and approvals", () => {
-  it("removes a top with its records here", async () => {
-    await store.tops.put({ id: "top:x", name: "x", kind: "custom", repoId: null, root: null });
-    await store.records.put({
-      id: "r1",
-      top: "top:x",
-      type: "Doc",
-      kind: null,
-      folder: "",
-      title: "t",
-      body: "",
-      fields: {},
-      author: "a",
-      device: null,
-      sessionId: null,
-      createdAt: 1,
-      updatedAt: 1,
-      retiredAt: null,
-      version: 0,
-      anchors: [],
-      links: [],
-    });
-    await store.tops.remove("top:x");
-    expect(await store.records.get("r1")).toBeUndefined();
-    expect(await store.tops.get("top:x")).toBeUndefined();
-  });
-
   it("gives pending changes oldest first, and leaves `me` ones out when asked", async () => {
     await store.outbox.add({ id: "c1", recordId: "r1", change: {}, baseVersion: 0, createdAt: 1 });
     await store.outbox.add({ id: "c2", recordId: "r2", change: {}, baseVersion: 0, createdAt: 2 });

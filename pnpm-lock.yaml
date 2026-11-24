@@ -169,9 +169,6 @@ importers:
 
   packages/gateway:
     dependencies:
-      '@grenier/connectors':
-        specifier: workspace:*
-        version: link:../connectors
       '@grenier/core':
         specifier: workspace:*
         version: link:../core

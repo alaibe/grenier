@@ -421,7 +421,11 @@ export type AskConsent = (record: {
   top: string;
 }) => Promise<Consent | null>;
 
-export function needsConsent(record: { type: string; kind?: string | null; anchors: FullRecord["anchors"] }): boolean {
+export function needsConsent(record: {
+  type: string;
+  kind?: string | null;
+  anchors: readonly { kind: FullRecord["anchors"][number]["kind"] }[];
+}): boolean {
   const aboutCode =
     record.type === "Memory" &&
     (record.kind === "answer" || record.kind === "summary") &&
@@ -537,22 +541,52 @@ export async function remember(
   return { id: record.id, top, status: top === "me" && input.top !== "me" ? "kept in me" : "kept" };
 }
 
-/** The fields a change touches, which the team store applies over what it has. */
+/** The parts of a record a change sends, which the team store applies over what it has. */
+export const RECORD_PARTS = [
+  "top",
+  "type",
+  "kind",
+  "title",
+  "folder",
+  "body",
+  "fields",
+  "retiredAt",
+  "anchors",
+  "links",
+] as const;
+
+/** The parts a change touches. */
 function changedFields(before: FullRecord | undefined, after: RecordInput): string[] {
-  const keys = ["top", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "anchors", "links"] as const;
-  if (!before) return [...keys];
-  return keys.filter(
+  if (!before) return [...RECORD_PARTS];
+  return RECORD_PARTS.filter(
     (key) => JSON.stringify((before as unknown as Record<string, unknown>)[key]) !== JSON.stringify(after[key]),
   );
 }
 
-export async function write(deps: StoreDeps, record: RecordInput, before?: FullRecord): Promise<void> {
-  // The team store refuses the rest from a member; refusing here says so at once, not at the next sync.
-  if ((await deps.store.state.get("team_role")) === "member" && !memberMay(before, record, "me", true)) {
-    throw new StoreUseError(`the record is refused: ${MEMBER_WRITES}`);
+/** Why the team store would refuse this change from this machine, or null: its rules, checked before every write. */
+export async function refusal(store: Store, record: RecordInput, before?: FullRecord): Promise<string | null> {
+  if ((await store.state.get("team_role")) === "member" && !memberMay(before, record, "me", true)) {
+    return MEMBER_WRITES;
   }
-  const [vector] = deps.embedder ? await deps.embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)]) : [];
-  await deps.store.records.put(record, vector && deps.embedder ? { model: deps.embedder.model, vector } : undefined);
+  const tops = (await store.tops.list()).map((top) => top.id);
+  return recordProblem(record, await typeOf(store, record.type, tops));
+}
+
+/** The vector a record is found by, when embeddings are on. */
+export async function embedding(
+  deps: StoreDeps,
+  record: { title: string; body: string },
+): Promise<{ model: string; vector: Float32Array } | undefined> {
+  if (!deps.embedder) return undefined;
+  const [vector] = await deps.embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)]);
+  return vector ? { model: deps.embedder.model, vector } : undefined;
+}
+
+export async function write(deps: StoreDeps, record: RecordInput, before?: FullRecord): Promise<void> {
+  // The team store drops what it refuses: refusing here says so at once, not at the next sync.
+  const why = await refusal(deps.store, record, before);
+  if (why) throw new StoreUseError(`the record is refused: ${why}`);
+  await deps.store.records.put(record, await embedding(deps, record));
   const changed = changedFields(before, record);
   if (changed.length === 0) return;
   await deps.store.outbox.add({
@@ -604,7 +638,7 @@ export async function fileSummary(
   deps: StoreDeps,
   repo: Repo,
   input: { path: string },
-): Promise<{ status: "hit" | "miss"; path: string; summary?: string }> {
+): Promise<{ status: "hit" | "miss"; path: string; summary?: string; notice?: string }> {
   const [path] = inRepo(deps, repo, [input.path]);
   if (!path) return { status: "miss", path: input.path };
   const top = await ensureRepoTop(deps.store, repo);
@@ -612,19 +646,21 @@ export async function fileSummary(
   const summary = (await deps.store.records.list({ tops: [top], type: "Memory", kind: "summary" })).find(
     (record) => record.fields.path === path && record.anchors.some((a) => a.ref === path && a.version === hash),
   );
-  return summary ? { status: "hit", path, summary: summary.body } : { status: "miss", path };
+  if (!summary) return { status: "miss", path };
+  return { status: "hit", path, summary: untrusted(nonce(), summary), notice: NOTICE };
 }
 
 export interface RepoMapEntry {
   path: string;
   kind: "directory" | "file";
   files: number;
+  /** Redacted and marked untrusted, as every record's text leaves. */
   summary?: string;
   /** True when the summary was recorded for content that has changed since. */
   stale?: boolean;
 }
 
-export async function repoMap(deps: StoreDeps, repo: Repo): Promise<{ entries: RepoMapEntry[] }> {
+export async function repoMap(deps: StoreDeps, repo: Repo): Promise<{ entries: RepoMapEntry[]; notice: string }> {
   const folder = await ensureRepoTop(deps.store, repo);
   const tracked = await deps.files.tracked(repo.root);
   const summaries = new Map<string, FullRecord>();
@@ -643,14 +679,15 @@ export async function repoMap(deps: StoreDeps, repo: Repo): Promise<{ entries: R
   const entries = [...top.values()].sort((a, b) =>
     a.kind === b.kind ? a.path.localeCompare(b.path) : a.kind === "directory" ? -1 : 1,
   );
+  const marker = nonce();
   for (const entry of entries) {
     const summary = summaries.get(entry.path);
     if (!summary) continue;
-    entry.summary = summary.body;
+    entry.summary = untrusted(marker, summary);
     const hash = (await contentHashes(deps, repo, [entry.path])).get(entry.path);
     entry.stale = !summary.anchors.some((anchor) => anchor.ref === entry.path && anchor.version === hash);
   }
-  return { entries };
+  return { entries, notice: NOTICE };
 }
 
 const NOTICE =
@@ -659,6 +696,11 @@ const NOTICE =
 
 function nonce(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** A record's text as it leaves: redacted, inside a block its writer cannot close. */
+function untrusted(marker: string, record: { id: string; author: string; body: string }): string {
+  return `<untrusted-data-${marker} id="${record.id}" author="${record.author}">\n${redact(record.body)}\n</untrusted-data-${marker}>`;
 }
 
 /** Every record leaves redacted and marked untrusted. */
@@ -675,7 +717,7 @@ export async function deliver<T extends { records?: Found[]; results?: Found[]; 
       .filter(Boolean)
       .join("/"),
     title: redact(record.title),
-    body: `<untrusted-data-${marker} id="${record.id}" author="${record.author}">\n${redact(record.body)}\n</untrusted-data-${marker}>`,
+    body: untrusted(marker, record),
   });
   return {
     ...result,

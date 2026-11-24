@@ -175,7 +175,13 @@ export async function runDaemon(io: Io): Promise<number> {
       const input = (body ?? {}) as { token?: unknown; name?: unknown; member?: unknown };
       try {
         const deployed = await deployTeamStore(
-          { paths, config, store, serverDir: fileURLToPath(new URL("./server/", import.meta.url)) },
+          {
+            paths,
+            config,
+            store,
+            serverDir: fileURLToPath(new URL("./server/", import.meta.url)),
+            inTeam: team !== null,
+          },
           {
             token: String(input.token ?? ""),
             name: String(input.name ?? "grenier-team"),
@@ -190,7 +196,9 @@ export async function runDaemon(io: Io): Promise<number> {
     },
     anchorDiffs(store),
     installs(store, home, { deps: () => storeDeps(store, config, embedder) }),
-    machineRoutes(store, paths, { home, platform: process.platform, env: io.env, self: io.self }),
+    machineRoutes(store, paths, { home, platform: process.platform, env: io.env, self: io.self }, (between) =>
+      link ? link.sync(between) : between(),
+    ),
     async (method, path) => {
       if (path !== "/sync" || method !== "POST") return null;
       if (!link) return { status: 409, body: { error: "this machine is in no team" } };

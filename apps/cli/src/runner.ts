@@ -8,14 +8,15 @@ import {
   type Config,
   hasPrompt,
   isAction,
+  mayCall,
   type RoutineMode,
   repoTop,
   routineHash,
   toolsOf,
 } from "@grenier/core";
 import type { RunGuard } from "@grenier/gateway";
-import { newId, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
-import type { FullRecord, Session, Store } from "@grenier/store";
+import { newId, refusal, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
+import type { FullRecord, RecordInput, Session, Store } from "@grenier/store";
 import { newSessionId } from "./commands/run.ts";
 import { LIBRARIAN, librarian } from "./librarian.ts";
 import { type Availability, availability, type Probes, systemProbes } from "./machine.ts";
@@ -53,7 +54,8 @@ interface Current {
   runId: string;
   sessionId: string;
   routineId: string;
-  allowed: Set<string>;
+  agent: string;
+  allowed: string[];
   mode: RoutineMode;
   limit: number;
   /** Actions of this routine's earlier runs today, against `limited`'s daily allowance. */
@@ -237,9 +239,8 @@ export class Runner {
     if (!current || session.runId !== current.runId) return null;
     return {
       allows: (tool) => {
-        const allowed = current.allowed.has(tool) || [...current.allowed].some((entry) => entry.startsWith(`${tool}(`));
-        if (!allowed) return false;
-        if (isAction(tool)) {
+        if (!mayCall(current.agent, current.allowed, tool)) return false;
+        if (isAction(tool, current.agent)) {
           if (current.mode === "limited" && current.usedToday + current.actions >= current.limit) return false;
           current.actions++;
         }
@@ -330,7 +331,8 @@ export class Runner {
       runId,
       sessionId,
       routineId: routine.id,
-      allowed: new Set(allowedTools(mode, toolsOf(routine))),
+      agent,
+      allowed: allowedTools(mode, toolsOf(routine), agent),
       mode,
       limit: Number((await store.approvals.get(routine.id, "routine"))?.settings.limit ?? 10),
       usedToday,
@@ -487,15 +489,14 @@ export class Runner {
       const current = (await this.deps.store.records.get(task.id)) ?? task;
       const { seq: _seq, hits: _hits, ...rest } = current as FullRecord;
       const done = outcome.status === "done";
-      await write(
-        deps,
-        {
-          ...rest,
-          fields: { ...rest.fields, status: done ? "done" : "to-do", result, machine: deps.me.device },
-          updatedAt: endedAt,
-        },
-        current as FullRecord,
-      );
+      const ended = (text: string): RecordInput => ({
+        ...rest,
+        fields: { ...rest.fields, status: done ? "done" : "to-do", result: text, machine: deps.me.device },
+        updatedAt: endedAt,
+      });
+      // A result the team store would refuse must not hold the task in "doing": a short failure takes its place.
+      const why = await refusal(deps.store, ended(result), current as FullRecord);
+      await write(deps, ended(why ? `Its result was not kept: ${why}.` : result), current as FullRecord);
       // Sent before the decline: the store drops a task's claims when it goes back to to-do, and only this one's.
       await this.deps.sync().catch(() => undefined);
       const team = this.deps.team();

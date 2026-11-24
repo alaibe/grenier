@@ -8,7 +8,7 @@ import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { storeDeps } from "../../support/repo.ts";
+import { storeDeps, TableEmbedder } from "../../support/repo.ts";
 
 const TOKEN = "ga_admin-test";
 let store: Store;
@@ -16,6 +16,7 @@ let dir: string;
 let app: ReturnType<typeof createGateway>;
 let team: TeamClient | null;
 let synced: number;
+let embedder: TableEmbedder | null;
 
 beforeEach(async () => {
   store = openSqliteStore(":memory:");
@@ -24,6 +25,7 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "grenier-admin-"));
   team = null;
   synced = 0;
+  embedder = null;
   const config = defaultConfig();
   app = createGateway({
     store,
@@ -34,7 +36,7 @@ beforeEach(async () => {
       token: TOKEN,
       version: "test",
       host: {
-        storeDeps: () => storeDeps(store),
+        storeDeps: () => storeDeps(store, embedder),
         team: () => team,
         syncNow: async () => {
           synced += 1;
@@ -228,6 +230,80 @@ describe("the admin API", () => {
       fetch: (async (url: URL) => Response.json({ path: url.pathname })) as unknown as typeof fetch,
     };
     expect(await (await call("/team/members")).json()).toEqual({ path: "/api/members" });
+  });
+
+  it("embeds a page saved straight to the team store, and names a repository's folder as sync does", async () => {
+    embedder = new TableEmbedder({ Runbook: [1, 0, 0] });
+    await store.tops.put({
+      id: "repo:abc123456789",
+      name: "billing",
+      kind: "repo",
+      repoId: "abc123456789",
+      root: null,
+    });
+    await store.state.set("team_protocol", String(TEAM_PROTOCOL));
+    const sent: { changes: { record: Record<string, unknown> }[] }[] = [];
+    team = {
+      url: "https://team.test",
+      token: "gt_x",
+      fetch: (async (_url: unknown, init: RequestInit) => {
+        sent.push(JSON.parse(String(init.body)));
+        return Response.json({ applied: [{ version: sent.length }], refused: [], conflicts: [] });
+      }) as unknown as typeof fetch,
+    };
+    const made = (await (
+      await call("/records", {
+        method: "POST",
+        body: JSON.stringify({ type: "Doc", title: "Runbook", body: "Deploy on Friday.", top: "repo:abc123456789" }),
+      })
+    ).json()) as { id: string };
+    expect(sent[0]?.changes[0]?.record.topName).toBe("billing");
+    await call(`/records/${made.id}`, { method: "PUT", body: JSON.stringify({ body: "Deploy on Monday." }) });
+    expect((await store.records.vectors(["repo:abc123456789"], "table")).map((row) => row.id)).toEqual([made.id]);
+  });
+
+  it("shows a Me page's history from this machine, since the team store holds it sealed", async () => {
+    const asked: string[] = [];
+    team = {
+      url: "https://team.test",
+      token: "gt_x",
+      fetch: (async (url: URL) => {
+        asked.push(url.pathname);
+        return Response.json({ history: [{ version: 3, snapshot: { sealed: true } }] });
+      }) as unknown as typeof fetch,
+    };
+    const made = (await (
+      await call("/records", {
+        method: "POST",
+        body: JSON.stringify({ title: "Dentist", body: "Tuesday.", top: "me" }),
+      })
+    ).json()) as { id: string };
+    await store.history.add({
+      recordId: made.id,
+      version: 3,
+      author: "ada",
+      device: "ada-mbp",
+      ts: 1,
+      snapshot: { title: "Dentist", body: "Monday." },
+    });
+    const history = (await (await call(`/records/${made.id}/history`)).json()) as {
+      history: { snapshot: { body?: string } }[];
+    };
+    expect(history.history.map((entry) => entry.snapshot.body)).toEqual(["Monday."]);
+    expect(asked).toEqual([]);
+  });
+
+  it("says the team store can't be reached when this machine is offline", async () => {
+    team = {
+      url: "https://team.test",
+      token: "gt_x",
+      fetch: (async () => {
+        throw new TypeError("fetch failed");
+      }) as unknown as typeof fetch,
+    };
+    const offline = await call("/team/members");
+    expect(offline.status).toBe(502);
+    expect(await offline.json()).toEqual({ error: "the team store can't be reached" });
   });
 
   it("gives the overview, per day, project and session, and the reports", async () => {

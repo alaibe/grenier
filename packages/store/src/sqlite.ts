@@ -125,7 +125,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       setPaused: async (id, paused) => {
         db.update(sessions).set({ paused }).where(eq(sessions.id, id)).run();
       },
-      list: async () => db.select().from(sessions).orderBy(asc(sessions.startedAt)).all(),
       paused: async () =>
         db.select().from(sessions).where(eq(sessions.paused, true)).orderBy(asc(sessions.startedAt)).all(),
     },
@@ -199,14 +198,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       },
       get: async (id) => db.select().from(tops).where(eq(tops.id, id)).get(),
       list: async () => db.select().from(tops).orderBy(asc(tops.kind), asc(tops.name)).all(),
-      remove: async (id) => {
-        sqlite
-          .transaction(() => {
-            db.delete(records).where(eq(records.top, id)).run();
-            db.delete(tops).where(eq(tops.id, id)).run();
-          })
-          .immediate();
-      },
     },
 
     records: {

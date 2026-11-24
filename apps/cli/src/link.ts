@@ -39,13 +39,18 @@ export class TeamLink {
     this.#socket?.close();
   }
 
-  /** One round now, or right after the one running. */
-  sync(): Promise<SyncResult | null> {
+  /** One round now, or right after the one running; `before` runs first, while no round runs. */
+  sync(before?: () => Promise<void>): Promise<SyncResult | null> {
     if (this.#syncing !== null) {
+      // A round in flight writes the cursor after each page: `before` waits for it to end.
+      if (before) return this.#syncing.catch(() => null).then(() => this.sync(before));
       this.#again = true;
       return this.#syncing;
     }
-    this.#syncing = this.#round().finally(() => {
+    this.#syncing = (async () => {
+      await before?.();
+      return this.#round();
+    })().finally(() => {
       this.#syncing = null;
       if (this.#again) {
         this.#again = false;

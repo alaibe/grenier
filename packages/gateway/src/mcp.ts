@@ -1,10 +1,10 @@
-import { builtinType, recordProblem } from "@grenier/core";
 import {
   type AskConsent,
   deliver,
   type Embedder,
   fileSummary,
   type Identity,
+  needsConsent,
   newId,
   placeOf,
   query,
@@ -13,13 +13,14 @@ import {
   type RepoFiles,
   readable,
   recall,
+  refusal,
   remember,
   repoMap,
   StoreUseError,
   topName,
   write,
 } from "@grenier/index";
-import type { Store } from "@grenier/store";
+import type { RecordInput, Store } from "@grenier/store";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -110,6 +111,27 @@ export function createMcpServer(deps: McpDeps): McpServer {
     if (choice === "me") return { action: "me" };
     if (choice === "cancel") return { action: "cancel" };
     return edited ? { action: "edit", body: edited } : { action: "share" };
+  };
+
+  /** Whether the person says yes; null when the client cannot ask. */
+  const confirm = async (message: string): Promise<boolean | null> => {
+    if (!server.server.getClientCapabilities()?.elicitation) return null;
+    const result = await server.server.elicitInput({
+      message: message.slice(0, 4000),
+      requestedSchema: {
+        type: "object",
+        properties: {
+          choice: {
+            type: "string",
+            title: "File it?",
+            enum: ["file", "cancel"],
+            enumNames: ["File it", "Do not file it"],
+          },
+        },
+        required: ["choice"],
+      },
+    });
+    return result.action === "accept" && result.content?.choice === "file";
   };
 
   server.registerTool(
@@ -214,6 +236,19 @@ export function createMcpServer(deps: McpDeps): McpServer {
       answer(async () => {
         const client = await reader();
         const place = input.folder ? await placeOf(deps.store, client, input.folder) : null;
+        const kind = input.kind ?? (input.fields?.kind as string | undefined) ?? "fact";
+        const anchors = [
+          ...(input.files ?? []).map(() => ({ kind: "git" as const })),
+          ...(input.items ?? []).map(() => ({ kind: "item" as const })),
+        ];
+        const aboutCode = !needsConsent({ type: input.type ?? "Memory", kind, anchors });
+        // A run's output goes to its top folder; an answer about the code goes to its repository's, as anywhere else.
+        const runTop = deps.runTop === "me" || !aboutCode ? deps.runTop : undefined;
+        if (!place && runTop && runTop !== "me" && (await deps.store.state.get("team_role")) === "member") {
+          throw new StoreUseError(
+            "the record is refused: a routine's run on a member's machine keeps only answers about the code, with the files they come from",
+          );
+        }
         return remember(
           await storeDeps(),
           client,
@@ -224,7 +259,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
             ...(input.kind ? { kind: input.kind } : {}),
             ...(input.body ? { body: input.body } : {}),
             ...(input.fields ? { fields: input.fields } : {}),
-            ...(place ? { top: place.top, folder: place.folder } : deps.runTop ? { top: deps.runTop } : {}),
+            ...(place ? { top: place.top, folder: place.folder } : runTop ? { top: runTop } : {}),
             ...(input.files ? { files: input.files } : {}),
             ...(input.items ? { items: input.items } : {}),
             ...(input.links ? { links: input.links } : {}),
@@ -262,22 +297,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
             `no routine ${input.routine}; there are: ${routines.map((candidate) => candidate.title).join(", ") || "none"}`,
           );
         }
-        const task = {
+        const now = Date.now();
+        const task: RecordInput = {
+          id: newId(),
+          top: routine.top,
           type: "Task",
+          kind: null,
           title: input.title.trim(),
+          folder: "",
           body: input.body?.trim() ?? "",
           fields: { status: "to-do", routine: routine.id },
-        };
-        const problem = recordProblem(task, builtinType("Task"));
-        if (problem) throw new StoreUseError(`the request is refused: ${problem}`);
-        const now = Date.now();
-        const id = newId();
-        await write(store, {
-          ...task,
-          folder: "",
-          id,
-          top: routine.top,
-          kind: null,
           author: store.me.member,
           device: store.me.device,
           sessionId: deps.sessionId ?? null,
@@ -287,8 +316,24 @@ export function createMcpServer(deps: McpDeps): McpServer {
           version: 0,
           anchors: [],
           links: [{ kind: "record", ref: routine.id }],
-        });
-        return { id, routine: routine.title, status: "to-do" };
+        };
+        // Refused before asking: the person is not asked to file what the team store would refuse.
+        const problem = await refusal(store.store, task);
+        if (problem) throw new StoreUseError(`the request is refused: ${problem}`);
+        // No one watches a routine's run; anywhere else the person says yes before a task leaves this machine.
+        if (!deps.runTop && task.top !== "me") {
+          const filed = await confirm(
+            `File this request for ${routine.title}? An idle teammate's machine runs it.\n\n${task.title}\n\n${task.body}`,
+          );
+          if (filed === null) {
+            throw new StoreUseError(
+              "the request is not filed: this client cannot ask you first. File it on the app's Routines screen.",
+            );
+          }
+          if (!filed) throw new StoreUseError("the person chose not to file it");
+        }
+        await write(store, task);
+        return { id: task.id, routine: routine.title, status: "to-do" };
       }),
   );
 

@@ -18,13 +18,21 @@ export interface SkillFiles {
   files: Record<string, string>;
 }
 
-/** A field of SKILL.md's front matter, as `name` or `description`. */
+/** A field of SKILL.md's front matter, as `name` or `description`, plain or in YAML's quotes. */
 export function skillField(manifest: string, key: string): string | undefined {
   const front = /^---\n([\s\S]*?)\n---/.exec(manifest)?.[1] ?? "";
-  return new RegExp(`^${key}:\\s*(.+)$`, "m")
-    .exec(front)?.[1]
-    ?.trim()
-    .replace(/^["']|["']$/g, "");
+  const value = new RegExp(`^${key}:\\s*(.+)$`, "m").exec(front)?.[1]?.trim();
+  if (value && value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
+    try {
+      return JSON.parse(value) as string;
+    } catch {
+      return value.slice(1, -1);
+    }
+  }
+  if (value && value.length > 1 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replaceAll("''", "'");
+  }
+  return value;
 }
 
 /** A skill as a record holds it, SKILL.md and the text files beside it, within a shared skill's limits. */
@@ -281,9 +289,8 @@ export async function sharedList(store: Store): Promise<SharedState[]> {
         title: record.title,
         description:
           type === "Skill"
-            ? (/^description:\s*(.+)$/m.exec(
-                String((record.fields.files as Record<string, string>)?.["SKILL.md"] ?? ""),
-              )?.[1] ?? "")
+            ? (skillField(String((record.fields.files as Record<string, string>)?.["SKILL.md"] ?? ""), "description") ??
+              "")
             : (record.body.split("\n")[0] ?? ""),
         author: record.author,
         state: !approval ? "available" : approval.hash === hash ? "installed" : "update",

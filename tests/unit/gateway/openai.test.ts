@@ -1,8 +1,13 @@
 import { readFileSync } from "node:fs";
+import { allowedTools, mayCall, type RoutineMode } from "@grenier/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeUpstream, sse, type TestGateway, testGateway } from "../../support/gateway.ts";
 
 const RESPONSES = new Uint8Array(readFileSync(new URL("../../fixtures/openai/responses-stream.sse", import.meta.url)));
+/** Codex reading with its shell and Grenier's recall, then patching a file: Responses API events as it streams them. */
+const TOOL_CALLS = new Uint8Array(
+  readFileSync(new URL("../../fixtures/openai/responses-tool-calls.sse", import.meta.url)),
+);
 const CHAT = new Uint8Array(readFileSync(new URL("../../fixtures/openai/chat-completion.json", import.meta.url)));
 
 let gateway: TestGateway;
@@ -77,5 +82,62 @@ describe("OpenAI-compatible endpoints", () => {
     });
     await gateway.request("/s/s1/openai/v1/chat/completions", openaiRequest({ model: "local" }));
     expect(upstream.requests[0]?.url).toBe("http://127.0.0.1:11434/v1/chat/completions");
+  });
+});
+
+describe("a Codex routine's run", () => {
+  /** The runner's own rule for a Codex run in this mode, counting what it is asked. */
+  function codexRun(mode: RoutineMode, respond: () => Response) {
+    const asked: string[] = [];
+    const cut: string[] = [];
+    const upstream = fakeUpstream(respond);
+    const allowed = allowedTools(mode, [], "codex");
+    gateway = testGateway(upstream, () => {}, {
+      runGuard: async (session) =>
+        session.id === "run1"
+          ? {
+              allows: (tool) => {
+                asked.push(tool);
+                return mayCall("codex", allowed, tool);
+              },
+              cut: (tool) => cut.push(tool),
+              hold: async () => cut.length === 0,
+            }
+          : null,
+    });
+    return { asked, cut, upstream };
+  }
+  const send = () => gateway.request("/s/run1/openai/v1/responses", openaiRequest({ model: "gpt-5.1-codex" }));
+
+  it("cuts a read-only run's stream before apply_patch, and lets its shell and Grenier's recall through", async () => {
+    const { asked, cut, upstream } = codexRun("read-only", () => sse(TOOL_CALLS));
+    const text = await (await send()).text();
+    expect(asked).toEqual(["exec_command", "mcp__grenier__recall", "apply_patch"]);
+    expect(cut).toEqual(["apply_patch"]);
+    expect(text).toContain('"name":"exec_command"');
+    expect(text).toContain('"name":"recall"');
+    expect(text).not.toContain('"name":"apply_patch"');
+    expect(text).not.toContain("*** Begin Patch");
+    expect(text.trimEnd().split("\n\n").at(-1)).toMatch(/^event: response\.failed\ndata: .*may not call apply_patch/);
+    expect((await send()).status).toBe(529);
+    expect(upstream.requests).toHaveLength(1);
+  });
+
+  it("passes a run that may act through byte for byte, asking once for each call", async () => {
+    const { asked, cut } = codexRun("on", () => sse(TOOL_CALLS));
+    expect(new Uint8Array(await (await send()).arrayBuffer())).toEqual(TOOL_CALLS);
+    expect(asked).toEqual(["exec_command", "mcp__grenier__recall", "apply_patch"]);
+    expect(cut).toEqual([]);
+  });
+
+  it("holds a shadow run to its mode in a whole answer too, and any MCP tool it was not given", async () => {
+    const whole = (item: Record<string, unknown>) => () => Response.json({ object: "response", output: [item] });
+    const patch = { type: "custom_tool_call", call_id: "c1", name: "apply_patch", input: "*** Begin Patch" };
+    codexRun("shadow", whole(patch));
+    expect((await send()).status).toBe(403);
+    const linear = { type: "function_call", call_id: "c2", namespace: "mcp__linear", name: "update_issue" };
+    const { cut } = codexRun("on", whole(linear));
+    expect((await send()).status).toBe(403);
+    expect(cut).toEqual(["mcp__linear__update_issue"]);
   });
 });

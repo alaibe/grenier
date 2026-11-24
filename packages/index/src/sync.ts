@@ -1,6 +1,7 @@
 import { open, seal, VaultError } from "@grenier/core";
 import type { FullRecord, OutboxEntry, RecordInput, Store } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
+import { newId, RECORD_PARTS } from "./records.ts";
 
 export interface TeamClient {
   url: string;
@@ -28,6 +29,8 @@ export async function teamApi<T>(
     method: init.method ?? (init.body === undefined ? "GET" : "POST"),
     headers: { authorization: `Bearer ${team.token}`, "content-type": "application/json" },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+  }).catch((error: Error) => {
+    throw new TeamError(`the team store can't be reached: ${error.message}`, 503, "the team store can't be reached");
   });
   let body: unknown;
   try {
@@ -191,6 +194,8 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
 
   let cursor = Number((await store.state.get("team_cursor")) ?? 0);
   const waiting = new Set((await store.outbox.list()).map((entry) => entry.recordId));
+  // The cursor moves past a Me page this machine cannot open: the ids stay, so Settings can say so until it can.
+  const unopened = new Set(await unopenedIds(store));
   for (;;) {
     const page = await teamApi<{
       records: Remote[];
@@ -212,17 +217,20 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
     for (let remote of page.records) {
       if (waiting.has(remote.id)) continue;
       if (remote.top === me.me) {
-        if (!deps.personalKey) {
+        const opened = deps.personalKey
+          ? await openRecord(deps.personalKey, remote).catch((error: Error) => {
+              if (error instanceof VaultError) return null;
+              throw error;
+            })
+          : null;
+        if (!opened) {
           result.unopened += 1;
+          if (remote.retiredAt === null) unopened.add(remote.id);
+          else unopened.delete(remote.id);
           continue;
         }
-        try {
-          remote = { ...(await openRecord(deps.personalKey, remote)), top: "me" };
-        } catch (error) {
-          if (!(error instanceof VaultError)) throw error;
-          result.unopened += 1;
-          continue;
-        }
+        unopened.delete(remote.id);
+        remote = { ...opened, top: "me" };
       }
       const { sealed: _sealed, ...rest } = remote;
       const record: RecordInput = { ...rest, folder: rest.folder ?? "" };
@@ -244,6 +252,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
       result.pulled += 1;
     }
     cursor = page.next;
+    await store.state.set("team_unopened", JSON.stringify([...unopened]));
     await store.state.set("team_cursor", String(cursor));
     if (page.records.length === 0 || cursor >= page.version) break;
   }
@@ -251,6 +260,33 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   await pushUsage(deps);
   await store.state.set("last_sync", String((deps.now ?? Date.now)()));
   return result;
+}
+
+async function unopenedIds(store: Store): Promise<string[]> {
+  return JSON.parse((await store.state.get("team_unopened")) ?? "[]") as string[];
+}
+
+/** How many of the person's Me pages this machine cannot open: they were sealed with another personal key. */
+export async function unopenedCount(store: Store): Promise<number> {
+  return (await unopenedIds(store)).length;
+}
+
+/** After the personal key changed: Me goes out again sealed with it, and the pull starts over for the pages skipped. */
+export async function rekeyed(store: Store, now = Date.now()): Promise<void> {
+  const waiting = new Set((await store.outbox.list()).map((entry) => entry.recordId));
+  for (const record of await store.records.list({ tops: ["me"], retired: true, limit: 1_000_000 })) {
+    if (waiting.has(record.id)) continue;
+    const { seq: _seq, hits: _hits, ...rest } = record;
+    await store.outbox.add({
+      id: newId(),
+      recordId: record.id,
+      change: { changed: [...RECORD_PARTS], record: rest },
+      baseVersion: record.version,
+      createdAt: now,
+    });
+  }
+  await store.state.set("team_cursor", "0");
+  await store.state.set("team_unopened", "[]");
 }
 
 /** This machine's usage by day and repository folder, as totals the team store replaces. */

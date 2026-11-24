@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type RecordRow, type Run } from "../api.ts";
+import { routineTitle, takesRequests } from "../requests.ts";
 import {
   Actions,
   ago,
@@ -21,10 +22,7 @@ import {
   useLoad,
 } from "../ui.tsx";
 
-const loadRoutines = () =>
-  api<{ records: RecordRow[] }>("/records?type=Routine").then((answer) =>
-    answer.records.filter((record) => (record.fields.trigger ?? "request") === "request"),
-  );
+const loadRoutines = () => api<{ records: RecordRow[] }>("/records?type=Routine").then((answer) => answer.records);
 const loadTasks = () =>
   api<{ records: RecordRow[] }>("/records?type=Task").then((answer) =>
     answer.records.filter((record) => typeof record.fields.routine === "string" && record.fields.routine !== ""),
@@ -43,10 +41,8 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
     tasks.reload();
     runs.reload();
   });
-  const routineTitle = useCallback(
-    (id: unknown) => routines.data?.find((routine) => routine.id === id)?.title ?? "a routine",
-    [routines.data],
-  );
+  const nameOf = useCallback((id: unknown) => routineTitle(routines.data, id), [routines.data]);
+  const requestable = routines.data?.filter(takesRequests) ?? [];
 
   const file = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -78,12 +74,12 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
       }
     >
       <Notice message={routines.error ?? tasks.error ?? action.message} />
-      {!member && routines.data && routines.data.length > 0 && (
+      {!member && requestable.length > 0 && (
         <FormCard className="grid-cols-[200px_1fr]" onSubmit={file}>
           <Field>
             Routine
             <Select name="routine" required>
-              {routines.data.map((routine) => (
+              {requestable.map((routine) => (
                 <option key={routine.id} value={routine.id}>
                   {routine.title}
                 </option>
@@ -132,7 +128,7 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
                       {task.title}
                     </button>
                   </td>
-                  <td>{routineTitle(task.fields.routine)}</td>
+                  <td>{nameOf(task.fields.routine)}</td>
                   <td>{String(task.fields.status ?? "to-do")}</td>
                   <td>{String(task.fields.machine ?? "")}</td>
                   <td className="whitespace-nowrap">{ago(task.updatedAt)}</td>
@@ -159,7 +155,7 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
             <tbody>
               {runs.data.map((run) => (
                 <tr key={run.id}>
-                  <td>{routineTitle(run.routine_id)}</td>
+                  <td>{nameOf(run.routine_id)}</td>
                   <td>{run.machine}</td>
                   <td>{run.status}</td>
                   <td className="whitespace-nowrap">{ago(run.started_at)}</td>

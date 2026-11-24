@@ -40,10 +40,89 @@ export interface RunGuard {
   hold(signal: AbortSignal): Promise<boolean>;
 }
 
+const cutMessage = (tool: string) => `Grenier cut this routine's run off: it may not call ${tool}.`;
+
+/** An item of OpenAI's Responses API. */
+interface ResponseItem {
+  id?: string;
+  call_id?: string;
+  type?: string;
+  name?: string;
+  namespace?: string;
+}
+
+const CALLS = new Set(["function_call", "custom_tool_call", "local_shell_call"]);
+
+/** The tool a Responses item calls, named as Codex names it: an MCP tool's namespace and name joined by "__". */
+function calledTool(item: ResponseItem): string | null {
+  if (!item.type || !CALLS.has(item.type)) return null;
+  if (item.type === "local_shell_call") return "local_shell";
+  const name = item.name ?? "";
+  return item.namespace ? `${item.namespace.replace(/_+$/, "")}__${name.replace(/^_+/, "")}` : name;
+}
+
+/** The tools a whole answer calls. */
+function toolsOfAnswer(provider: Provider, bytes: Uint8Array): string[] {
+  try {
+    const answer = JSON.parse(new TextDecoder().decode(bytes)) as {
+      content?: { type?: string; name?: string }[];
+      output?: ResponseItem[];
+    };
+    if (provider === "anthropic") {
+      return (answer.content ?? []).filter((block) => block.type === "tool_use").map((block) => block.name ?? "");
+    }
+    return (answer.output ?? []).map(calledTool).filter((tool) => tool !== null);
+  } catch {
+    // Not a message: passed back as it came.
+    return [];
+  }
+}
+
+/** The tool a stream's event starts a call to, each call once, or null. */
+function streamedTools(provider: Provider): (data: string) => string | null {
+  const seen = new Set<string>();
+  return (data) => {
+    try {
+      if (provider === "anthropic") {
+        if (!data.includes('"tool_use"')) return null;
+        const event = JSON.parse(data) as { type?: string; content_block?: { type?: string; name?: string } };
+        if (event.type !== "content_block_start" || event.content_block?.type !== "tool_use") return null;
+        return event.content_block.name ?? "";
+      }
+      // A call shows in output_item.added, and again in .done: either may be the first one seen.
+      if (!data.includes('"response.output_item.')) return null;
+      const event = JSON.parse(data) as { type?: string; output_index?: number; item?: ResponseItem };
+      if (!event.item || !/^response\.output_item\.(added|done)$/.test(event.type ?? "")) return null;
+      const tool = calledTool(event.item);
+      const key = event.item.id ?? event.item.call_id ?? String(event.output_index);
+      if (tool === null || seen.has(key)) return null;
+      seen.add(key);
+      return tool;
+    } catch {
+      // Not JSON: passed through like any other line.
+      return null;
+    }
+  };
+}
+
+/** The stream's last event once a run is cut off, as each API ends a stream that failed. */
+function cutEvent(provider: Provider, tool: string): string {
+  if (provider === "anthropic") {
+    const error = { type: "error", error: { type: "permission_error", message: cutMessage(tool) } };
+    return `event: error\ndata: ${JSON.stringify(error)}\n\n`;
+  }
+  const failed = {
+    type: "response.failed",
+    response: { status: "failed", error: { code: "permission_error", message: cutMessage(tool) } },
+  };
+  return `event: response.failed\ndata: ${JSON.stringify(failed)}\n\n`;
+}
+
 /** From the first refused tool call on, the stream becomes one error event and the upstream is cancelled. */
-function guardedEvents(guard: RunGuard) {
+function guardedEvents(guard: RunGuard, provider: Provider) {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+  const toolIn = streamedTools(provider);
   let pending = "";
   return (chunk: Uint8Array | null): { out: Uint8Array | null; stop: boolean } => {
     pending += chunk ? decoder.decode(chunk, { stream: true }) : decoder.decode();
@@ -53,26 +132,11 @@ function guardedEvents(guard: RunGuard) {
     pending = pending.slice(complete.length);
     let passed = "";
     for (const event of complete.split(/(?<=\n\n)/)) {
-      const data = /^data: (.*)$/m.exec(event)?.[1];
-      let tool: string | null = null;
-      if (data?.includes('"tool_use"')) {
-        try {
-          const parsed = JSON.parse(data) as { type?: string; content_block?: { type?: string; name?: string } };
-          if (parsed.type === "content_block_start" && parsed.content_block?.type === "tool_use") {
-            tool = parsed.content_block.name ?? "";
-          }
-        } catch {
-          // Not JSON: passed through like any other line.
-        }
-      }
+      const data = /^data: ?(.*)$/m.exec(event)?.[1];
+      const tool = data === undefined ? null : toolIn(data);
       if (tool !== null && !guard.allows(tool)) {
         guard.cut(tool);
-        const error = {
-          type: "error",
-          error: { type: "permission_error", message: `Grenier cut this routine's run off: it may not call ${tool}.` },
-        };
-        passed += `event: error\ndata: ${JSON.stringify(error)}\n\n`;
-        return { out: encoder.encode(passed), stop: true };
+        return { out: encoder.encode(passed + cutEvent(provider, tool)), stop: true };
       }
       passed += event;
     }
@@ -299,27 +363,16 @@ export function createProxy(options: ProxyOptions) {
     };
     request.signal.addEventListener("abort", () => void record(), { once: true });
 
+    const streamed = (contentType ?? "").includes("text/event-stream");
     // A whole answer, not a stream: its tool calls are checked before any of it goes back.
-    if (guard && provider === "anthropic" && !(contentType ?? "").includes("text/event-stream")) {
+    if (guard && !streamed) {
       const bytes = new Uint8Array(await response.arrayBuffer());
       reader.push(bytes);
       await record();
-      let blocks: { type?: string; name?: string }[] = [];
-      try {
-        blocks =
-          (JSON.parse(new TextDecoder().decode(bytes)) as { content?: { type?: string; name?: string }[] }).content ??
-          [];
-      } catch {
-        // Not a message: passed back as it came.
-      }
-      for (const block of blocks) {
-        if (block.type !== "tool_use" || guard.allows(block.name ?? "")) continue;
-        guard.cut(block.name ?? "");
-        return errorResponse(
-          403,
-          "permission_error",
-          `Grenier cut this routine's run off: it may not call ${block.name}.`,
-        );
+      for (const tool of toolsOfAnswer(provider, bytes)) {
+        if (guard.allows(tool)) continue;
+        guard.cut(tool);
+        return errorResponse(403, "permission_error", cutMessage(tool));
       }
       return new Response(bytes, {
         status: response.status,
@@ -329,10 +382,7 @@ export function createProxy(options: ProxyOptions) {
     }
 
     const source = response.body.getReader();
-    const filter =
-      guard && provider === "anthropic" && (contentType ?? "").includes("text/event-stream")
-        ? guardedEvents(guard)
-        : null;
+    const filter = guard && streamed ? guardedEvents(guard, provider) : null;
     const tapped = new ReadableStream<Uint8Array>({
       async pull(controller) {
         let chunk: Awaited<ReturnType<typeof source.read>>;

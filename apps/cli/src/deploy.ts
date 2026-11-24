@@ -16,6 +16,8 @@ export interface DeployDeps {
   store: Store;
   /** The built Worker: dist/server beside the CLI's bundle. */
   serverDir: string;
+  /** Whether this machine is in a team now: only then may it update a Worker the account has already. */
+  inTeam: boolean;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -79,6 +81,12 @@ export async function deployTeamStore(
   const account = (accounts[0] as { id: string }).id;
   const scripts = await cloudflare<{ id: string }[]>(fetchImpl, token, `/accounts/${account}/workers/scripts`);
   const exists = scripts.some((script) => script.id === input.name);
+  // The upload replaces the store's setup hash: a machine outside it must not touch a store it never joined.
+  if (exists && !deps.inTeam) {
+    throw new CommandError(
+      `a Worker named ${input.name} exists in this account: pick another name, or join it with an invite`,
+    );
+  }
 
   const setup = newTeamToken();
   const metadata = {

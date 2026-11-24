@@ -207,6 +207,67 @@ describe("a machine that takes the team's routine runs", () => {
     expect((await store.runs.list({ routineId: routine.id }))[0]?.status).toBe("cut");
   });
 
+  it("holds a read-only Codex run to its sandbox, and its patch tool to the mode", async () => {
+    const routine = await addRoutine(deps, {
+      title: "Explain",
+      prompt: "Explain the router.",
+      fields: { trigger: "request", agent: "codex" },
+      repo: null,
+      top: "team",
+    });
+    const record = (await store.records.get(routine.id)) as FullRecord;
+    const seen: Record<string, boolean> = {};
+    answer = async (runner) => {
+      const running = await store.runs.list({ routineId: routine.id });
+      const guard = runner.guard((await store.sessions.get(running[0]?.sessionId as string)) as never);
+      for (const tool of ["exec_command", "mcp__grenier__recall", "apply_patch", "mcp__linear__update_issue"]) {
+        seen[tool] = guard?.allows(tool) ?? false;
+      }
+      return { code: 0, text: "The router is in router.ts." };
+    };
+    const runner = newRunner();
+    // Told and asked already: the tick after the run has nothing to send while the test ends.
+    await runner.tick(true);
+    await runner.run({ routine: record, trigger: "manual", mode: "read-only" });
+    expect(calls[0]?.command).toBe("codex");
+    expect(calls[0]?.args.slice(0, 3)).toEqual(["exec", "--sandbox", "read-only"]);
+    expect(seen).toEqual({
+      exec_command: true,
+      mcp__grenier__recall: true,
+      apply_patch: false,
+      mcp__linear__update_issue: false,
+    });
+    expect((await store.runs.list({ routineId: routine.id }))[0]?.actions).toBe(0);
+  });
+
+  it("counts a limited Codex run's patches against its allowance, not the shell it reads with", async () => {
+    const routine = await addRoutine(deps, {
+      title: "Fix typos",
+      prompt: "Fix the typos.",
+      fields: { trigger: "request", agent: "codex" },
+      repo: null,
+      top: "team",
+    });
+    await approve(store, (await store.records.get(routine.id)) as FullRecord, "limited", 2);
+    const seen: boolean[] = [];
+    answer = async (runner) => {
+      const running = await store.runs.list({ routineId: routine.id });
+      const guard = runner.guard((await store.sessions.get(running[0]?.sessionId as string)) as never);
+      for (let n = 0; n < 12; n++) seen.push(guard?.allows("exec_command") ?? false);
+      for (let n = 0; n < 3; n++) seen.push(guard?.allows("apply_patch") ?? false);
+      return { code: 0, text: "Fixed two." };
+    };
+    const runner = newRunner();
+    await runner.tick(true);
+    await runner.run({
+      routine: (await store.records.get(routine.id)) as FullRecord,
+      trigger: "manual",
+      mode: "limited",
+    });
+    expect(seen).toEqual([...Array(12).fill(true), true, true, false]);
+    expect((await store.runs.list({ routineId: routine.id }))[0]?.actions).toBe(2);
+  });
+
   it("counts actions against a limited run's allowance", async () => {
     const routine = await addRoutine(deps, {
       title: "Label issues",
@@ -234,6 +295,25 @@ describe("a machine that takes the team's routine runs", () => {
     expect(seen).toEqual([false, false, false]);
   });
 
+  it("ends the task with a short failure when the team store would refuse its result", async () => {
+    const routine = await addRoutine(deps, {
+      title: "Deploy",
+      prompt: "Deploy.",
+      fields: { trigger: "request" },
+      repo: null,
+      top: "team",
+    });
+    await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
+    const id = await task("Deploy the site", routine.id);
+    answer = async () => ({ code: 0, text: JSON.stringify({ result: "Deployed with AKIAABCDEFGHIJKLMNOP." }) });
+    await newRunner().tick(true);
+    const fields = (await store.records.get(id))?.fields;
+    expect(fields?.status).toBe("done");
+    expect(fields?.result).toBe("Its result was not kept: it holds what looks like a key or a token.");
+    const remote = await teamApi<{ records: FullRecord[] }>(team, "/api/changes?after=0&limit=500");
+    expect(remote.records.find((record) => record.id === id)?.fields.status).toBe("done");
+  });
+
   it("lists a run whose repository is not on this machine, as failed", async () => {
     const routine = await addRoutine(deps, {
       title: "Elsewhere",
@@ -243,7 +323,10 @@ describe("a machine that takes the team's routine runs", () => {
       top: "team",
     });
     const record = (await store.records.get(routine.id)) as FullRecord;
-    await newRunner().run({ routine: record, trigger: "manual", mode: "read-only" });
+    const runner = newRunner();
+    // Told and asked already: the tick after the run has nothing to send while the test ends.
+    await runner.tick(true);
+    await runner.run({ routine: record, trigger: "manual", mode: "read-only" });
     expect((await store.runs.list({ routineId: routine.id }))[0]?.status).toBe("failed");
   });
 

@@ -171,7 +171,8 @@ export function installs(
       if (!description || !instructions) return no(400, "a skill needs a description and its instructions");
       try {
         const skill = skillFromFiles(
-          { "SKILL.md": `---\nname: ${name}\ndescription: ${description}\n---\n${instructions}\n` },
+          // A JSON string is a YAML double-quoted scalar: a ": " or a quote in it stays text.
+          { "SKILL.md": `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n${instructions}\n` },
           name,
         );
         const shared = await share(await catalog.deps(), {

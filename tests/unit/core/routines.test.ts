@@ -1,4 +1,4 @@
-import { allowedTools, isAction, nextDue, READ_TOOLS, readsByName, routineHash } from "@grenier/core";
+import { allowedTools, isAction, mayCall, nextDue, READ_TOOLS, readsByName, routineHash } from "@grenier/core";
 import { describe, expect, it } from "vitest";
 
 const routine = (fields: Record<string, unknown>, body = "Update, then test.") => ({
@@ -21,6 +21,21 @@ describe("what a routine's run may call", () => {
     expect(allowedTools("on", tools)).toEqual(allowedTools("limited", tools));
   });
 
+  it("leaves Codex its own tools, inside its sandbox, and holds its patch tool and MCP tools to the mode", () => {
+    const readOnly = allowedTools("read-only", ["mcp__linear__update_issue"], "codex");
+    for (const tool of ["exec_command", "write_stdin", "update_plan", "local_shell", "mcp__grenier__recall"]) {
+      expect(mayCall("codex", readOnly, tool)).toBe(true);
+    }
+    expect(mayCall("codex", readOnly, "apply_patch")).toBe(false);
+    expect(mayCall("codex", readOnly, "mcp__linear__update_issue")).toBe(false);
+    const on = allowedTools("on", ["mcp__linear__update_issue"], "codex");
+    expect(mayCall("codex", on, "apply_patch")).toBe(true);
+    expect(mayCall("codex", on, "mcp__linear__update_issue")).toBe(true);
+    expect(mayCall("codex", on, "mcp__github__merge_pull_request")).toBe(false);
+    expect(mayCall("claude", allowedTools("on", ["Edit"]), "exec_command")).toBe(false);
+    expect(allowedTools("on", ["Edit"])).not.toContain("apply_patch");
+  });
+
   it("tells reading tools from actions by their names", () => {
     expect(readsByName("mcp__calendar__list_events")).toBe(true);
     expect(readsByName("mcp__github__get_pull_request")).toBe(true);
@@ -29,6 +44,9 @@ describe("what a routine's run may call", () => {
     expect(isAction("Read")).toBe(false);
     expect(isAction("mcp__grenier__remember")).toBe(false);
     expect(isAction("Edit")).toBe(true);
+    expect(isAction("exec_command", "codex")).toBe(false);
+    expect(isAction("apply_patch", "codex")).toBe(true);
+    expect(isAction("mcp__linear__update_issue", "codex")).toBe(true);
   });
 });
 

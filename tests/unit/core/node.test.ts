@@ -49,15 +49,13 @@ describe("ensureDirectories", () => {
 
 describe("loadConfig", () => {
   it("returns the defaults when there is no file", () => {
-    expect(loadConfig(join(dir, "missing.toml"))).toEqual({ config: defaultConfig(), found: false });
+    expect(loadConfig(join(dir, "missing.toml"))).toEqual(defaultConfig());
   });
 
   it("reads a file", () => {
     const file = join(dir, "config.toml");
     writeFileSync(file, "[proxy]\nport = 8000\n");
-    const loaded = loadConfig(file);
-    expect(loaded.found).toBe(true);
-    expect(loaded.config.proxy.port).toBe(8000);
+    expect(loadConfig(file).proxy.port).toBe(8000);
   });
 
   it("names the file in the error for an invalid one", () => {

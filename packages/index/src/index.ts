@@ -6,6 +6,7 @@ export {
   type Consent,
   check,
   deliver,
+  embedding,
   ensureRepoTop,
   type Found,
   fileSummary,
@@ -23,6 +24,7 @@ export {
   type RepoMapEntry,
   readable,
   recall,
+  refusal,
   remember,
   repoMap,
   retire,
@@ -36,6 +38,7 @@ export {
   write,
 } from "./records.ts";
 export {
+  rekeyed,
   type SyncDeps,
   type SyncResult,
   sealRecord,
@@ -44,4 +47,5 @@ export {
   type TeamClient,
   TeamError,
   teamApi,
+  unopenedCount,
 } from "./sync.ts";

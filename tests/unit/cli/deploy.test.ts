@@ -76,6 +76,7 @@ describe("creating the team store from the app", () => {
       config: defaultConfig(),
       store,
       serverDir: join(dir, "server"),
+      inTeam: false,
       fetch: cloudflare.fetchImpl,
       sleep: async () => {},
     };
@@ -91,10 +92,34 @@ describe("creating the team store from the app", () => {
     expect(statSync(join(dir, ".grenier", "team-token")).mode & 0o777).toBe(0o600);
     expect(await store.state.get("team_role")).toBe("admin");
 
-    const updated = await deployTeamStore(deps, { token: TOKEN, name: "grenier-team", member: "ada" });
+    const updated = await deployTeamStore(
+      { ...deps, inTeam: true },
+      { token: TOKEN, name: "grenier-team", member: "ada" },
+    );
     expect(updated).toEqual({ url: "https://grenier-team.acme.workers.dev", team: null });
     expect(cloudflare.uploads[1]).not.toHaveProperty("migrations");
     expect(readFileSync(paths.config, "utf8")).not.toContain(TOKEN);
+  });
+
+  it("refuses a Worker of the same name from a machine in no team, before uploading anything", async () => {
+    const cloudflare = fakeCloudflare();
+    const deps = {
+      paths: resolvePaths({ GRENIER_HOME: join(dir, ".grenier") }),
+      config: defaultConfig(),
+      store,
+      serverDir: join(dir, "server"),
+      inTeam: false,
+      fetch: cloudflare.fetchImpl,
+      sleep: async () => {},
+    };
+    await deployTeamStore(deps, { token: TOKEN, name: "grenier-team", member: "ada" });
+    await store.state.set("team_role", "none");
+    const again = deployTeamStore(deps, { token: TOKEN, name: "grenier-team", member: "eve" });
+    await expect(again).rejects.toThrow(
+      "a Worker named grenier-team exists in this account: pick another name, or join it with an invite",
+    );
+    expect(cloudflare.uploads).toHaveLength(1);
+    expect(await store.state.get("team_role")).toBe("none");
   });
 
   it("says what Cloudflare refused, never the token", async () => {
@@ -104,6 +129,7 @@ describe("creating the team store from the app", () => {
       config: defaultConfig(),
       store,
       serverDir: join(dir, "server"),
+      inTeam: false,
       fetch: cloudflare.fetchImpl,
     };
     const refused = deployTeamStore(deps, { token: "cf_wrong_secret", name: "grenier-team", member: "ada" });

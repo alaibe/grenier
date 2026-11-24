@@ -13,8 +13,6 @@ export interface Io {
   err: (line: string) => void;
   /** How to start this program again, for the daemon: [node, script]. */
   self: string[];
-  /** All of standard input, for a command that reads it. */
-  stdin?: () => Promise<string>;
 }
 
 /** A failure to report as `grenier: <message>` with exit code 1. */
@@ -39,15 +37,13 @@ export function isReported(error: unknown): error is Error {
 export interface Environment {
   paths: GrenierPaths;
   config: Config;
-  configFound: boolean;
 }
 
 /** The paths and config, with ~/.grenier created on first run. Throws ConfigError for an invalid config. */
 export function environment(io: Io): Environment {
   const paths = resolvePaths(io.env);
   ensureDirectories(paths);
-  const { config, found } = loadConfig(paths.config);
-  return { paths, config, configFound: found };
+  return { paths, config: loadConfig(paths.config) };
 }
 
 export async function withStore<T>(paths: GrenierPaths, use: (store: Store) => Promise<T>): Promise<T> {

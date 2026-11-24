@@ -31,7 +31,9 @@ const resolveRepo = async (path: string | undefined) => {
   return repo.repo;
 };
 
-async function connect(options: { reader?: Reader | null; elicit?: (message: string) => unknown } = {}) {
+async function connect(
+  options: { reader?: Reader | null; elicit?: (message: string) => unknown; runTop?: string } = {},
+) {
   const server = createMcpServer({
     store,
     files: gitFiles,
@@ -40,6 +42,7 @@ async function connect(options: { reader?: Reader | null; elicit?: (message: str
     reader: async () => options.reader ?? { id: "c", name: "claude", scopes: ["*"] },
     me: async () => ADA,
     version: "test",
+    ...(options.runTop ? { runTop: options.runTop } : {}),
   });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
@@ -107,31 +110,117 @@ describe("the MCP server", () => {
     expect(kept).toMatchObject({ top: "me" });
   });
 
-  it("files a request for a routine, by its title", async () => {
-    const client = await connect({ elicit: () => ({ action: "accept", content: { choice: "share" } }) });
+  it("files a request for a routine, by its title, once the person says yes", async () => {
+    const asked: string[] = [];
+    let filing = "file";
+    const client = await connect({
+      elicit: (message) => {
+        asked.push(message);
+        return { action: "accept", content: { choice: message.startsWith("Share") ? "share" : filing } };
+      },
+    });
     await client.callTool({
       name: "remember",
-      arguments: {
-        type: "Routine",
-        title: "Update dependencies",
-        body: "Update.",
-        fields: { trigger: "request" },
-        top: "team",
-      },
+      arguments: { type: "Routine", title: "Update dependencies", body: "Update.", fields: { trigger: "request" } },
     });
     const filed = structured(
       await client.callTool({ name: "request", arguments: { routine: "update dependencies", title: "Bump hono" } }),
     );
     expect(filed).toMatchObject({ routine: "Update dependencies", status: "to-do" });
+    expect(asked.at(-1)).toContain("File this request for Update dependencies?");
     expect((await store.records.get(String(filed.id)))?.fields).toMatchObject({ status: "to-do" });
     const unknown = await client.callTool({ name: "request", arguments: { routine: "nothing", title: "x" } });
     expect(unknown.isError).toBe(true);
+    const before = asked.length;
     const secret = await client.callTool({
       name: "request",
       arguments: { routine: "update dependencies", title: "Bump hono", body: "Use AKIAABCDEFGHIJKLMNOP to publish." },
     });
     expect(secret.isError).toBe(true);
+    expect(asked).toHaveLength(before);
     expect((await store.outbox.list()).some((entry) => JSON.stringify(entry.change).includes("AKIA"))).toBe(false);
+
+    filing = "cancel";
+    const declined = await client.callTool({
+      name: "request",
+      arguments: { routine: "update dependencies", title: "Not this one" },
+    });
+    expect(declined.isError).toBe(true);
+    const tasks = await store.records.list({ tops: ["team"], type: "Task" });
+    expect(tasks.map((task) => task.title)).toEqual(["Bump hono"]);
+  });
+
+  it("files no request from a client that cannot ask the person, nor one a member may not file", async () => {
+    const admin = await connect({ elicit: () => ({ action: "accept", content: { choice: "share" } }) });
+    await admin.callTool({
+      name: "remember",
+      arguments: { type: "Routine", title: "Tidy", body: "Tidy.", fields: { trigger: "request" } },
+    });
+    const silent = await connect();
+    const refused = await silent.callTool({
+      name: "request",
+      arguments: { routine: "Tidy", title: "Tidy the readme" },
+    });
+    expect((refused as { content: { text: string }[] }).content[0]?.text).toContain("cannot ask you first");
+    await store.state.set("team_role", "member");
+    const asked: string[] = [];
+    const member = await connect({
+      elicit: (message) => {
+        asked.push(message);
+        return { action: "accept", content: { choice: "file" } };
+      },
+    });
+    expect((await member.callTool({ name: "request", arguments: { routine: "Tidy", title: "Tidy" } })).isError).toBe(
+      true,
+    );
+    expect(asked).toEqual([]);
+    expect(await store.records.list({ tops: ["team"], type: "Task" })).toEqual([]);
+  });
+
+  it("files a request from a routine's run without asking: no one watches a run", async () => {
+    await store.records.put({
+      id: "r1",
+      top: "team",
+      type: "Routine",
+      kind: null,
+      title: "Tidy",
+      folder: "",
+      body: "Tidy.",
+      fields: { trigger: "request" },
+      author: "ada",
+      device: null,
+      sessionId: null,
+      createdAt: 1,
+      updatedAt: 1,
+      retiredAt: null,
+      version: 1,
+      anchors: [],
+      links: [],
+    });
+    const run = await connect({ runTop: "team" });
+    const filed = structured(await run.callTool({ name: "request", arguments: { routine: "Tidy", title: "Again" } }));
+    expect(filed).toMatchObject({ status: "to-do" });
+  });
+
+  it("keeps a run's answer about the code in its repository's folder, and a member's run's other records nowhere", async () => {
+    const about = (title: string) => ({ kind: "answer", title, body: "In proxy.ts.", files: ["proxy.ts"] });
+    const kept = async (client: Awaited<ReturnType<typeof connect>>, args: Record<string, unknown>) =>
+      structured(await client.callTool({ name: "remember", arguments: args }))?.top;
+    const run = await connect({ runTop: "team" });
+    expect(await kept(run, about("Where is the proxy?"))).toBe(`repo:${repo.repo.id}`);
+    expect(await kept(run, { kind: "fact", title: "The proxy listens on 7788" })).toBe("team");
+    const collector = await connect({ runTop: "me" });
+    expect(await kept(collector, about("Who calls the proxy?"))).toBe("me");
+
+    await store.state.set("team_role", "member");
+    const member = await connect({ runTop: "team" });
+    expect(await kept(member, about("What does the proxy do?"))).toBe(`repo:${repo.repo.id}`);
+    const fact = await member.callTool({
+      name: "remember",
+      arguments: { kind: "fact", title: "It restarts at night" },
+    });
+    expect(fact.isError).toBe(true);
+    expect((fact as { content: { text: string }[] }).content[0]?.text).toContain("run on a member's machine");
   });
 
   it("returns the store's refusals as tool errors, not crashes", async () => {

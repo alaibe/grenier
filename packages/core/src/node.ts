@@ -27,20 +27,14 @@ export function ensureDirectories(paths: GrenierPaths): void {
   mkdirSync(dirname(paths.db), { recursive: true, mode: 0o700 });
 }
 
-export interface LoadedConfig {
-  config: Config;
-  /** False when there is no config file and every value is a default. */
-  found: boolean;
-}
-
 /** Reads and validates the config file. A missing file means defaults; an invalid one throws a ConfigError. */
-export function loadConfig(file: string): LoadedConfig {
+export function loadConfig(file: string): Config {
   let text: string;
   try {
     text = readFileSync(file, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { config: defaultConfig(), found: false };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaultConfig();
     throw error;
   }
-  return { config: parseConfig(text, file), found: true };
+  return parseConfig(text, file);
 }

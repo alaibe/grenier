@@ -1,5 +1,5 @@
 import { joinCode, newVaultKey, sha256 } from "@grenier/core";
-import { recall, remember, type StoreDeps, syncOnce, type TeamClient } from "@grenier/index";
+import { recall, rekeyed, remember, type StoreDeps, syncOnce, type TeamClient, unopenedCount } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import type { Miniflare } from "miniflare";
@@ -140,6 +140,30 @@ describe("sync between machines", () => {
     const result = await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: newVaultKey() });
     expect(result.unopened).toBe(1);
     expect(await desktop.records.list({ tops: ["me"] })).toEqual([]);
+  });
+
+  it("remembers the Me pages it cannot open across rounds, and opens them once the other machine's key is used here", async () => {
+    const adaDeps = await device(laptop, "ada", await meTop(ada));
+    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Written on the laptop", top: "me" });
+    await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
+
+    const joinedWith = newVaultKey();
+    const deskDeps = await device(desktop, "ada", await meTop(adaDesktop));
+    await remember(deskDeps, PERSON, null, { kind: "fact", title: "Written on the desktop", top: "me" });
+    await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: joinedWith });
+    expect(await unopenedCount(desktop)).toBe(1);
+    await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: joinedWith });
+    expect(await unopenedCount(desktop)).toBe(1);
+
+    await rekeyed(desktop);
+    await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: KEY });
+    expect(await unopenedCount(desktop)).toBe(0);
+    const both = ["Written on the desktop", "Written on the laptop"];
+    expect((await desktop.records.list({ tops: ["me"] })).map((record) => record.title).sort()).toEqual(both);
+
+    const laptopRound = await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
+    expect(laptopRound.unopened).toBe(0);
+    expect((await laptop.records.list({ tops: ["me"] })).map((record) => record.title).sort()).toEqual(both);
   });
 
   it("keeps changes made offline and sends them at the next round", async () => {

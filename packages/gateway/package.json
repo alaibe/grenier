@@ -9,7 +9,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@grenier/connectors": "workspace:*",
     "@grenier/core": "workspace:*",
     "@grenier/index": "workspace:*",
     "@grenier/log": "workspace:*",

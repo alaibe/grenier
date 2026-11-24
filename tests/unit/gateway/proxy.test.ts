@@ -233,7 +233,7 @@ describe("usage", () => {
     ).arrayBuffer();
 
     const everything = JSON.stringify([
-      await gateway.store.sessions.list(),
+      await gateway.store.sessions.get("s1"),
       await gateway.store.usage.list(),
       await gateway.store.events.list(),
     ]);

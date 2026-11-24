@@ -32,16 +32,27 @@ export function Settings(props: ViewProps) {
   );
 }
 
+const loadKeyState = () => api<{ unopened: number }>("/key");
+
 /** The key that seals the Me folder: shown when asked, to put on this person's other machines. */
 function PersonalKey() {
   const [key, setKey] = useState<string | null>(null);
-  const action = useAction(() => {});
+  const state = useLoad(loadKeyState);
+  const action = useAction(state.reload);
+  const unopened = state.data?.unopened ?? 0;
   return (
     <Part
       title="Your personal key"
-      intro="It seals your Me folder before it leaves this machine. Put the same key on your other machines so your Me pages open there too. The team store never sees it."
+      intro="It seals your Me folder before it leaves this machine, and the team store never sees it. Use one key on all your machines: a machine with another key can't open your Me pages."
     >
-      <Notice message={action.message} />
+      <Notice message={state.error ?? action.message} />
+      {unopened > 0 && (
+        <Notice
+          message={{
+            text: `${unopened === 1 ? "1 of your Me pages" : `${unopened} of your Me pages`} can't be opened here: another of your machines sealed ${unopened === 1 ? "it" : "them"} with its key. On that machine, open Settings and show its key, then use it here.`,
+          }}
+        />
+      )}
       <Card className="grid gap-3">
         {key ? (
           <Secret value={key} copy="Copy key" />
@@ -66,13 +77,20 @@ function PersonalKey() {
             event.preventDefault();
             const value = String(new FormData(event.currentTarget).get("key") ?? "");
             void action.run("set", async () => {
-              await api("/key", { method: "PUT", body: { key: value } });
-              return { text: "Saved: your Me pages from your other machines open here at the next sync." };
+              const saved = await api<{ unopened: number }>("/key", { method: "PUT", body: { key: value } });
+              setKey(null);
+              return {
+                text:
+                  saved.unopened > 0
+                    ? "This machine uses that key now, but some Me pages still can't be opened: they were sealed with yet another key."
+                    : "This machine uses that key now: your Me pages here are sealed with it, and those from your other machines open here.",
+              };
             });
           }}
         >
           <Field className="flex-1">
-            The key from your other machine
+            The key from your other machine. It replaces this machine's key: your Me pages here are sealed again with
+            it, so a machine that still has the old key can't open them.
             <Input name="key" type="password" autoComplete="off" required />
           </Field>
           <Button type="submit" disabled={action.busy !== null}>

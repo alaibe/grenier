@@ -22,19 +22,35 @@ export function readsByName(tool: string): boolean {
   return /^(get|list|search|read|fetch|query|find|view|show)(_|[A-Z]|$)/.test(name);
 }
 
+/** Codex's patch tool, which its read-only sandbox does not hold back. */
+const CODEX_PATCH = "apply_patch";
+
+/** Codex's own tools (its shell, its plan), which its sandbox holds to the mode rather than the list. */
+function sandboxed(agent: string, tool: string): boolean {
+  return agent === "codex" && tool !== CODEX_PATCH && !tool.startsWith("mcp__");
+}
+
 /** What a run may call in a mode: reading always; the routine's other tools only once its machine lets it act. */
-export function allowedTools(mode: RoutineMode, routineTools: readonly string[]): string[] {
+export function allowedTools(mode: RoutineMode, routineTools: readonly string[], agent = "claude"): string[] {
   const reads = routineTools.filter(readsByName);
-  const acts = mode === "limited" || mode === "on" ? routineTools : [];
+  const acting = mode === "limited" || mode === "on";
+  const acts = acting ? [...routineTools, ...(agent === "codex" ? [CODEX_PATCH] : [])] : [];
   return [...new Set([...READ_TOOLS, ...STORE_TOOLS, ...reads, ...acts])];
 }
 
-/** Whether a tool call counts as an action, against `limited`'s daily allowance. */
-export function isAction(tool: string): boolean {
+/** Whether a run may call a tool: Codex's own tools stay in its sandbox, the rest are held to the list. */
+export function mayCall(agent: string, allowed: readonly string[], tool: string): boolean {
+  if (allowed.includes(tool) || allowed.some((entry) => entry.startsWith(`${tool}(`))) return true;
+  return sandboxed(agent, tool);
+}
+
+/** Whether a tool call counts as an action, against `limited`'s daily allowance; Codex reads with its shell too. */
+export function isAction(tool: string, agent = "claude"): boolean {
   return (
     !(READ_TOOLS as readonly string[]).includes(tool) &&
     !(STORE_TOOLS as readonly string[]).includes(tool) &&
-    !readsByName(tool)
+    !readsByName(tool) &&
+    !sandboxed(agent, tool)
   );
 }
 

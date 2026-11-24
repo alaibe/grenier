@@ -256,8 +256,19 @@ describe("adding to the team from the app", () => {
     });
     const [skill] = await store.records.list({ tops: ["team"], type: "Skill" });
     expect(skill?.fields.files).toEqual({
-      "SKILL.md": "---\nname: release-notes\ndescription: Writes notes.\n---\nRead the log.\n",
+      "SKILL.md": '---\nname: release-notes\ndescription: "Writes notes."\n---\nRead the log.\n',
     });
+  });
+
+  it("quotes a description holding a colon and quotes, and reads it back as it was typed", async () => {
+    const route = installs(store, home, { deps: async () => deps });
+    const description = `Use it when: the user says "ship it" or 'release', with a \\ too.`;
+    await route("POST", "/installs/skill", { name: "shipper", description, instructions: "Ship." });
+    const [skill] = await store.records.list({ tops: ["team"], type: "Skill" });
+    const manifest = (skill?.fields.files as Record<string, string> | undefined)?.["SKILL.md"] ?? "";
+    expect(manifest.split("\n")[2]).toBe(`description: ${JSON.stringify(description)}`);
+    const listed = (await route("GET", "/installs", undefined))?.body as { shared: { description: string }[] };
+    expect(listed.shared[0]?.description).toBe(description);
   });
 
   it("adds a server by hand, refusing one that already holds a key", async () => {

@@ -280,6 +280,8 @@ export function routineRoutes(deps: {
     if (path === "/routines" && method === "GET") return ok({ routines: await routineViews(store) });
     if (path === "/runs" && method === "GET") return ok({ runs: await store.runs.list({ limit: 50 }) });
 
+    const adding = method === "POST" && (path === "/routines" || path === "/routines/librarian");
+    if (adding && !deps.team()) return no(409, "routines run on the team's machines: start or join a team first");
     if (path === "/routines" && method === "POST") {
       try {
         const routine = routineFromForm(input);
@@ -312,25 +314,22 @@ export function routineRoutes(deps: {
     if (!match) return null;
     const routine = await store.records.get(decodeURIComponent(match[1] as string));
     if (routine?.type !== "Routine" || routine.retiredAt !== null) return no(404, "no such routine");
-    const approval = await store.approvals.get(routine.id, "routine");
-    const mode =
-      approval && approval.hash === (await routineHash(routine))
-        ? ((approval.settings.mode as RoutineMode) ?? "read-only")
-        : "read-only";
     try {
       switch (`${method} ${match[2]}`) {
         case "POST approve":
           await approve(store, routine, (input.mode as RoutineMode) ?? "read-only", Number(input.limit ?? 10));
           void runner.tick(true);
           return ok({ approved: routine.id });
-        case "DELETE approve":
-          await store.approvals.remove(routine.id, "routine");
-          return ok({ removed: routine.id });
         case "POST run": {
+          const approval = await store.approvals.get(routine.id, "routine");
+          if (!approval || approval.hash !== (await routineHash(routine))) {
+            return no(409, "approve the routine as it is now before running it");
+          }
           if (!hasPrompt(routine)) return no(409, "the routine says nothing to do yet");
           if (runner.running) return no(409, "a run is going on this machine already");
           const prompt =
             typeof input.task === "string" && input.task.trim() ? input.task.trim() : "Run now, as your prompt says.";
+          const mode = (approval.settings.mode as RoutineMode) ?? "read-only";
           return started(runner.run({ routine, prompt, trigger: "manual", mode }));
         }
       }

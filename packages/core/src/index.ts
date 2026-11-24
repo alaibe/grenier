@@ -39,6 +39,7 @@ export {
   allowedTools,
   hasPrompt,
   isAction,
+  mayCall,
   nextDue,
   READ_TOOLS,
   type RoutineMode,

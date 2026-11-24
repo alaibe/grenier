@@ -38,7 +38,6 @@ export interface SessionStore {
   get(id: string): Promise<Session | undefined>;
   end(id: string, endedAt: number): Promise<void>;
   setPaused(id: string, paused: boolean): Promise<void>;
-  list(): Promise<Session[]>;
   /** The sessions the loop guard paused, oldest first. */
   paused(): Promise<Session[]>;
 }
@@ -74,8 +73,6 @@ export interface TopStore {
   put(top: Top): Promise<void>;
   get(id: string): Promise<Top | undefined>;
   list(): Promise<Top[]>;
-  /** Removes the top folder and every record in it, here. */
-  remove(id: string): Promise<void>;
 }
 
 export interface FullRecord extends RecordRow {

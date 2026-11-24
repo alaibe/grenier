@@ -259,14 +259,14 @@ describe("summaries", () => {
       body: "The router and the server.",
       files: ["src"],
     });
-    expect(await fileSummary(deps, repo.repo, { path: "src" })).toEqual({
+    expect(await fileSummary(deps, repo.repo, { path: "src" })).toMatchObject({
       status: "hit",
       path: "src",
-      summary: "The router and the server.",
+      summary: expect.stringContaining("\nThe router and the server.\n"),
     });
     const map = await repoMap(deps, repo.repo);
     expect(map.entries.find((entry) => entry.path === "src")).toMatchObject({
-      summary: "The router and the server.",
+      summary: expect.stringContaining("\nThe router and the server.\n"),
       stale: false,
     });
     repo.write("src/new.ts", "export {};\n");

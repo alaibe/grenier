@@ -60,7 +60,8 @@ const load = () => api<{ routines: RoutineView[] }>("/routines").then((answer) =
 const loadRuns = () => api<{ runs: LocalRun[] }>("/runs").then((answer) => answer.runs);
 const loadRepos = () =>
   api<{ tops: Top[] }>("/tops").then((answer) => answer.tops.filter((top) => top.kind === "repo"));
-const loadTeam = () => api<Overview>("/overview").then((overview) => overview.team);
+/** In an object, so a machine in no team (`team: null`) is told apart from one still loading. */
+const loadTeam = () => api<Overview>("/overview").then((overview) => ({ team: overview.team }));
 
 const WHEN: [string, string][] = [
   ["request", "When someone asks it"],
@@ -184,7 +185,7 @@ function Webhook({ routine }: { routine: RoutineView }) {
   const [address, setAddress] = useState<string | null>(null);
   const team = useLoad(loadTeam);
   const action = useAction(() => {});
-  if (!team.data || routine.trigger !== "request") return null;
+  if (!team.data?.team || routine.trigger !== "request") return null;
   return (
     <>
       <Button
@@ -193,7 +194,7 @@ function Webhook({ routine }: { routine: RoutineView }) {
         onClick={() =>
           void action.run("webhook", async () => {
             const made = await api<{ path: string }>("/team/webhooks", { body: { routine: routine.id } });
-            setAddress(`${team.data?.url ?? ""}${made.path}`);
+            setAddress(`${team.data?.team?.url ?? ""}${made.path}`);
             return undefined;
           })
         }
@@ -216,6 +217,9 @@ function Webhook({ routine }: { routine: RoutineView }) {
 export function Routines({ go, member }: ViewProps) {
   const routines = useLoad(load);
   const runs = useLoad(loadRuns);
+  const team = useLoad(loadTeam);
+  // Routines run on the team's machines: without a team there is nowhere to add one.
+  const adding = !member && Boolean(team.data?.team);
   const [modes, setModes] = useState<Record<string, Mode>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const action = useAction(() => {
@@ -246,8 +250,8 @@ export function Routines({ go, member }: ViewProps) {
     >
       <Notice message={routines.error ?? action.message} />
       {!routines.data && !routines.error && <Loading what="routines" />}
-      {!member && routines.data && editing === "new" && <RoutineForm done={saved} cancel={() => setEditing(null)} />}
-      {!member && routines.data && editing !== "new" && (
+      {adding && routines.data && editing === "new" && <RoutineForm done={saved} cancel={() => setEditing(null)} />}
+      {adding && routines.data && editing !== "new" && (
         <div className="mb-5 flex gap-2">
           <Button quiet onClick={() => setEditing("new")}>
             New routine
@@ -268,7 +272,13 @@ export function Routines({ go, member }: ViewProps) {
       )}
       {routines.data?.length === 0 && (
         <Empty>
-          <p>{member ? "The team has no routine yet." : "No routine yet: start with New routine."}</p>
+          <p>
+            {member
+              ? "The team has no routine yet."
+              : team.data?.team
+                ? "No routine yet: start with New routine."
+                : team.data && "Routines run on the team's machines: start or join a team on the Team screen first."}
+          </p>
         </Empty>
       )}
       {routines.data?.map((routine) => {
@@ -337,7 +347,8 @@ export function Routines({ go, member }: ViewProps) {
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 quiet
-                disabled={action.busy !== null || going || !routine.prompt.trim()}
+                disabled={action.busy !== null || going || !routine.prompt.trim() || !routine.approval?.current}
+                title={routine.approval?.current ? undefined : "Approve it as it is now to run it here"}
                 onClick={() =>
                   call(`run:${routine.id}`, `/routines/${routine.id}/run`, {}, `Running ${routine.title} here.`)
                 }
