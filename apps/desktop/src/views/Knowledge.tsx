@@ -224,7 +224,7 @@ function TopFolder({
         actions={start && <Actions start={() => start("")} add={(child) => start(child)} />}
       >
         <span className="font-semibold">{name}</span>
-        <span className="ml-1.5 text-xs text-muted">{SAYS[top.kind]}</span>
+        <span className="ml-1.5 text-sm text-muted">{SAYS[top.kind]}</span>
       </Row>
       {shown && (
         <Contents
@@ -507,7 +507,7 @@ function Found({
   if (error) return <Notice message={error} />;
   if (!data) return <Loading what="pages" />;
   const found = data.map((record) => shown.get(record.id)).filter((page): page is PageRow => page !== undefined);
-  if (found.length === 0) return <p className="px-2 text-sm text-muted">No page matches.</p>;
+  if (found.length === 0) return <Empty>No page matches.</Empty>;
   return (
     <ul>
       {found.map((page) => (
@@ -518,8 +518,8 @@ function Found({
             className={`block w-full cursor-pointer rounded-md px-2 py-1 text-left ${current === page.id ? "bg-panel inset-ring inset-ring-line" : "hover:bg-hover"}`}
             onClick={() => open(page.id)}
           >
-            <span className="block truncate">{page.title}</span>
-            <span className="block truncate text-xs text-muted">{placeLabel(tops, page.top, page.folder)}</span>
+            <span className={`block truncate ${current === page.id ? "font-medium" : ""}`}>{page.title}</span>
+            <span className="block truncate text-sm text-muted">{placeLabel(tops, page.top, page.folder)}</span>
           </button>
         </li>
       ))}

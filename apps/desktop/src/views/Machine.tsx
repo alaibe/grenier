@@ -1,7 +1,21 @@
 import { type FormEvent, useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
-import { Button, Field, Input, Loading, Notice, Part, Select, useAction, useLoad } from "../ui.tsx";
+import {
+  Actions,
+  Button,
+  Card,
+  Checkbox,
+  Field,
+  FormCard,
+  Input,
+  Loading,
+  Notice,
+  Part,
+  Select,
+  useAction,
+  useLoad,
+} from "../ui.tsx";
 
 interface Rules {
   name?: string;
@@ -74,40 +88,30 @@ export function Machine(_: ViewProps) {
       {!data && !error && <Loading what="this machine" />}
       {data && (
         <>
-          <section className="mb-6 rounded-xl border border-line bg-panel px-5 py-4">
-            <label className="flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                className="mt-1 accent-accent"
-                checked={data.rules.routines}
-                disabled={action.busy !== null}
-                onChange={(event) =>
-                  save(
-                    { routines: event.currentTarget.checked },
-                    event.currentTarget.checked
-                      ? "This machine takes the team's routine runs when its rules hold."
-                      : "This machine takes no routine runs.",
-                  )
-                }
-              />
-              <span>
-                <span className="font-medium">Take the team's routine runs</span>
-                <span className="mt-0.5 block text-md text-muted">
-                  {data.rules.routines
-                    ? data.state === "away"
-                      ? `${SAYS.away}: ${data.reasons.join("; ")}.`
-                      : SAYS[data.state]
-                    : "Off: this machine runs nothing for the team."}
-                </span>
-              </span>
-            </label>
-          </section>
+          <Card>
+            <Checkbox
+              label="Take the team's routine runs"
+              hint={
+                data.rules.routines
+                  ? data.state === "away"
+                    ? `${SAYS.away}: ${data.reasons.join("; ")}.`
+                    : SAYS[data.state]
+                  : "Off: this machine runs nothing for the team."
+              }
+              checked={data.rules.routines}
+              disabled={action.busy !== null}
+              onChange={(event) =>
+                save(
+                  { routines: event.currentTarget.checked },
+                  event.currentTarget.checked
+                    ? "This machine takes the team's routine runs when its rules hold."
+                    : "This machine takes no routine runs.",
+                )
+              }
+            />
+          </Card>
 
-          <form
-            key={JSON.stringify(data.rules)}
-            className="grid grid-cols-2 gap-4 rounded-xl border border-line bg-panel px-5 py-4 max-md:grid-cols-1"
-            onSubmit={submit}
-          >
+          <FormCard key={JSON.stringify(data.rules)} className="grid-cols-2 max-md:grid-cols-1" onSubmit={submit}>
             <Field>
               Name the team sees
               <Input name="name" defaultValue={data.rules.name ?? ""} placeholder="This computer's name" />
@@ -151,21 +155,18 @@ export function Machine(_: ViewProps) {
                 defaultValue={Math.round(data.rules.memory_max * 100)}
               />
             </Field>
-            <label className="col-span-full flex cursor-pointer items-center gap-2.5">
-              <input
-                type="checkbox"
-                name="plugged_in"
-                className="accent-accent"
-                defaultChecked={data.rules.plugged_in}
-              />
-              Only on mains power
-            </label>
-            <div className="col-span-full">
+            <Checkbox
+              className="col-span-full"
+              label="Only on mains power"
+              name="plugged_in"
+              defaultChecked={data.rules.plugged_in}
+            />
+            <Actions className="col-span-full">
               <Button type="submit" disabled={action.busy !== null}>
                 Save the rules
               </Button>
-            </div>
-          </form>
+            </Actions>
+          </FormCard>
         </>
       )}
     </Part>

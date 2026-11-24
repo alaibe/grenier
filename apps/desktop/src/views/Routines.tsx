@@ -1,7 +1,23 @@
 import { useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type Overview, type Top } from "../api.ts";
-import { ago, Button, Empty, Field, Input, Loading, Notice, Page, Select, useAction, useLoad } from "../ui.tsx";
+import {
+  ago,
+  Button,
+  Card,
+  Empty,
+  Field,
+  FormCard,
+  Input,
+  Loading,
+  Notice,
+  Page,
+  Secret,
+  Select,
+  Textarea,
+  useAction,
+  useLoad,
+} from "../ui.tsx";
 import { Requests } from "./Requests.tsx";
 
 type Mode = "read-only" | "shadow" | "limited" | "on";
@@ -45,7 +61,6 @@ const loadRuns = () => api<{ runs: LocalRun[] }>("/runs").then((answer) => answe
 const loadRepos = () =>
   api<{ tops: Top[] }>("/tops").then((answer) => answer.tops.filter((top) => top.kind === "repo"));
 const loadTeam = () => api<Overview>("/overview").then((overview) => overview.team);
-const area = "min-h-24 w-full rounded-md border border-line-strong bg-panel px-2.5 py-2 text-md leading-relaxed";
 
 const WHEN: [string, string][] = [
   ["request", "When someone asks it"],
@@ -68,8 +83,7 @@ function RoutineForm({ routine, done, cancel }: { routine?: RoutineView; done: (
   const repos = useLoad(loadRepos);
   const action = useAction(() => {});
   return (
-    <form
-      className="mb-7 grid gap-3 rounded-xl border border-line bg-panel px-5 py-4"
+    <FormCard
       onSubmit={(event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -100,9 +114,9 @@ function RoutineForm({ routine, done, cancel }: { routine?: RoutineView; done: (
       </Field>
       <Field>
         What it does: its prompt to the agent
-        <textarea
+        <Textarea
           name="prompt"
-          className={area}
+          className="min-h-24"
           required
           defaultValue={routine?.prompt}
           placeholder="Bump the dependencies to their latest release, run the tests, and explain what changed."
@@ -161,7 +175,7 @@ function RoutineForm({ routine, done, cancel }: { routine?: RoutineView; done: (
           Cancel
         </Button>
       </div>
-    </form>
+    </FormCard>
   );
 }
 
@@ -188,10 +202,12 @@ function Webhook({ routine }: { routine: RoutineView }) {
       </Button>
       <Notice message={action.message} />
       {address && (
-        <p className="basis-full text-sm">
-          Another tool's webhook can call this address: each call files a request for {routine.title}. Keep it secret.
-          <code className="mt-1 block break-all whitespace-normal select-all">{address}</code>
-        </p>
+        <Secret
+          className="basis-full"
+          value={address}
+          copy="Copy address"
+          note={`Another tool's webhook can call this address: each call files a request for ${routine.title}. Keep it secret.`}
+        />
       )}
     </>
   );
@@ -262,7 +278,7 @@ export function Routines({ go, member }: ViewProps) {
         const mode = modes[routine.id] ?? routine.approval?.mode ?? "read-only";
         const mine = (runs.data ?? []).filter((run) => run.routineId === routine.id).slice(0, 5);
         return (
-          <section key={routine.id} className="mb-7 rounded-xl border border-line bg-panel px-5 py-4">
+          <Card key={routine.id}>
             <header className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold">{routine.title}</h2>
@@ -351,7 +367,7 @@ export function Routines({ go, member }: ViewProps) {
                 ))}
               </ul>
             )}
-          </section>
+          </Card>
         );
       })}
       <Requests go={go} member={member} />

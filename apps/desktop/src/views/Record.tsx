@@ -3,14 +3,23 @@ import { ApiError, api, type HistoryEntry, type Link, type RecordFull, type Reco
 import { hunks, lineDiff } from "../diff.ts";
 import { Markdown } from "../markdown.tsx";
 import {
+  Actions,
   ago,
   Button,
+  Card,
   ConfirmButton,
+  Empty,
+  List,
   Loading,
   type Message,
   moment,
   Notice,
+  panel,
+  Row,
+  Section,
   Select,
+  Textarea,
+  Toggle,
   useAction,
   useLoad,
 } from "../ui.tsx";
@@ -199,21 +208,21 @@ export function PageEditor({
       {!editable && <p className="mb-4 text-sm text-muted">Only an admin changes the pages here.</p>}
       {id && <Presence id={id} />}
       {conflict && (
-        <section className="mb-5 rounded-xl border border-problem bg-problem-soft px-4 py-3" aria-label="Their version">
+        <Card tone="problem" aria-label="Their version">
           <p className="font-medium">
             {conflict.author} saved version {conflict.version} while you were editing.
           </p>
           <p className="mt-1 text-sm">
-            Theirs: <b className="font-semibold">{conflict.title}</b>
+            Theirs: <span className="font-medium">{conflict.title}</span>
             {conflict.body !== draft.body && " — the text differs"}
           </p>
-          <div className="mt-2.5 flex gap-2">
+          <Actions className="mt-2.5">
             <Button onClick={() => save(conflict.version)}>Keep mine</Button>
             <Button quiet onClick={() => take(conflict)}>
               Take theirs
             </Button>
-          </div>
-        </section>
+          </Actions>
+        </Card>
       )}
       {record.data?.retiredAt && <Notice message={`Retired ${ago(record.data.retiredAt)}.`} />}
       {record.data?.type === "Suggestion" && <SuggestionActions record={record.data} back={closed} />}
@@ -303,32 +312,30 @@ function Body({
   };
 
   return (
-    <section className="mb-6">
+    <section className="mb-7">
       <div className={`mb-1.5 flex justify-end ${editable ? "" : "hidden"}`}>
-        <fieldset className="inline-flex overflow-hidden rounded-md border border-line-strong text-sm">
-          <legend className="sr-only">Text view</legend>
-          {(["Write", "Preview"] as const).map((name) => (
-            <button
-              type="button"
-              key={name}
-              aria-pressed={preview === (name === "Preview")}
-              className={`h-7 cursor-pointer px-2.5 ${preview === (name === "Preview") ? "bg-accent text-accent-fg" : "bg-panel hover:bg-hover"}`}
-              onClick={() => setWriting(name === "Write")}
-            >
-              {name}
-            </button>
-          ))}
-        </fieldset>
+        <Toggle
+          label="Text view"
+          options={[
+            ["write", "Write"],
+            ["preview", "Preview"],
+          ]}
+          value={preview ? "preview" : "write"}
+          onChange={(view) => setWriting(view === "write")}
+        />
       </div>
-      {preview ? (
-        <div className="min-h-40 rounded-xl border border-line bg-panel px-4 py-3">
-          {text.trim() ? <Markdown text={text} open={open} /> : <p className="text-muted">Nothing written.</p>}
-        </div>
-      ) : (
+      {preview && !text.trim() && <Empty>Nothing written.</Empty>}
+      {preview && text.trim() && (
+        <Card className="min-h-40">
+          <Markdown text={text} open={open} />
+        </Card>
+      )}
+      {!preview && (
         <div className="relative">
-          <textarea
+          <Textarea
             ref={area}
-            className="min-h-96 w-full rounded-xl border border-line-strong bg-panel px-4 py-3 font-mono text-md leading-relaxed"
+            mono
+            className="min-h-96"
             aria-label="Text, in Markdown"
             placeholder="Markdown. @ links another page."
             value={text}
@@ -376,35 +383,33 @@ function Anchors({ record }: { record: RecordFull }) {
   const [shown, setShown] = useState<string | null>(null);
   if (files.length === 0) return null;
   return (
-    <section className="mb-6">
-      <h2 className="mb-1.5 font-semibold">Written from</h2>
-      <ul className="rounded-xl border border-line bg-panel">
-        {files.map((anchor) => {
-          const changed = record.changed.includes(anchor.ref);
-          return (
-            <li key={anchor.ref} className="border-t border-line px-4 py-2 first:border-t-0">
-              <div className="flex items-center justify-between gap-3">
-                <code className="font-mono text-sm">{anchor.ref}</code>
-                {changed ? (
-                  <button
-                    type="button"
-                    className="cursor-pointer text-sm text-problem underline underline-offset-2"
-                    onClick={() => setShown(shown === anchor.ref ? null : anchor.ref)}
-                  >
-                    {shown === anchor.ref ? "Hide the change" : "Changed since: show"}
-                  </button>
-                ) : (
-                  <span className="text-sm text-muted">
-                    {record.status === "unchecked" ? "not on this machine" : "unchanged"}
-                  </span>
-                )}
-              </div>
-              {shown === anchor.ref && <FileDiff id={record.id} path={anchor.ref} />}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+    <Section title="Written from">
+      <List>
+        {files.map((anchor) => (
+          <Row
+            key={anchor.ref}
+            title={<code>{anchor.ref}</code>}
+            actions={
+              record.changed.includes(anchor.ref) ? (
+                <button
+                  type="button"
+                  className="cursor-pointer text-sm text-problem underline underline-offset-2"
+                  onClick={() => setShown(shown === anchor.ref ? null : anchor.ref)}
+                >
+                  {shown === anchor.ref ? "Hide the change" : "Changed since: show"}
+                </button>
+              ) : (
+                <span className="text-sm text-muted">
+                  {record.status === "unchecked" ? "not on this machine" : "unchanged"}
+                </span>
+              )
+            }
+          >
+            {shown === anchor.ref && <FileDiff id={record.id} path={anchor.ref} />}
+          </Row>
+        ))}
+      </List>
+    </Section>
   );
 }
 
@@ -458,8 +463,7 @@ function Linked({
 }) {
   if (items.length === 0) return null;
   return (
-    <section className="mb-6">
-      <h2 className="mb-1.5 font-semibold">{title}</h2>
+    <Section title={title}>
       <ul className="flex flex-wrap gap-2">
         {items.map((item) => (
           <li key={item.id}>
@@ -473,7 +477,7 @@ function Linked({
           </li>
         ))}
       </ul>
-    </section>
+    </Section>
   );
 }
 
@@ -488,18 +492,26 @@ function History({ id, restore }: { id: string; restore: (draft: Partial<Draft>)
   );
   const { data, error } = useLoad(load);
   return (
-    <section className="mb-6">
-      <button type="button" className="cursor-pointer font-semibold hover:underline" onClick={() => setShown(!shown)}>
-        History {shown ? "▾" : "▸"}
-      </button>
+    <Section
+      title={
+        <button
+          type="button"
+          className="cursor-pointer hover:underline"
+          aria-expanded={shown}
+          onClick={() => setShown(!shown)}
+        >
+          History {shown ? "▾" : "▸"}
+        </button>
+      }
+    >
       {shown && <Notice message={error} />}
-      {shown && data?.length === 0 && <p className="mt-1.5 text-muted">No earlier version.</p>}
+      {shown && data?.length === 0 && <Empty>No earlier version.</Empty>}
       {shown && data && data.length > 0 && (
-        <ol className="mt-1.5 rounded-xl border border-line bg-panel">
+        <ol className={panel()}>
           {[...data].reverse().map((entry) => (
             <li
               key={entry.version}
-              className="flex items-center justify-between gap-3 border-t border-line px-4 py-2 first:border-t-0"
+              className="flex items-center justify-between gap-4 border-t border-line px-4 py-2 first:border-t-0"
             >
               <span>
                 Version {entry.version}, by {entry.author}
@@ -524,7 +536,7 @@ function History({ id, restore }: { id: string; restore: (draft: Partial<Draft>)
       {shown && data && data.length > 0 && (
         <p className="mt-1.5 text-sm text-muted">Restore puts that version in the form; Save makes it the latest.</p>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -551,10 +563,11 @@ function Presence({ id }: { id: string }) {
   }, [id]);
   if (others.length === 0) return null;
   return (
-    <p className="mb-4 rounded-lg border border-line bg-accent-soft px-3.5 py-2" role="status">
-      Also open: {others.map((other) => `${other.member} on ${other.device}`).join(", ")}. The second save is asked to
-      choose.
-    </p>
+    <Notice
+      message={{
+        text: `Also open: ${others.map((other) => `${other.member} on ${other.device}`).join(", ")}. The second save is asked to choose.`,
+      }}
+    />
   );
 }
 
@@ -583,18 +596,18 @@ function SuggestionActions({ record, back }: { record: RecordFull; back: () => v
       return undefined;
     });
   return (
-    <section className="mb-5 rounded-xl border border-accent bg-accent-soft px-4 py-3">
+    <Card tone="soft">
       <p>{String(record.fields.reason ?? "")}</p>
       <pre className="mt-2 overflow-x-auto font-mono text-xs">{JSON.stringify(change, null, 2)}</pre>
       <Notice message={action.message} />
-      <div className="mt-2.5 flex gap-2">
+      <Actions className="mt-2.5">
         <Button disabled={action.busy !== null} onClick={() => decide(true)}>
           Accept
         </Button>
         <Button quiet disabled={action.busy !== null} onClick={() => decide(false)}>
           Dismiss
         </Button>
-      </div>
-    </section>
+      </Actions>
+    </Card>
   );
 }

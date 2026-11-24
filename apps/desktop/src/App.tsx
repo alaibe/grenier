@@ -75,7 +75,7 @@ export function App() {
           <button
             type="button"
             key={name}
-            className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1.75 text-left whitespace-nowrap ${current === name ? "bg-panel font-semibold inset-ring inset-ring-line" : "hover:bg-hover"}`}
+            className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1.75 text-left whitespace-nowrap ${current === name ? "bg-panel font-medium inset-ring inset-ring-line" : "hover:bg-hover"}`}
             aria-current={current === name ? "page" : undefined}
             onClick={() => go(name)}
           >
@@ -90,7 +90,7 @@ export function App() {
             )}
           </button>
         ))}
-        {overview.data && <p className="mx-2.5 mt-auto text-xs text-muted">Version {overview.data.version}</p>}
+        {overview.data && <p className="mx-2.5 mt-auto text-sm text-muted">Version {overview.data.version}</p>}
       </nav>
       <main className="px-8 pt-7 pb-12 max-md:px-5 max-md:pt-5.5 max-md:pb-10">
         <div className={current === "knowledge" ? "max-w-320" : "max-w-220"}>

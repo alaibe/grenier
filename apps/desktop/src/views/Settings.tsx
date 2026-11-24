@@ -1,7 +1,22 @@
 import { useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, setUsageEnabled, usageEnabled } from "../api.ts";
-import { Button, Field, Input, Loading, Notice, Page, Part, useAction, useLoad } from "../ui.tsx";
+import {
+  Actions,
+  Button,
+  Card,
+  Checkbox,
+  Field,
+  InlineForm,
+  Input,
+  Loading,
+  Notice,
+  Page,
+  Part,
+  Secret,
+  useAction,
+  useLoad,
+} from "../ui.tsx";
 import { Machine } from "./Machine.tsx";
 
 export function Settings(props: ViewProps) {
@@ -27,11 +42,11 @@ function PersonalKey() {
       intro="It seals your Me folder before it leaves this machine. Put the same key on your other machines so your Me pages open there too. The team store never sees it."
     >
       <Notice message={action.message} />
-      <div className="grid gap-3 rounded-xl border border-line bg-panel px-5 py-4">
+      <Card className="grid gap-3">
         {key ? (
-          <code className="block break-all whitespace-normal select-all">{key}</code>
+          <Secret value={key} copy="Copy key" />
         ) : (
-          <div>
+          <Actions>
             <Button
               quiet
               disabled={action.busy !== null}
@@ -44,10 +59,9 @@ function PersonalKey() {
             >
               Show my key
             </Button>
-          </div>
+          </Actions>
         )}
-        <form
-          className="flex items-end gap-2"
+        <InlineForm
           onSubmit={(event) => {
             event.preventDefault();
             const value = String(new FormData(event.currentTarget).get("key") ?? "");
@@ -57,17 +71,15 @@ function PersonalKey() {
             });
           }}
         >
-          <div className="flex-1">
-            <Field>
-              The key from your other machine
-              <Input name="key" type="password" autoComplete="off" required />
-            </Field>
-          </div>
+          <Field className="flex-1">
+            The key from your other machine
+            <Input name="key" type="password" autoComplete="off" required />
+          </Field>
           <Button type="submit" disabled={action.busy !== null}>
             Use it here
           </Button>
-        </form>
-      </div>
+        </InlineForm>
+      </Card>
     </Part>
   );
 }
@@ -91,24 +103,15 @@ function UsageStatistics() {
       <Notice message={error ?? action.message} />
       {on === null && !error && <Loading what="settings" />}
       {on !== null && (
-        <section className="rounded-xl border border-line bg-panel px-5 py-4">
-          <label className="flex cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              className="mt-1 accent-accent"
-              checked={on}
-              disabled={action.busy !== null}
-              onChange={(event) => turn(event.currentTarget.checked)}
-            />
-            <span>
-              <span className="font-medium">Share anonymous usage statistics</span>
-              <span className="mt-0.5 block text-md text-muted">
-                Sends which screens you open, Grenier's version and your system to stats.laibe.cc, to count how Grenier
-                is used. Nothing you write or read.
-              </span>
-            </span>
-          </label>
-        </section>
+        <Card>
+          <Checkbox
+            label="Share anonymous usage statistics"
+            hint="Sends which screens you open, Grenier's version and your system to stats.laibe.cc, to count how Grenier is used. Nothing you write or read."
+            checked={on}
+            disabled={action.busy !== null}
+            onChange={(event) => turn(event.currentTarget.checked)}
+          />
+        </Card>
       )}
     </Part>
   );

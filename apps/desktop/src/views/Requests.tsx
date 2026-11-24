@@ -2,17 +2,21 @@ import { type FormEvent, useCallback } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type RecordRow, type Run } from "../api.ts";
 import {
+  Actions,
   ago,
   Button,
   Empty,
   Field,
+  FormCard,
   Input,
   Loading,
   money,
   Notice,
   Part,
+  Section,
   Select,
   Table,
+  Textarea,
   useAction,
   useLoad,
 } from "../ui.tsx";
@@ -75,10 +79,7 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
     >
       <Notice message={routines.error ?? tasks.error ?? action.message} />
       {!member && routines.data && routines.data.length > 0 && (
-        <form
-          className="mb-7 grid grid-cols-[200px_1fr] gap-3 rounded-xl border border-line bg-panel px-5 py-4"
-          onSubmit={file}
-        >
+        <FormCard className="grid-cols-[200px_1fr]" onSubmit={file}>
           <Field>
             Routine
             <Select name="routine" required>
@@ -93,25 +94,22 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
             What to do
             <Input name="title" required placeholder="Bump hono to the latest version" />
           </Field>
-          <div className="col-span-full">
-            <Field>
-              Details (optional)
-              <textarea name="details" className="min-h-20 rounded-md border border-line-strong bg-panel px-2.5 py-2" />
-            </Field>
-          </div>
-          <div className="col-span-full">
+          <Field className="col-span-full">
+            Details (optional)
+            <Textarea name="details" className="min-h-20" />
+          </Field>
+          <Actions className="col-span-full">
             <Button type="submit" disabled={action.busy !== null}>
               File the request
             </Button>
-          </div>
-        </form>
+          </Actions>
+        </FormCard>
       )}
 
-      <h3 className="mb-2.5 font-semibold">Filed</h3>
-      {!tasks.data && !tasks.error && <Loading what="requests" />}
-      {tasks.data?.length === 0 && <Empty>No request yet.</Empty>}
-      {tasks.data && tasks.data.length > 0 && (
-        <div className="mb-7">
+      <Section title="Filed">
+        {!tasks.data && !tasks.error && <Loading what="requests" />}
+        {tasks.data?.length === 0 && <Empty>No request yet.</Empty>}
+        {tasks.data && tasks.data.length > 0 && (
           <Table>
             <thead>
               <tr>
@@ -142,12 +140,11 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
               ))}
             </tbody>
           </Table>
-        </div>
-      )}
+        )}
+      </Section>
 
       {runs.data && runs.data.length > 0 && (
-        <>
-          <h3 className="mb-2.5 font-semibold">Runs</h3>
+        <Section title="Runs">
           <Table>
             <thead>
               <tr>
@@ -172,7 +169,7 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
               ))}
             </tbody>
           </Table>
-        </>
+        </Section>
       )}
     </Part>
   );

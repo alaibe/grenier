@@ -2,16 +2,23 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type Invite, type Joining, type Machine, type Member, type Overview, type TeamUsage } from "../api.ts";
 import {
+  Actions,
   ago,
   Button,
+  Card,
   ConfirmButton,
   Empty,
   Field,
+  InlineForm,
   Input,
+  List,
   Loading,
   money,
   Notice,
   Page,
+  Row,
+  Secret,
+  Section,
   Select,
   Table,
   useAction,
@@ -39,7 +46,7 @@ export function Team({ changed }: ViewProps) {
   return (
     <>
       {overview.data.outdated && (
-        <section className="mb-6 rounded-xl border border-problem bg-problem-soft px-5 py-4">
+        <Card tone="problem">
           <p className="mb-3">
             The team store is older than this Grenier, so sync waits. Whoever reaches its Cloudflare account updates it
             here; the team's records stay.
@@ -50,10 +57,19 @@ export function Team({ changed }: ViewProps) {
             label="Update the team store"
             done={done}
           />
-        </section>
+        </Card>
       )}
       <Members url={overview.data.team.url} lastSync={overview.data.team.lastSync} />
     </>
+  );
+}
+
+/** The six digits a joining machine shows, read as "123 456". */
+function JoinCode({ code, className = "" }: { code: string | null | undefined; className?: string }) {
+  return (
+    <span className={`font-mono font-semibold tracking-wider tabular-nums ${className}`}>
+      {code?.replace(/^(\d{3})(\d{3})$/, "$1 $2")}
+    </span>
   );
 }
 
@@ -84,8 +100,9 @@ function Deploy({ name, me, label, done }: { name: string; me: string; label: st
     >
       <Notice message={action.message} />
       <p className="text-sm text-muted">
-        In Cloudflare, under My Profile › API Tokens, create a token from the template <b>Edit Cloudflare Workers</b>{" "}
-        for your account, and paste it here. Grenier uses it for this deploy only, and keeps nothing of it.
+        In Cloudflare, under My Profile › API Tokens, create a token from the template{" "}
+        <span className="font-medium">Edit Cloudflare Workers</span> for your account, and paste it here. Grenier uses
+        it for this deploy only, and keeps nothing of it.
       </p>
       <Field>
         Cloudflare API token
@@ -101,11 +118,11 @@ function Deploy({ name, me, label, done }: { name: string; me: string; label: st
           <Input name="name" defaultValue={name} required pattern="[a-z0-9\-]+" />
         </Field>
       </div>
-      <div>
+      <Actions>
         <Button type="submit" disabled={action.busy !== null}>
           {action.busy === "deploy" ? "Deploying…" : label}
         </Button>
-      </div>
+      </Actions>
     </form>
   );
 }
@@ -142,36 +159,33 @@ function Join({ joined, me }: { joined: () => void; me: string }) {
     >
       <Notice message={action.message ?? (state?.state === "failed" ? (state.error ?? "Joining failed.") : null)} />
       {state?.state === "waiting" ? (
-        <section className="rounded-xl border border-accent bg-panel px-5 py-5 text-center">
+        <Card tone="accent" className="text-center">
           <p>Read this code to the admin who invited you. They confirm it on their screen.</p>
-          <p className="my-3 font-mono text-4xl font-semibold tracking-widest tabular-nums">
-            {state.code?.replace(/^(\d{3})(\d{3})$/, "$1 $2")}
+          <p className="my-3 text-4xl">
+            <JoinCode code={state.code} />
           </p>
           <p className="text-sm text-muted">Waiting for the confirmation, up to 10 minutes.</p>
-        </section>
+        </Card>
       ) : (
         <>
-          <form
-            className="mb-6 flex items-end gap-2 rounded-xl border border-line bg-panel px-5 py-4"
-            onSubmit={submit}
-          >
-            <div className="flex-1">
-              <Field>
+          <Card>
+            <InlineForm onSubmit={submit}>
+              <Field className="flex-1">
                 Invite link
                 <Input name="link" placeholder="grenier://join/…" required autoComplete="off" spellCheck={false} />
               </Field>
-            </div>
-            <Button type="submit" disabled={action.busy !== null}>
-              Join
-            </Button>
-          </form>
-          <section className="rounded-xl border border-line bg-panel px-5 py-4">
-            <h2 className="mb-2 font-semibold">Or start a team</h2>
-            <p className="mb-3 text-sm text-muted">
+              <Button type="submit" disabled={action.busy !== null}>
+                Join
+              </Button>
+            </InlineForm>
+          </Card>
+          <Card>
+            <h2 className="font-semibold">Or start a team</h2>
+            <p className="mt-1.5 mb-3 text-sm text-muted">
               Its store goes in your own Cloudflare account, and you become its admin.
             </p>
             <Deploy name="grenier-team" me={me} label="Create the team" done={joined} />
-          </section>
+          </Card>
         </>
       )}
     </Page>
@@ -265,24 +279,23 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
       }
     >
       {web && (
-        <p className="mb-5 text-sm">
-          Open it in a browser within 10 minutes; it signs that browser in once:
-          <code className="mt-1 block break-all whitespace-normal select-all">{web}</code>
-        </p>
+        <Secret
+          className="mb-6"
+          value={web}
+          copy="Copy link"
+          note="Open it in a browser within 10 minutes; it signs that browser in once:"
+        />
       )}
       <Notice message={members.error ?? me.error ?? action.message} />
       {invites.data?.some((entry) => entry.code) && (
-        <section className="mb-6 rounded-xl border border-accent bg-accent-soft px-5 py-4" aria-label="Waiting to join">
+        <Card tone="soft" aria-label="Waiting to join">
           {invites.data
             .filter((entry) => entry.code)
             .map((entry) => (
               <div key={entry.id} className="flex items-center justify-between gap-4 py-1">
                 <p>
-                  <b className="font-semibold">{entry.member}</b> asks to join on {entry.device}, showing{" "}
-                  <span className="font-mono text-lg font-semibold tracking-wider">
-                    {entry.code?.replace(/^(\d{3})(\d{3})$/, "$1 $2")}
-                  </span>
-                  . Confirm only if it is the code on their screen.
+                  <span className="font-medium">{entry.member}</span> asks to join on {entry.device}, showing{" "}
+                  <JoinCode code={entry.code} className="text-lg" />. Confirm only if it is the code on their screen.
                 </p>
                 <Button
                   disabled={action.busy !== null}
@@ -292,13 +305,12 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
                 </Button>
               </div>
             ))}
-        </section>
+        </Card>
       )}
 
-      <h2 className="mb-2.5 font-semibold">Members</h2>
-      {!members.data && !members.error && <Loading what="members" />}
-      {members.data && (
-        <div className="mb-7">
+      <Section title="Members">
+        {!members.data && !members.error && <Loading what="members" />}
+        {members.data && (
           <Table>
             <thead>
               <tr>
@@ -354,28 +366,25 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
               ))}
             </tbody>
           </Table>
-        </div>
-      )}
+        )}
+      </Section>
 
       {admin && (
-        <section className="mb-7">
-          <h2 className="mb-2.5 font-semibold">Invite</h2>
+        <Section title="Invite">
           {link && (
-            <div className="mb-3 rounded-xl border border-accent bg-panel px-5 py-4" role="status">
-              <p>
-                Send this link to {link.member}. It works once, for 24 hours; their machine then shows a code they read
-                to you, and you confirm it here.
-              </p>
-              <code className="mt-2 block break-all whitespace-normal select-all">{link.link}</code>
-            </div>
+            <Card tone="accent" role="status">
+              <Secret
+                value={link.link}
+                copy="Copy link"
+                note={`Send this link to ${link.member}. It works once, for 24 hours; their machine then shows a code they read to you, and you confirm it here.`}
+              />
+            </Card>
           )}
-          <form className="flex items-end gap-2" onSubmit={invite}>
-            <div className="flex-1">
-              <Field>
-                Name
-                <Input name="name" required placeholder="A new member, or a member's new machine" />
-              </Field>
-            </div>
+          <InlineForm onSubmit={invite}>
+            <Field className="flex-1">
+              Name
+              <Input name="name" required placeholder="A new member, or a member's new machine" />
+            </Field>
             <Field>
               Role
               <Select name="role" defaultValue="member">
@@ -386,8 +395,8 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
             <Button type="submit" disabled={action.busy !== null}>
               Create link
             </Button>
-          </form>
-        </section>
+          </InlineForm>
+        </Section>
       )}
 
       {admin && <Folders />}
@@ -410,21 +419,16 @@ function Folders() {
   );
   const action = useAction(tops.reload);
   return (
-    <section className="mb-7">
-      <h2 className="mb-2.5 font-semibold">Folders for some members</h2>
+    <Section title="Folders for some members">
       <Notice message={tops.error ?? action.message} />
       {tops.data && tops.data.length > 0 && (
-        <ul className="mb-3 rounded-xl border border-line bg-panel">
+        <List className="mb-3">
           {tops.data.map((top) => (
-            <li key={top.id} className="border-t border-line px-4 py-2 first:border-t-0">
-              <b className="font-semibold">{top.name ?? top.id}</b>{" "}
-              <span className="text-sm text-muted">{top.members ? top.members.join(", ") : "everyone"}</span>
-            </li>
+            <Row key={top.id} title={top.name ?? top.id} meta={top.members ? top.members.join(", ") : "everyone"} />
           ))}
-        </ul>
+        </List>
       )}
-      <form
-        className="flex flex-wrap items-end gap-2"
+      <InlineForm
         onSubmit={(event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
@@ -442,17 +446,15 @@ function Folders() {
           Name
           <Input name="name" placeholder="leads" required />
         </Field>
-        <div className="min-w-56 flex-1">
-          <Field>
-            Members, comma-separated
-            <Input name="members" placeholder="ada, bob" required />
-          </Field>
-        </div>
+        <Field className="min-w-56 flex-1">
+          Members, comma-separated
+          <Input name="members" placeholder="ada, bob" required />
+        </Field>
         <Button type="submit" disabled={action.busy !== null}>
           Make the folder
         </Button>
-      </form>
-    </section>
+      </InlineForm>
+    </Section>
   );
 }
 
@@ -463,8 +465,7 @@ function Machines() {
   if (error) return <Notice message={error} />;
   if (!data) return null;
   return (
-    <section className="mb-7">
-      <h2 className="mb-2.5 font-semibold">Machines</h2>
+    <Section title="Machines">
       <Table>
         <thead>
           <tr>
@@ -487,7 +488,7 @@ function Machines() {
           ))}
         </tbody>
       </Table>
-    </section>
+    </Section>
   );
 }
 
@@ -512,9 +513,9 @@ function Usage({ admin }: { admin: boolean }) {
     });
   }
   return (
-    <section className="mb-7">
-      <div className="mb-2.5 flex items-center justify-between">
-        <h2 className="font-semibold">{admin ? "Usage, last 30 days" : "Your usage, last 30 days"}</h2>
+    <Section
+      title={admin ? "Usage, last 30 days" : "Your usage, last 30 days"}
+      action={
         <Select aria-label="Group by" value={by} onChange={(event) => setBy(event.currentTarget.value as By)}>
           {(admin ? (["member", "machine", "day", "repo"] as const) : (["machine", "day", "repo"] as const)).map(
             (name) => (
@@ -524,7 +525,8 @@ function Usage({ admin }: { admin: boolean }) {
             ),
           )}
         </Select>
-      </div>
+      }
+    >
       {rows.size === 0 ? (
         <Empty>No usage reported yet.</Empty>
       ) : (
@@ -551,6 +553,6 @@ function Usage({ admin }: { admin: boolean }) {
           </tbody>
         </Table>
       )}
-    </section>
+    </Section>
   );
 }

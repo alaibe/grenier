@@ -50,7 +50,7 @@
         "noLabelWithoutControl": {
           "level": "error",
           "options": {
-            "inputComponents": ["Input", "Select"],
+            "inputComponents": ["Input", "Select", "Textarea"],
             "labelComponents": ["Field"]
           }
         }

@@ -1,17 +1,23 @@
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, type ClientView } from "../api.ts";
 import {
+  Actions,
   Button,
+  Card,
   ConfirmButton,
   Empty,
   Field,
+  FormCard,
   Input,
   Loading,
   Notice,
   Part,
+  Secret,
   Table,
+  Tag,
   useAction,
+  useAdding,
   useLoad,
 } from "../ui.tsx";
 
@@ -54,10 +60,8 @@ function Connect({ added }: { added: () => void }) {
 export function Clients(_: ViewProps) {
   const { data, error, reload } = useLoad(load);
   const action = useAction(reload);
-  const [adding, setAdding] = useState(false);
+  const adding = useAdding("Another app");
   const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
-  const [copied, setCopied] = useState<boolean | null>(null);
-  const tokenText = useRef<HTMLElement>(null);
 
   const add = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -68,24 +72,11 @@ export function Clients(_: ViewProps) {
       .run("create", async () => {
         const result = await api<{ token: string }>("/clients", { body: { name, scopes } });
         setCreated({ name, token: result.token });
-        setCopied(null);
         return undefined;
       })
       .then((done) => {
-        if (done) setAdding(false);
+        if (done) adding.done();
       });
-  };
-
-  const copy = async (token: string) => {
-    try {
-      await navigator.clipboard.writeText(token);
-      setCopied(true);
-    } catch {
-      const selection = getSelection();
-      if (!tokenText.current || !selection) return setCopied(false);
-      selection.selectAllChildren(tokenText.current);
-      setCopied(document.execCommand("copy"));
-    }
   };
 
   return (
@@ -98,53 +89,36 @@ export function Clients(_: ViewProps) {
           members. Only you see this list.
         </>
       }
-      action={
-        !adding && (
-          <Button quiet onClick={() => setAdding(true)}>
-            Another app
-          </Button>
-        )
-      }
+      action={!adding.open && adding.button}
     >
       <Connect added={reload} />
       <Notice message={error ?? action.message} />
 
       {created && (
-        <div className="mb-6 rounded-xl border border-accent bg-panel px-5 py-4.5" role="status">
+        <Card tone="accent" role="status">
           <h3 className="font-semibold">Token for {created.name}</h3>
-          <p className="mt-1.5">
-            Copy it now: it is shown only once. Give it to the app as <code>GRENIER_CLIENT_TOKEN</code> (stdio) or as{" "}
-            <code>Authorization: Bearer</code> (HTTP).
-          </p>
-          <code
-            className="mt-3 mb-3.5 block border border-line bg-bg px-3 py-2.5 text-md whitespace-normal break-all select-all"
-            ref={tokenText}
+          <Secret
+            className="mt-1.5"
+            value={created.token}
+            copy="Copy token"
+            note={
+              <>
+                Copy it now: it is shown only once. Give it to the app as <code>GRENIER_CLIENT_TOKEN</code> (stdio) or
+                as <code>Authorization: Bearer</code> (HTTP).
+              </>
+            }
           >
-            {created.token}
-          </code>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => void copy(created.token)}>{copied ? "Copied" : "Copy token"}</Button>
             <Button quiet onClick={() => setCreated(null)}>
               Done
             </Button>
-            {copied === false && (
-              <span className="text-sm font-normal text-muted">
-                The token is selected: press ⌘C or Ctrl+C to copy it.
-              </span>
-            )}
-          </div>
-        </div>
+          </Secret>
+        </Card>
       )}
 
-      {adding && (
-        <form
-          className="mb-6 flex max-w-150 flex-col gap-3.5 rounded-xl border border-line bg-panel px-5 py-4.5"
-          onSubmit={add}
-        >
+      {adding.open && (
+        <FormCard className="max-w-150" onSubmit={add}>
           <h3 className="font-semibold">New client</h3>
-          <p className="text-sm font-normal text-muted">
-            You get a token to give the app yourself. It is not installed anywhere.
-          </p>
+          <p className="text-sm text-muted">You get a token to give the app yourself. It is not installed anywhere.</p>
           <Field>
             Name
             <Input name="name" required pattern="[\w.@\-]+" placeholder="claude-desktop" autoComplete="off" />
@@ -155,30 +129,30 @@ export function Clients(_: ViewProps) {
               {(data?.scopes ?? []).map((scope) => (
                 <label
                   key={scope}
-                  className="flex cursor-pointer items-center gap-1.75 rounded-md border border-line-strong px-2.5 py-1.5"
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-line-strong px-2.5 py-1"
                 >
                   <input type="checkbox" className="accent-accent" name="scope" value={scope} />
                   {scope}
                 </label>
               ))}
             </div>
-            <span className="text-sm font-normal text-muted">
+            <span className="text-sm text-muted">
               With nothing ticked, it reads only the repositories' folders. * is every top folder.
             </span>
           </fieldset>
-          <div className="flex items-center gap-2">
+          <Actions>
             <Button type="submit" disabled={action.busy !== null}>
               Create client
             </Button>
-            <Button quiet onClick={() => setAdding(false)}>
+            <Button quiet onClick={adding.done}>
               Cancel
             </Button>
-          </div>
-        </form>
+          </Actions>
+        </FormCard>
       )}
 
       {!data && !error && <Loading what="clients" />}
-      {data && data.clients.length === 0 && !adding && !created && (
+      {data && data.clients.length === 0 && !adding.open && !created && (
         <Empty>
           <p>No app reads Grenier yet: add it to one above.</p>
         </Empty>
@@ -199,15 +173,13 @@ export function Clients(_: ViewProps) {
             {data.clients.map((client) => (
               <tr key={client.name}>
                 <td>
-                  <b className="font-semibold">{client.name}</b>
+                  <span className="font-medium">{client.name}</span>
                 </td>
                 <td className="whitespace-normal">
                   {client.scopes.length > 0 ? (
                     <span className="inline-flex flex-wrap gap-1">
                       {client.scopes.map((scope) => (
-                        <span className="rounded-[5px] border border-line-strong px-1.75 text-xs leading-5" key={scope}>
-                          {scope}
-                        </span>
+                        <Tag key={scope}>{scope}</Tag>
                       ))}
                     </span>
                   ) : (
@@ -242,7 +214,7 @@ export function Clients(_: ViewProps) {
         </Table>
       )}
       {data && data.clients.length > 0 && (
-        <p className="mt-2 text-sm font-normal text-muted">
+        <p className="mt-2 text-sm text-muted">
           An app added with its button reads every folder. To give it fewer, revoke it and make it a key below with only
           the folders it may read.
         </p>

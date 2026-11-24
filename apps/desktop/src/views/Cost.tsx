@@ -13,6 +13,8 @@ import {
   money,
   Notice,
   Page,
+  panel,
+  Section,
   Table,
   useAction,
   useLoad,
@@ -86,8 +88,7 @@ function Spending({
   name: (row: ReportRow) => string;
 }) {
   return (
-    <section className="mb-7">
-      <h2 className="mb-2.5 font-semibold">{title}</h2>
+    <Section title={title}>
       <Table>
         <thead>
           <tr>
@@ -106,14 +107,13 @@ function Spending({
           ))}
         </tbody>
       </Table>
-    </section>
+    </Section>
   );
 }
 
 function Sessions({ rows }: { rows: SessionRow[] }) {
   return (
-    <section className="mb-7">
-      <h2 className="mb-2.5 font-semibold">Per session</h2>
+    <Section title="Per session">
       <Table>
         <thead>
           <tr>
@@ -138,7 +138,7 @@ function Sessions({ rows }: { rows: SessionRow[] }) {
           ))}
         </tbody>
       </Table>
-    </section>
+    </Section>
   );
 }
 
@@ -151,12 +151,12 @@ function Paused({ changed }: { changed: () => void }) {
   });
   if (!data || data.sessions.length === 0) return <Notice message={error} />;
   return (
-    <div className="mb-5 rounded-xl border border-problem bg-problem-soft py-1 pr-2.5 pl-4">
+    <div className={`mb-6 ${panel("problem")} py-1 pr-2.5 pl-4`}>
       <Notice message={action.message?.problem ? action.message : null} />
       {data.sessions.map((session) => (
         <div className="flex items-center justify-between gap-4 py-1.5" key={session.id}>
           <p>
-            Paused after a possible loop: <b className="font-semibold">{session.client ?? "an agent"}</b>
+            Paused after a possible loop: <span className="font-medium">{session.client ?? "an agent"}</span>
             {session.repo ? ` in ${session.repo}` : ""}
             {session.pausedAt ? `, ${ago(session.pausedAt)}` : ""}. Its requests wait until you resume it.
           </p>
