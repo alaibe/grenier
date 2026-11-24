@@ -115,3 +115,6 @@ export async function blobText(root: string, blob: string): Promise<string | nul
     return null;
   }
 }
+
+/** A repository's files as the store reads them, which `RepoFiles` in @grenier/index describes. */
+export const gitFiles = { hashes: blobHashes, tracked: trackedFiles, relative: repoPath, text: repoText };

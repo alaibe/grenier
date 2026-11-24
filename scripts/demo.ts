@@ -5,9 +5,10 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { blobHashes, repoId, repoPath, repoText, trackedFiles } from "@grenier/connectors/git";
-import { joinCode, newVaultKey, routineHash, sha256, sharedHash } from "@grenier/core";
-import { newId, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
+import { joinCode, newVaultKey, RECORD_PARTS, routineHash, sha256, sharedHash } from "@grenier/core";
+import { resolvePaths } from "@grenier/core/node";
+import { blobHashes, gitFiles, repoId } from "@grenier/git";
+import { newId, newRecord, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
 import type { RecordInput, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
@@ -29,6 +30,7 @@ async function freePort(): Promise<number> {
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "grenier-demo-")));
 const home = join(dir, "grenier");
+const paths = resolvePaths({ GRENIER_HOME: home });
 const userHome = join(dir, "home");
 const repo = join(dir, "checkout");
 mkdirSync(home);
@@ -94,7 +96,7 @@ const lea = await joinTeam("lea", "lea-pc", "admin");
 const anthony = await joinTeam("anthony", "anthony-mbp", "admin");
 await teamApi(marie, "/api/invites", { body: { name: "noor" } });
 
-const store: Store = openSqliteStore(join(home, "grenier.db"));
+const store: Store = openSqliteStore(paths.db);
 await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
 await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
 await store.tops.put({
@@ -108,47 +110,23 @@ const me = await teamApi<{ me: string }>(marie, "/api/me");
 await store.state.set("team_member", "marie");
 await store.state.set("team_me_top", me.me);
 const personalKey = newVaultKey();
-writeFileSync(join(home, "personal.key"), `${personalKey}\n`, { mode: 0o600 });
-const deps: StoreDeps = {
-  store,
-  files: { hashes: blobHashes, tracked: trackedFiles, relative: repoPath, text: repoText },
-  embedder: null,
-  me: { member: "marie", device: "marie-mbp" },
-};
+writeFileSync(paths.personalKey, `${personalKey}\n`, { mode: 0o600 });
+const deps: StoreDeps = { store, files: gitFiles, embedder: null, me: { member: "marie", device: "marie-mbp" } };
 
 const teammates: Record<string, TeamClient> = { sam, lea, anthony };
 
 /** A record by marie on this machine, or by a teammate with their own token: the store names the sender as author. */
 async function record(input: Partial<RecordInput> & Pick<RecordInput, "type" | "title">): Promise<string> {
-  const id = input.id ?? newId();
-  const full: RecordInput = {
-    id,
-    top: "team",
-    kind: null,
-    folder: "",
-    body: "",
-    fields: {},
-    author: "marie",
-    device: "marie-mbp",
-    sessionId: null,
-    createdAt: now,
-    updatedAt: now,
-    retiredAt: null,
-    version: 0,
-    anchors: [],
-    links: [],
-    ...input,
-  };
+  const full = newRecord(deps.me, { top: "team", ...input });
   const teammate = teammates[full.author];
   if (!teammate) {
     await write(deps, full);
-    return id;
+    return full.id;
   }
-  const changed = ["top", "type", "kind", "title", "folder", "body", "fields", "anchors", "links"];
   await teamApi(teammate, "/api/changes", {
-    body: { changes: [{ id: newId(), recordId: id, baseVersion: 0, changed, record: full }] },
+    body: { changes: [{ id: newId(), recordId: full.id, baseVersion: 0, changed: [...RECORD_PARTS], record: full }] },
   });
-  return id;
+  return full.id;
 }
 async function anchored(paths: string[]) {
   const hashes = await blobHashes(repo, paths);
@@ -467,10 +445,10 @@ await store.close();
 
 const port = await freePort();
 const adminToken = `ga_demo_${newId()}${newId()}`;
-writeFileSync(join(home, "admin-token"), `${adminToken}\n`, { mode: 0o600 });
-writeFileSync(join(home, "team-token"), `${SETUP_TOKEN}\n`, { mode: 0o600 });
+writeFileSync(paths.adminToken, `${adminToken}\n`, { mode: 0o600 });
+writeFileSync(paths.teamToken, `${SETUP_TOKEN}\n`, { mode: 0o600 });
 writeFileSync(
-  join(home, "config.toml"),
+  paths.config,
   `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n\n[team]\nurl = "${teamUrl}"\n\n[machine]\nname = "marie-mbp"\nroutines = true\nidle_minutes = 0\nhours = "0-24"\n`,
 );
 const environment = { ...process.env, GRENIER_HOME: home, HOME: userHome };

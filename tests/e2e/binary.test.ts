@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { resolvePaths } from "@grenier/core/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { version } from "../../apps/cli/package.json";
 
@@ -35,7 +36,7 @@ describe("the built binary", () => {
 
   it("answers the menu bar on a fresh machine, creating the database", () => {
     expect(grenier("today").trim()).toBe("Nothing spent yet");
-    expect(existsSync(join(dir, ".grenier", "grenier.db"))).toBe(true);
+    expect(existsSync(resolvePaths({ GRENIER_HOME: join(dir, ".grenier") }).db)).toBe(true);
   });
 
   it("creates the database from several processes at once, as the app and its daemon do on a first launch", async () => {

@@ -1,52 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { StoreDeps } from "@grenier/index";
-import type { Store } from "@grenier/store";
-import { openSqliteStore } from "@grenier/store/sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { fetchSkill, searchServers, searchSkills } from "../../../apps/cli/src/catalog.ts";
-import { installs } from "../../../apps/cli/src/host.ts";
-import { storeDeps } from "../../support/repo.ts";
-
-const SHA = "a1b2c3";
-const REPO: Record<string, string> = {
-  "README.md": "# Skills\n",
-  "skills/notes/SKILL.md": "---\nname: release-notes\ndescription: Writes release notes.\n---\nRead the log.\n",
-  "skills/notes/template.md": "## Changes\n",
-  "skills/notes/.env": "TOKEN=1\n",
-  "skills/other/SKILL.md": "---\nname: other\n---\nSomething else.\n",
-};
-
-/** Answers like skills.sh, GitHub's API and raw.githubusercontent.com, and records each URL it was asked. */
-function fakeWeb(repo: Record<string, string> = REPO) {
-  const asked: string[] = [];
-  const fetchImpl = (async (input: string | URL) => {
-    const url = String(input);
-    asked.push(url);
-    if (url.startsWith("https://skills.sh/api/search?")) {
-      return Response.json({
-        skills: [
-          { id: "acme/skills/release-notes", name: "release-notes", installs: 1200, source: "acme/skills" },
-          { id: "acme/tools/lint", name: "lint", installs: 3, source: "" },
-          { id: "x", name: "bad source", installs: 1, source: "not a repo" },
-          { name: "no id" },
-        ],
-      });
-    }
-    if (url === "https://api.github.com/repos/acme/skills/commits/HEAD") return Response.json({ sha: SHA });
-    if (url === `https://api.github.com/repos/acme/skills/git/trees/${SHA}?recursive=1`) {
-      return Response.json({
-        tree: Object.entries(repo).map(([path, text]) => ({ path, type: "blob", size: text.length })),
-      });
-    }
-    const raw = `https://raw.githubusercontent.com/acme/skills/${SHA}/`;
-    if (url.startsWith(raw) && repo[url.slice(raw.length)] !== undefined)
-      return new Response(repo[url.slice(raw.length)]);
-    return new Response("not found", { status: 404 });
-  }) as typeof fetch;
-  return { asked, fetchImpl };
-}
+import { fakeWeb, REPO, SHA } from "../../support/catalog.ts";
 
 describe("searching skills.sh", () => {
   it("sends only the words, and keeps the results that name a skill and its GitHub repository", async () => {
@@ -84,37 +38,6 @@ describe("fetching a skill from GitHub", () => {
     for (const source of ["../etc", "acme/..", "acme/.", "acme/skills/extra", "-acme/skills"]) {
       await expect(fetchSkill(source, "x", fetchImpl)).rejects.toThrow("owner/repo");
     }
-  });
-});
-
-describe("sharing a found skill", () => {
-  let store: Store;
-  let deps: StoreDeps;
-  let home: string;
-
-  beforeEach(async () => {
-    store = openSqliteStore(":memory:");
-    deps = await storeDeps(store);
-    home = mkdtempSync(join(tmpdir(), "grenier-catalog-"));
-  });
-
-  afterEach(async () => {
-    await store.close();
-    rmSync(home, { recursive: true, force: true });
-  });
-
-  it("writes it to the team as a Skill, not installed here until approved", async () => {
-    const route = installs(store, home, { deps: async () => deps, fetch: fakeWeb().fetchImpl });
-    const share = () => route("POST", "/installs/share", { source: "acme/skills", name: "release-notes" });
-    expect(await share()).toEqual({ status: 409, body: { error: "this machine is in no team: join one first" } });
-
-    await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-    expect(await share()).toMatchObject({ status: 200, body: { title: "release-notes", files: 2, updated: false } });
-    const [record] = await store.records.list({ tops: ["team"], type: "Skill" });
-    expect(record?.fields.files).toEqual({ "SKILL.md": REPO["skills/notes/SKILL.md"], "template.md": "## Changes\n" });
-    expect((await route("GET", "/installs", undefined))?.body).toMatchObject({
-      shared: [{ title: "release-notes", state: "available" }],
-    });
   });
 });
 
@@ -224,80 +147,5 @@ describe("searching the MCP Registry", () => {
         credentials: [],
       },
     ]);
-  });
-});
-
-describe("adding to the team from the app", () => {
-  let store: Store;
-  let deps: StoreDeps;
-  let home: string;
-
-  beforeEach(async () => {
-    store = openSqliteStore(":memory:");
-    deps = await storeDeps(store);
-    home = mkdtempSync(join(tmpdir(), "grenier-catalog-"));
-    await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-  });
-
-  afterEach(async () => {
-    await store.close();
-    rmSync(home, { recursive: true, force: true });
-  });
-
-  it("writes a skill from its name, description and instructions", async () => {
-    const route = installs(store, home, { deps: async () => deps });
-    const add = (body: Record<string, unknown>) => route("POST", "/installs/skill", body);
-    expect((await add({ name: "Release Notes", description: "x", instructions: "y" }))?.status).toBe(400);
-    expect(
-      await add({ name: "release-notes", description: "Writes notes.", instructions: "Read the log." }),
-    ).toMatchObject({
-      status: 200,
-      body: { title: "release-notes" },
-    });
-    const [skill] = await store.records.list({ tops: ["team"], type: "Skill" });
-    expect(skill?.fields.files).toEqual({
-      "SKILL.md": '---\nname: release-notes\ndescription: "Writes notes."\n---\nRead the log.\n',
-    });
-  });
-
-  it("quotes a description holding a colon and quotes, and reads it back as it was typed", async () => {
-    const route = installs(store, home, { deps: async () => deps });
-    const description = `Use it when: the user says "ship it" or 'release', with a \\ too.`;
-    await route("POST", "/installs/skill", { name: "shipper", description, instructions: "Ship." });
-    const [skill] = await store.records.list({ tops: ["team"], type: "Skill" });
-    const manifest = (skill?.fields.files as Record<string, string> | undefined)?.["SKILL.md"] ?? "";
-    expect(manifest.split("\n")[2]).toBe(`description: ${JSON.stringify(description)}`);
-    const listed = (await route("GET", "/installs", undefined))?.body as { shared: { description: string }[] };
-    expect(listed.shared[0]?.description).toBe(description);
-  });
-
-  it("adds a server by hand, refusing one that already holds a key", async () => {
-    const route = installs(store, home, { deps: async () => deps });
-    const add = (body: Record<string, unknown>) => route("POST", "/installs/server", body);
-    expect((await add({ title: "leaky", config: { command: "srv", args: ["--token", "abc"] } }))?.status).toBe(409);
-    expect(
-      (
-        await add({
-          title: "leaky",
-          config: {
-            url: "https://x.test/mcp",
-            headers: { Authorization: "Bearer sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" },
-          },
-        })
-      )?.status,
-    ).toBe(409);
-    expect(
-      await add({
-        title: "linear",
-        description: "Issues.",
-        config: { url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer {api_key}" } },
-        credentials: ["api_key"],
-      }),
-    ).toMatchObject({ status: 200 });
-    const [server] = await store.records.list({ tops: ["team"], type: "McpServer" });
-    expect(server?.fields).toEqual({
-      config: { type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer {api_key}" } },
-      credentials: ["api_key"],
-    });
   });
 });

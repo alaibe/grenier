@@ -6,7 +6,7 @@ import { resolvePaths } from "@grenier/core/node";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { TeamLink } from "../../../apps/cli/src/link.ts";
-import { parseInvite, withTomlValue } from "../../../apps/cli/src/team.ts";
+import { parseInvite } from "../../../apps/cli/src/team.ts";
 
 describe("the link to the team store", () => {
   it("runs a step between two rounds, never while a round writes the cursor", async () => {
@@ -58,14 +58,5 @@ describe("invite links", () => {
     });
     expect(parseInvite("grenier://join/127.0.0.1:8787/ab/cd").url).toBe("http://127.0.0.1:8787");
     expect(() => parseInvite("https://example.com")).toThrow("grenier://join/");
-  });
-});
-
-describe("withTomlValue", () => {
-  it("adds a table, or sets a key inside an existing one, keeping the rest", () => {
-    expect(withTomlValue("", "team", "url", "https://x")).toBe('[team]\nurl = "https://x"\n');
-    expect(withTomlValue('[proxy]\nport = 1\n\n[team]\nurl = "old"\n', "team", "url", "new")).toBe(
-      '[proxy]\nport = 1\n\n[team]\nurl = "new"\n',
-    );
   });
 });

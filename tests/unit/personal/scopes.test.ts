@@ -1,11 +1,12 @@
 import { createMcpServer } from "@grenier/gateway";
+import { gitFiles } from "@grenier/git";
 import { placeOf, type Reader, remember } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ADA, gitFiles, storeDeps, TestRepo } from "../../support/repo.ts";
+import { ADA, storeDeps, TestRepo } from "../../support/repo.ts";
 
 let store: Store;
 let repo: TestRepo;

@@ -2,27 +2,58 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig } from "@grenier/core";
-import { ensureDirectories, resolvePaths } from "@grenier/core/node";
-import { remember, type TeamClient } from "@grenier/index";
+import { resolvePaths } from "@grenier/core/node";
+import type { TeamClient } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { anchorDiffs, joining } from "../../../apps/cli/src/host.ts";
-import { storeDeps, TestRepo } from "../../support/repo.ts";
-import { SETUP_TOKEN, startWorker } from "../../support/worker.ts";
+import { testAdmin } from "../../../support/gateway.ts";
+import { SETUP_TOKEN, startWorker } from "../../../support/worker.ts";
 
 let store: Store;
 let home: string;
 
 beforeEach(() => {
   store = openSqliteStore(":memory:");
-  home = mkdtempSync(join(tmpdir(), "grenier-host-"));
+  home = mkdtempSync(join(tmpdir(), "grenier-team-"));
 });
 
 afterEach(async () => {
   await store.close();
   rmSync(home, { recursive: true, force: true });
+});
+
+describe("the team store's pages", () => {
+  let team: TeamClient | null;
+  const call = (path: string) => testAdmin(store, home, { team: () => team }).call(path);
+
+  beforeEach(() => {
+    team = null;
+  });
+
+  it("passes the team's pages through with this device's token, and says when there is no team", async () => {
+    expect((await call("/team/members")).status).toBe(409);
+    team = {
+      url: "https://team.test",
+      token: "gt_x",
+      fetch: (async (url: URL) => Response.json({ path: url.pathname })) as unknown as typeof fetch,
+    };
+    expect(await (await call("/team/members")).json()).toEqual({ path: "/api/members" });
+  });
+
+  it("says the team store can't be reached when this machine is offline", async () => {
+    team = {
+      url: "https://team.test",
+      token: "gt_x",
+      fetch: (async () => {
+        throw new TypeError("fetch failed");
+      }) as unknown as typeof fetch,
+    };
+    const offline = await call("/team/members");
+    expect(offline.status).toBe(502);
+    expect(await offline.json()).toEqual({ error: "the team store can't be reached" });
+  });
 });
 
 describe("joining a team from the app", () => {
@@ -51,16 +82,13 @@ describe("joining a team from the app", () => {
         body: JSON.stringify({ name: "bob" }),
       })
     ).json()) as { id: string; secret: string };
-    const paths = resolvePaths({ GRENIER_HOME: home });
-    ensureDirectories(paths);
+    const paths = resolvePaths({ GRENIER_HOME: join(home, ".grenier") });
     const started: TeamClient[] = [];
-    const route = joining({
-      paths,
+    const route = testAdmin(store, home, {
       config: { ...defaultConfig(), machine: { ...defaultConfig().machine, name: "bob-mbp" } },
-      store,
       fetch: workerFetch,
       joined: (team) => started.push(team),
-    });
+    }).reply;
 
     const asked = await route("POST", "/join", { link: `grenier://join/team.test/${invite.id}/${invite.secret}` });
     expect(asked?.status).toBe(202);
@@ -84,45 +112,14 @@ describe("joining a team from the app", () => {
     expect(state).toMatchObject({ state: "joined", member: "bob" });
     expect(started).toHaveLength(1);
     expect(readFileSync(paths.config, "utf8")).toContain('url = "https://team.test"');
-    expect(existsSync(join(home, "team-token"))).toBe(true);
+    expect(existsSync(paths.teamToken)).toBe(true);
     expect(await store.state.get("team_member")).toBe("bob");
   }, 30_000);
 
   it("refuses what is not an invite link", async () => {
-    const paths = resolvePaths({ GRENIER_HOME: home });
-    const route = joining({ paths, config: defaultConfig(), store, fetch: workerFetch, joined: () => {} });
+    const route = testAdmin(store, home, { fetch: workerFetch }).reply;
     expect(await route("POST", "/join", { link: "https://example.com" })).toMatchObject({ status: 400 });
     expect(await route("GET", "/join", undefined)).toEqual({ status: 200, body: { state: "idle" } });
-    expect(await route("GET", "/elsewhere", undefined)).toBeNull();
-  });
-});
-
-describe("the change to a file a record was written from", () => {
-  it("shows the version it was written from and the one there is now", async () => {
-    const repo = new TestRepo({ "router.ts": "export function route() {}\n" });
-    try {
-      await repo.ready();
-      const deps = await storeDeps(store);
-      const kept = await remember(deps, { id: "c", name: "claude", scopes: ["*"] }, repo.repo, {
-        kind: "answer",
-        title: "Where are requests routed?",
-        body: "route() in router.ts.",
-        files: ["router.ts"],
-        top: "me",
-      });
-      repo.write("router.ts", "export function route(path: string) {}\n");
-      const diff = await anchorDiffs(store)("GET", `/records/${kept.id}/diff?path=router.ts`, undefined);
-      expect(diff).toEqual({
-        status: 200,
-        body: {
-          path: "router.ts",
-          before: "export function route() {}\n",
-          now: "export function route(path: string) {}\n",
-        },
-      });
-      expect((await anchorDiffs(store)("GET", `/records/${kept.id}/diff?path=other.ts`, undefined))?.status).toBe(404);
-    } finally {
-      repo.remove();
-    }
+    expect(await route("GET", "/elsewhere", undefined)).toEqual({ status: 404, body: { error: "no GET /elsewhere" } });
   });
 });

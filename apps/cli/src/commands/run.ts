@@ -1,18 +1,13 @@
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
-import { repoId, repoRoot } from "@grenier/connectors/git";
 import { ASK_FIRST } from "@grenier/gateway";
+import { repoId, repoRoot } from "@grenier/git";
 import { startDaemon } from "../daemon.ts";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
+import { newSessionId } from "../runtime.ts";
 
 export interface RunDependencies {
   startDaemon: (io: Io) => Promise<{ pid: number; port?: number; version?: string }>;
-}
-
-/** A short random session id, safe in a URL path. */
-export function newSessionId(): string {
-  return randomBytes(9).toString("base64url");
 }
 
 export const ASKED_FIRST =

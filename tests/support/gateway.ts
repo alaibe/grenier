@@ -1,9 +1,14 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { type Config, defaultConfig } from "@grenier/core";
+import { ensureDirectories, resolvePaths } from "@grenier/core/node";
 import { createGateway } from "@grenier/gateway";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
+import { type AdminDeps, createAdmin } from "../../apps/cli/src/admin/admin.ts";
+import type { Runner } from "../../apps/cli/src/runner.ts";
+import { storeDeps } from "./repo.ts";
 
 export const PORT = 7788;
 export const BASE = `http://127.0.0.1:${PORT}`;
@@ -80,5 +85,68 @@ export function messagesRequest(body: unknown, headers: Record<string, string> =
       ...headers,
     },
     body: JSON.stringify(body),
+  };
+}
+
+export const ADMIN_TOKEN = "ga_admin-test";
+
+export interface TestAdmin {
+  /** A request to /admin<path> with the admin token, as the app sends it; `origin` sets its Origin header. */
+  call: (path: string, init?: RequestInit & { origin?: string }) => Promise<Response>;
+  /** The status and JSON body of a request to /admin<path>. */
+  reply: (method: string, path: string, body?: unknown) => Promise<{ status: number; body: unknown }>;
+  /** A request to any URL of the gateway, as it comes. */
+  raw: (url: string, init?: RequestInit) => Promise<Response>;
+  /** What reached the model provider through the proxy. */
+  upstream: Upstream;
+}
+
+/** The admin API mounted in the gateway as the daemon mounts it: `home` is the user's, with Grenier's in .grenier. */
+export function testAdmin(store: Store, home: string, deps: Partial<AdminDeps> = {}): TestAdmin {
+  const config = defaultConfig();
+  const paths = resolvePaths({ GRENIER_HOME: join(home, ".grenier") });
+  ensureDirectories(paths);
+  const upstream = fakeUpstream(() => new Response("{}"));
+  const admin = createAdmin({
+    store,
+    prices: loadPrices(),
+    paths,
+    config,
+    rules: () => config,
+    reloaded: () => {},
+    token: ADMIN_TOKEN,
+    version: "test",
+    storeDeps: () => storeDeps(store),
+    team: () => null,
+    sync: async (between) => {
+      await between?.();
+      return null;
+    },
+    joined: () => {},
+    runner: { running: false, tick: async () => {}, state: async () => ({}), run: async () => {} } as unknown as Runner,
+    where: { home, platform: "darwin", env: { GRENIER_HOME: paths.home }, self: ["/usr/local/bin/node", "grenier.js"] },
+    ...deps,
+  });
+  const app = createGateway({ store, config, prices: loadPrices(), fetch: upstream.fetch, port: PORT, admin });
+  const call: TestAdmin["call"] = async (path, init = {}) => {
+    const { origin, ...rest } = init;
+    return app.request(`${BASE}/admin${path}`, {
+      ...rest,
+      headers: {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        "content-type": "application/json",
+        ...(origin ? { origin } : {}),
+        ...(rest.headers as Record<string, string> | undefined),
+      },
+    });
+  };
+  return {
+    call,
+    reply: async (method, path, body) => {
+      const response = await call(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+      return { status: response.status, body: await response.json() };
+    },
+    raw: async (url, init) => app.request(url, init),
+    upstream,
   };
 }

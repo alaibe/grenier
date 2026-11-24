@@ -118,28 +118,38 @@ export interface SyncResult {
   unopened: number;
 }
 
+/** A change as the team store takes it, or null while it waits: a Me page sealed, one leaving Me in the clear. */
+export async function teamChange(
+  deps: { store: Store; personalKey: string | null },
+  change: { changed: readonly string[]; record: Record<string, unknown> },
+): Promise<{ changed: string[]; record: Record<string, unknown> } | null> {
+  let { record } = change;
+  let changed = [...change.changed];
+  const { top } = record;
+  // Without its top folder, a change could be a `me` record leaving unsealed: it stays here.
+  if (typeof top !== "string") return null;
+  if (top === "me") {
+    if (!deps.personalKey) return null;
+    return {
+      changed: [...new Set([...changed, ...SEALED_PARTS, "sealed"])],
+      record: await sealRecord(deps.personalKey, record),
+    };
+  }
+  // Out of `me`, the team store holds only the sealed copy: every part goes again, in the clear.
+  if (changed.includes("top")) {
+    record = { ...record, sealed: null };
+    changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
+  }
+  const folder = await deps.store.tops.get(top);
+  if (folder?.kind === "repo") record = { ...record, topName: folder.name };
+  return { changed, record };
+}
+
 async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
   const changes: { id: string; recordId: string; baseVersion: number; changed: string[]; record: unknown }[] = [];
   for (const entry of entries) {
-    const change = entry.change as { changed: string[]; record: Record<string, unknown> };
-    let record = change.record;
-    let changed = change.changed;
-    // Without its top folder, a change could be a `me` record leaving unsealed: it stays here.
-    if (typeof record.top !== "string") continue;
-    if (record.top === "me") {
-      if (!deps.personalKey) continue;
-      record = await sealRecord(deps.personalKey, record);
-      changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
-    } else {
-      // Out of `me`, the team store holds only the sealed copy: every part goes again, in the clear.
-      if (changed.includes("top")) {
-        record = { ...record, sealed: null };
-        changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
-      }
-      const top = await deps.store.tops.get(String(record.top));
-      if (top?.kind === "repo") record = { ...record, topName: top.name };
-    }
-    changes.push({ id: entry.id, recordId: entry.recordId, baseVersion: entry.baseVersion, changed, record });
+    const sent = await teamChange(deps, entry.change as { changed: string[]; record: Record<string, unknown> });
+    if (sent) changes.push({ id: entry.id, recordId: entry.recordId, baseVersion: entry.baseVersion, ...sent });
   }
   return changes;
 }

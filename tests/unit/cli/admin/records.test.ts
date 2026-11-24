@@ -1,19 +1,19 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig, TEAM_PROTOCOL } from "@grenier/core";
-import { createGateway } from "@grenier/gateway";
-import type { TeamClient } from "@grenier/index";
-import { loadPrices } from "@grenier/log";
+import { newVaultKey, TEAM_PROTOCOL } from "@grenier/core";
+import { remember, syncOnce, type TeamClient } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
+import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { storeDeps, TableEmbedder } from "../../support/repo.ts";
+import { type TestAdmin, testAdmin } from "../../../support/gateway.ts";
+import { storeDeps, TableEmbedder, TestRepo } from "../../../support/repo.ts";
+import { SETUP_TOKEN, startWorker } from "../../../support/worker.ts";
 
-const TOKEN = "ga_admin-test";
 let store: Store;
 let dir: string;
-let app: ReturnType<typeof createGateway>;
+let admin: TestAdmin;
 let team: TeamClient | null;
 let synced: number;
 let embedder: TableEmbedder | null;
@@ -26,22 +26,12 @@ beforeEach(async () => {
   team = null;
   synced = 0;
   embedder = null;
-  const config = defaultConfig();
-  app = createGateway({
-    store,
-    config,
-    prices: loadPrices(),
-    port: 7788,
-    admin: {
-      token: TOKEN,
-      version: "test",
-      host: {
-        storeDeps: () => storeDeps(store, embedder),
-        team: () => team,
-        syncNow: async () => {
-          synced += 1;
-        },
-      },
+  admin = testAdmin(store, dir, {
+    storeDeps: () => storeDeps(store, embedder),
+    team: () => team,
+    sync: async () => {
+      synced += 1;
+      return null;
     },
   });
 });
@@ -51,69 +41,9 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function call(path: string, init: RequestInit & { origin?: string } = {}) {
-  const { origin, ...rest } = init;
-  return app.request(`http://127.0.0.1:7788/admin${path}`, {
-    ...rest,
-    headers: {
-      authorization: `Bearer ${TOKEN}`,
-      "content-type": "application/json",
-      ...(origin ? { origin } : {}),
-      ...(rest.headers as Record<string, string> | undefined),
-    },
-  });
-}
+const call = (path: string, init?: RequestInit & { origin?: string }) => admin.call(path, init);
 
-describe("the admin API", () => {
-  it("needs the admin token", async () => {
-    expect((await app.request("http://127.0.0.1:7788/admin/overview")).status).toBe(401);
-    expect((await app.request("http://127.0.0.1:7788/admin/key", { method: "POST" })).status).toBe(401);
-    expect((await call("/overview", { headers: { authorization: "Bearer wrong" } })).status).toBe(401);
-    expect((await call("/overview")).status).toBe(200);
-  });
-
-  it("answers the desktop app's origin with CORS, and no other", async () => {
-    const preflight = await app.request("http://127.0.0.1:7788/admin/overview", {
-      method: "OPTIONS",
-      headers: { origin: "tauri://localhost" },
-    });
-    expect(preflight.status).toBe(204);
-    expect(preflight.headers.get("access-control-allow-origin")).toBe("tauri://localhost");
-    expect((await call("/overview", { origin: "tauri://localhost" })).headers.get("access-control-allow-origin")).toBe(
-      "tauri://localhost",
-    );
-    const evil = await app.request("http://127.0.0.1:7788/admin/overview", {
-      method: "OPTIONS",
-      headers: { origin: "https://evil.example" },
-    });
-    expect(evil.status).toBe(403);
-    const refused = await app.request("http://127.0.0.1:7788/admin/overview", {
-      headers: { origin: "tauri://localhost", authorization: "Bearer wrong" },
-    });
-    expect(refused.status).toBe(401);
-    expect(refused.headers.get("access-control-allow-origin")).toBe("tauri://localhost");
-    expect(
-      (await call("/overview", { origin: "https://evil.example" })).headers.get("access-control-allow-origin"),
-    ).toBeNull();
-  });
-
-  it("creates, lists and revokes clients, with known scopes only", async () => {
-    const created = await call("/clients", {
-      method: "POST",
-      body: JSON.stringify({ name: "claude", scopes: ["team"] }),
-    });
-    expect(created.status).toBe(201);
-    expect(((await created.json()) as { token: string }).token).toMatch(/^gc_/);
-    expect(
-      (await call("/clients", { method: "POST", body: JSON.stringify({ name: "x", scopes: ["nowhere"] }) })).status,
-    ).toBe(400);
-    expect(
-      ((await (await call("/clients")).json()) as { clients: { name: string }[] }).clients.map((c) => c.name),
-    ).toEqual(["claude"]);
-    expect((await call("/clients/claude/revoke", { method: "POST" })).status).toBe(200);
-    expect(((await (await call("/clients")).json()) as { clients: unknown[] }).clients).toEqual([]);
-  });
-
+describe("the editor's records", () => {
   it("writes, lists, searches, edits and retires records for the editor", async () => {
     const made = await call("/records", {
       method: "POST",
@@ -222,16 +152,6 @@ describe("the admin API", () => {
     });
   });
 
-  it("passes the team's pages through with this device's token, and says when there is no team", async () => {
-    expect((await call("/team/members")).status).toBe(409);
-    team = {
-      url: "https://team.test",
-      token: "gt_x",
-      fetch: (async (url: URL) => Response.json({ path: url.pathname })) as unknown as typeof fetch,
-    };
-    expect(await (await call("/team/members")).json()).toEqual({ path: "/api/members" });
-  });
-
   it("embeds a page saved straight to the team store, and names a repository's folder as sync does", async () => {
     embedder = new TableEmbedder({ Runbook: [1, 0, 0] });
     await store.tops.put({
@@ -292,78 +212,78 @@ describe("the admin API", () => {
     expect(history.history.map((entry) => entry.snapshot.body)).toEqual(["Monday."]);
     expect(asked).toEqual([]);
   });
+});
 
-  it("says the team store can't be reached when this machine is offline", async () => {
-    team = {
-      url: "https://team.test",
-      token: "gt_x",
-      fetch: (async () => {
-        throw new TypeError("fetch failed");
-      }) as unknown as typeof fetch,
-    };
-    const offline = await call("/team/members");
-    expect(offline.status).toBe(502);
-    expect(await offline.json()).toEqual({ error: "the team store can't be reached" });
-  });
-
-  it("gives the overview, per day, project and session, and the reports", async () => {
-    const now = Date.now();
-    await store.sessions.create({
-      id: "s1",
-      client: "claude",
-      startedAt: now - 1000,
-      repoRoot: "/work/app",
-      repoId: "r1",
-    });
-    await store.sessions.create({ id: "s2", client: "codex", startedAt: now });
-    await store.sessions.create({ id: "untagged", startedAt: now - 5000 });
-    for (const [sessionId, cost] of [
-      ["s1", 0.125],
-      ["s2", 0.5],
-      ["untagged", 0.25],
-    ] as const) {
-      await store.usage.add({ sessionId, ts: now, model: "claude-opus-5-5", inputTokens: 10, cost });
+describe("the change to a file a record was written from", () => {
+  it("shows the version it was written from and the one there is now", async () => {
+    const repo = new TestRepo({ "router.ts": "export function route() {}\n" });
+    try {
+      await repo.ready();
+      const deps = await storeDeps(store);
+      const kept = await remember(deps, { id: "c", name: "claude", scopes: ["*"] }, repo.repo, {
+        kind: "answer",
+        title: "Where are requests routed?",
+        body: "route() in router.ts.",
+        files: ["router.ts"],
+        top: "me",
+      });
+      repo.write("router.ts", "export function route(path: string) {}\n");
+      const diff = await admin.reply("GET", `/records/${kept.id}/diff?path=router.ts`);
+      expect(diff).toEqual({
+        status: 200,
+        body: {
+          path: "router.ts",
+          before: "export function route() {}\n",
+          now: "export function route(path: string) {}\n",
+        },
+      });
+      expect((await admin.reply("GET", `/records/${kept.id}/diff?path=other.ts`))?.status).toBe(404);
+    } finally {
+      repo.remove();
     }
-
-    const overview = (await (await call("/overview")).json()) as {
-      version: string;
-      days: { requests: number }[];
-      projects: { key: string; cost: number }[];
-      sessions: {
-        key: string;
-        client: string | null;
-        project: string | null;
-        startedAt: number | null;
-      }[];
-    };
-    expect(overview.version).toBe("test");
-    expect(overview.days[0]?.requests).toBe(3);
-    expect(overview.projects.map((row) => [row.key, row.cost])).toEqual([
-      ["(not started with grenier run)", 0.75],
-      ["app", 0.125],
-    ]);
-    expect(
-      overview.sessions.map(({ key, client, project, startedAt }) => ({ key, client, project, startedAt })),
-    ).toEqual([
-      { key: "s2", client: "codex", project: null, startedAt: now },
-      { key: "s1", client: "claude", project: "app", startedAt: now - 1000 },
-      { key: "untagged", client: null, project: null, startedAt: now - 5000 },
-    ]);
   });
+});
 
-  it("lists the paused sessions and resumes one", async () => {
-    await store.sessions.create({ id: "s1", client: "claude", repoRoot: "/work/app", startedAt: 1 });
-    await store.sessions.setPaused("s1", true);
-    await store.events.add({ sessionId: "s1", ts: 42, kind: "pause", detail: null });
+describe("a Me page moved to Team while online", () => {
+  let mf: Miniflare;
+  let workerFetch: typeof fetch;
 
-    expect(await (await call("/sessions/paused")).json()).toEqual({
-      sessions: [{ id: "s1", client: "claude", repo: "app", pausedAt: 42 }],
+  beforeEach(async () => {
+    ({ mf, fetch: workerFetch } = await startWorker());
+    await workerFetch("https://team.test/api/setup", {
+      method: "POST",
+      headers: { authorization: `Bearer ${SETUP_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ member: "ada", device: "ada-mbp" }),
     });
-    expect(((await (await call("/overview")).json()) as { paused: number }).paused).toBe(1);
+  }, 60_000);
 
-    expect(await (await call("/sessions/s1/resume", { method: "POST" })).json()).toEqual({ resumed: "s1" });
-    expect((await store.sessions.get("s1"))?.paused).toBe(false);
-    expect((await store.events.list({ kind: "resume" })).map((event) => event.sessionId)).toEqual(["s1"]);
-    expect((await call("/sessions/nobody/resume", { method: "POST" })).status).toBe(404);
+  afterEach(async () => {
+    await mf.dispose();
   });
+
+  it("reaches the team store in the clear, as sync would send it", async () => {
+    team = { url: "https://team.test", token: SETUP_TOKEN, fetch: workerFetch };
+    const made = (await (
+      await call("/records", {
+        method: "POST",
+        body: JSON.stringify({ title: "Dentist", body: "Tuesday.", top: "me" }),
+      })
+    ).json()) as { id: string };
+    await syncOnce({ store, team, embedder: null, personalKey: newVaultKey() });
+    expect(await store.state.get("team_protocol")).toBe(String(TEAM_PROTOCOL));
+
+    const moved = await call(`/records/${made.id}`, { method: "PUT", body: JSON.stringify({ top: "team" }) });
+    expect(await moved.json()).toEqual({ saved: made.id });
+    const pulled = (await (
+      await workerFetch("https://team.test/api/changes?after=0", {
+        headers: { authorization: `Bearer ${SETUP_TOKEN}` },
+      })
+    ).json()) as { records: { id: string }[] };
+    expect(pulled.records.find((record) => record.id === made.id)).toMatchObject({
+      top: "team",
+      title: "Dentist",
+      body: "Tuesday.",
+      sealed: null,
+    });
+  }, 30_000);
 });

@@ -1,5 +1,3 @@
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { type Config, ConfigError } from "@grenier/core";
 import { ensureDirectories, type GrenierPaths, loadConfig, resolvePaths } from "@grenier/core/node";
 import { StoreUseError } from "@grenier/index";
@@ -15,9 +13,9 @@ export interface Io {
   self: string[];
 }
 
-/** A failure to report as `grenier: <message>` with exit code 1. */
-export class CommandError extends Error {
-  override name = "CommandError";
+/** What this machine refuses to do, and why: the admin API answers with it, and a command exits with code 1. */
+export class Refusal extends Error {
+  override name = "Refusal";
 }
 
 /** A wrong command line, reported with the usage and exit code 2. */
@@ -27,7 +25,7 @@ export class UsageError extends Error {
 
 export function isReported(error: unknown): error is Error {
   return (
-    error instanceof CommandError ||
+    error instanceof Refusal ||
     error instanceof ConfigError ||
     error instanceof StoreError ||
     error instanceof StoreUseError
@@ -53,12 +51,4 @@ export async function withStore<T>(paths: GrenierPaths, use: (store: Store) => P
   } finally {
     await store.close();
   }
-}
-
-/** Writes a file readable by this user only, all at once: a reader sees the old text or the new, never half. */
-export function writeAtomically(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, text, { mode: 0o600 });
-  renameSync(temporary, path);
 }

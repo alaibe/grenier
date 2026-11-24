@@ -2,11 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { blobHashes, repoId, repoPath, repoText, trackedFiles } from "@grenier/connectors/git";
-import type { Embedder, Identity, Repo, RepoFiles, StoreDeps } from "@grenier/index";
+import { gitFiles, repoId } from "@grenier/git";
+import type { Embedder, Identity, Repo, StoreDeps } from "@grenier/index";
 import type { Store } from "@grenier/store";
-
-export const gitFiles: RepoFiles = { hashes: blobHashes, tracked: trackedFiles, relative: repoPath, text: repoText };
 
 /** Gives each listed text a fixed direction, so a test decides which texts are alike. Others get zeros. */
 export class TableEmbedder implements Embedder {

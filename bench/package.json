@@ -9,6 +9,7 @@
     "bench": "node build.mjs && node dist/bench.js"
   },
   "devDependencies": {
+    "@grenier/core": "workspace:*",
     "esbuild": "0.28.2"
   }
 }

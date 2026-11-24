@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { resolvePaths } from "@grenier/core/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startDaemon } from "../support/daemon.ts";
 
@@ -55,9 +56,10 @@ beforeAll(async () => {
   const upstreamPort = (upstream.address() as AddressInfo).port;
   proxyPort = await freePort();
 
-  mkdirSync(join(dir, ".grenier"), { recursive: true });
+  const paths = resolvePaths({ GRENIER_HOME: join(dir, ".grenier") });
+  mkdirSync(paths.home, { recursive: true });
   writeFileSync(
-    join(dir, ".grenier", "config.toml"),
+    paths.config,
     `[proxy]\nport = ${proxyPort}\nupstream_anthropic = "http://127.0.0.1:${upstreamPort}"\n`,
   );
   writeFileSync(
@@ -90,7 +92,7 @@ describe("the daemon and grenier run", () => {
     expect(readFileSync(join(dir, "out.sse"))).toEqual(STREAM);
     expect(received.at(-1)).toEqual({ url: "/v1/messages?beta=true", apiKey: "sk-ant-e2e" });
 
-    const token = readFileSync(join(dir, ".grenier", "admin-token"), "utf8").trim();
+    const token = readFileSync(resolvePaths({ GRENIER_HOME: join(dir, ".grenier") }).adminToken, "utf8").trim();
     const overview = (await (
       await fetch(`http://127.0.0.1:${proxyPort}/admin/overview`, { headers: { authorization: `Bearer ${token}` } })
     ).json()) as { sessions: { key: string }[] };

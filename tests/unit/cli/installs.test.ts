@@ -9,8 +9,8 @@ import {
   install,
   removeRetired,
   rollback,
+  serverToShare,
   share,
-  shareableServer,
   sharedList,
   skillFromFiles,
   uninstall,
@@ -126,16 +126,12 @@ describe("a shared skill", () => {
 });
 
 describe("a shared MCP server", () => {
-  it("leaves its credentials behind, as names each teammate sets", async () => {
-    expect(
-      shareableServer({ command: "npx", args: ["-y", "@sentry/mcp@1.2.0"], env: { SENTRY_TOKEN: "abc" } }),
-    ).toEqual({ config: { command: "npx", args: ["-y", "@sentry/mcp@1.2.0"] }, credentials: ["SENTRY_TOKEN"] });
-    expect(
-      shareableServer({ type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "x" } }),
-    ).toEqual({ config: { type: "http", url: "https://mcp.linear.app/mcp" }, credentials: ["Authorization"] });
-    expect(() => shareableServer({ command: "srv", args: ["--api-key=abc"] })).toThrow("arguments carry a credential");
-    expect(() => shareableServer({ command: "srv", args: ["--token", "abc"] })).toThrow("arguments carry a credential");
-    expect(() => shareableServer({ type: "http", url: "https://x.test/mcp?token=abc" })).toThrow("URL carries");
+  it("is refused with a credential in its arguments or its URL", async () => {
+    const share = (config: Record<string, unknown>) => () => serverToShare({ config });
+    expect(share({ command: "srv", args: ["--api-key=abc"] })).toThrow("arguments carry a credential");
+    expect(share({ command: "srv", args: ["--token", "abc"] })).toThrow("arguments carry a credential");
+    expect(share({ type: "http", url: "https://x.test/mcp?token=abc" })).toThrow("URL carries");
+    expect(share({ url: "not a url" })).toThrow("Invalid URL");
   });
 
   it("is installed into Claude Code's config with the key each person enters there only, and removed again", async () => {

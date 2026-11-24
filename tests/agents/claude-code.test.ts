@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { resolvePaths } from "@grenier/core/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { freePort, messageStream } from "../support/anthropic.ts";
 import { startDaemon } from "../support/daemon.ts";
@@ -73,9 +74,10 @@ describe.skipIf(claude === null)("Claude Code through grenier run", () => {
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
     port = await freePort();
-    mkdirSync(join(dir, ".grenier"), { recursive: true });
+    const paths = resolvePaths(env());
+    mkdirSync(paths.home, { recursive: true });
     writeFileSync(
-      join(dir, ".grenier", "config.toml"),
+      paths.config,
       `[proxy]\nport = ${port}\nupstream_anthropic = "http://127.0.0.1:${(upstream.address() as AddressInfo).port}"\n`,
     );
     daemon = await startDaemon(BINARY, env(), dir);
@@ -91,7 +93,7 @@ describe.skipIf(claude === null)("Claude Code through grenier run", () => {
     const run = await grenier("run", "--", claude as string, "-p", "Reply with one word.");
     expect(run.stdout.trim()).toBe("pong");
     expect(messages.length).toBeGreaterThan(0);
-    const token = readFileSync(join(dir, ".grenier", "admin-token"), "utf8").trim();
+    const token = readFileSync(resolvePaths(env()).adminToken, "utf8").trim();
     const overview = (await (
       await fetch(`http://127.0.0.1:${port}/admin/overview`, { headers: { authorization: `Bearer ${token}` } })
     ).json()) as { sessions: { requests: number }[] };

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { blobHashes, repoHome, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/connectors/git";
+import { blobHashes, repoHome, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let dir: string;

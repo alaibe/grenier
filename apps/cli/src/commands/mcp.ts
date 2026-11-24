@@ -1,11 +1,11 @@
 import { createMcpServer } from "@grenier/gateway";
+import { gitFiles } from "@grenier/git";
 import { readerFor } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { version } from "../../package.json";
-import { embedderLoader, gitFiles, repoResolver } from "../exploration.ts";
 import { environment, type Io } from "../io.ts";
-import { ensureBaseTops, identity } from "../runtime.ts";
+import { embedderLoader, ensureBaseTops, identity, repoResolver } from "../runtime.ts";
 
 /** `grenier mcp serve`: the MCP server over stdio, for an agent that launches it in its working directory. */
 export async function serve(io: Io): Promise<number> {

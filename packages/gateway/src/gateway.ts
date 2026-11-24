@@ -1,7 +1,6 @@
 import { sha256 } from "@grenier/core";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Hono } from "hono";
-import { type AdminOptions, createAdmin } from "./admin.ts";
 import { createMcpServer, type McpDeps } from "./mcp.ts";
 import { createProxy, errorResponse, type ProxyOptions, UNTAGGED } from "./proxy.ts";
 
@@ -9,10 +8,11 @@ export interface GatewayOptions extends ProxyOptions {
   /** The port the daemon listens on, to accept only requests addressed to this machine. */
   port: number;
   mcp?: Omit<McpDeps, "store">;
-  admin?: Omit<AdminOptions, "store" | "prices">;
+  /** The daemon's admin API, served under /admin behind the same Host check. */
+  admin?: Hono;
 }
 
-/** MCP at /mcp, the proxy under /s/<session>/… for `grenier run`, and untagged proxying everywhere else. */
+/** MCP at /mcp, the admin API given under /admin, the proxy under /s/<session>/…, and untagged proxying elsewhere. */
 export function createGateway(options: GatewayOptions): Hono {
   const proxy = createProxy(options);
   const hosts = new Set([`127.0.0.1:${options.port}`, `localhost:${options.port}`, `[::1]:${options.port}`]);
@@ -56,7 +56,7 @@ export function createGateway(options: GatewayOptions): Hono {
       : proxy(raw, session, path);
 
   if (options.admin) {
-    app.route("/admin", createAdmin({ store: options.store, prices: options.prices, ...options.admin }));
+    app.route("/admin", options.admin);
   } else {
     app.all("/admin/*", () => errorResponse(404, "not_found_error", "The admin API is not served here."));
   }

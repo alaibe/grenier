@@ -39,6 +39,7 @@ export {
   type TeamClient,
   TeamError,
   teamApi,
+  teamChange,
   unopenedCount,
 } from "./sync.ts";
 export {

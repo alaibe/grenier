@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePaths } from "@grenier/core/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { claudeAgent, runBenchmark } from "../../bench/src/bench.ts";
 import { type Block, freePort, messageStream } from "../support/anthropic.ts";
@@ -125,7 +126,8 @@ describe.skipIf(claude === null)("the benchmark with Claude Code", () => {
     writeFileSync(join(source, "app.ts"), "export const app = 1;\n");
     git("add", ".");
     git("commit", "-q", "-m", "first");
-    if (existsSync(MODELS)) cpSync(MODELS, join(dir, "work", "home", "models"), { recursive: true });
+    const models = resolvePaths({ GRENIER_HOME: join(dir, "work", "home") }).models;
+    if (existsSync(MODELS)) cpSync(MODELS, models, { recursive: true });
 
     upstream = createServer((request, response) => {
       let body = "";

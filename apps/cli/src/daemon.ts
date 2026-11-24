@@ -2,43 +2,29 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { type GrenierPaths, writeAtomically } from "@grenier/core/node";
 import { createGateway } from "@grenier/gateway";
+import { gitFiles } from "@grenier/git";
 import type { TeamClient } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { serve } from "@hono/node-server";
 import { version } from "../package.json";
-import { machineRoutes } from "./connect.ts";
-import { deployTeamStore } from "./deploy.ts";
-import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
-import { anchorDiffs, installs, joining, routes } from "./host.ts";
+import { createAdmin } from "./admin/admin.ts";
 import { removeRetired } from "./installs.ts";
-import { CommandError, environment, type Io, writeAtomically } from "./io.ts";
+import { environment, type Io, Refusal } from "./io.ts";
 import { TeamLink } from "./link.ts";
 import { desktopNotifier } from "./notify.ts";
-import { routineRoutes } from "./routines.ts";
 import { Runner } from "./runner.ts";
-import { ensureBaseTops, identity, storeDeps } from "./runtime.ts";
+import { embedderLoader, ensureBaseTops, identity, repoResolver, storeDeps } from "./runtime.ts";
 import { teamClient } from "./team.ts";
 
-export function logFile(home: string): string {
-  return join(home, "daemon.log");
-}
-
 /** The desktop app's key to the admin API: made once, readable by this user only. */
-export function adminToken(home: string): string {
-  const file = join(home, "admin-token");
-  if (existsSync(file)) return readFileSync(file, "utf8").trim();
+export function adminToken(paths: GrenierPaths): string {
+  if (existsSync(paths.adminToken)) return readFileSync(paths.adminToken, "utf8").trim();
   const token = `ga_${randomBytes(32).toString("base64url")}`;
-  writeFileSync(file, `${token}\n`, { mode: 0o600 });
+  writeFileSync(paths.adminToken, `${token}\n`, { mode: 0o600 });
   return token;
-}
-
-/** What the running daemon writes about itself once it listens, and removes when it stops. */
-export function infoFile(home: string): string {
-  return join(home, "daemon.json");
 }
 
 export interface DaemonInfo {
@@ -53,9 +39,9 @@ export type DaemonState =
   /** The recorded pid belongs to another program: the daemon stopped without cleaning up, and the pid was reused. */
   | { state: "stale"; pid: number };
 
-function recorded(home: string): { pid: number; port: number } | null {
+function recorded(paths: GrenierPaths): { pid: number; port: number } | null {
   try {
-    const info = JSON.parse(readFileSync(infoFile(home), "utf8")) as Partial<DaemonInfo>;
+    const info = JSON.parse(readFileSync(paths.daemonInfo, "utf8")) as Partial<DaemonInfo>;
     return Number.isInteger(info.pid) && (info.pid as number) > 0 && Number.isInteger(info.port)
       ? { pid: info.pid as number, port: info.port as number }
       : null;
@@ -65,12 +51,11 @@ function recorded(home: string): { pid: number; port: number } | null {
 }
 
 /** The daemon's own answer to who it is, through the admin API: null when nothing of ours answers on `port`. */
-async function health(home: string, port: number): Promise<{ pid: number; version: string } | null> {
-  const tokenFile = join(home, "admin-token");
-  if (!existsSync(tokenFile)) return null;
+async function health(paths: GrenierPaths, port: number): Promise<{ pid: number; version: string } | null> {
+  if (!existsSync(paths.adminToken)) return null;
   try {
     const response = await fetch(`http://127.0.0.1:${port}/admin/health`, {
-      headers: { authorization: `Bearer ${readFileSync(tokenFile, "utf8").trim()}` },
+      headers: { authorization: `Bearer ${readFileSync(paths.adminToken, "utf8").trim()}` },
       signal: AbortSignal.timeout(1500),
     });
     if (!response.ok) return null;
@@ -81,16 +66,16 @@ async function health(home: string, port: number): Promise<{ pid: number; versio
 }
 
 /** Whether the daemon runs, checked with the daemon itself: a recorded pid can have been reused since. */
-export async function daemonState(home: string): Promise<DaemonState> {
-  const found = recorded(home);
+export async function daemonState(paths: GrenierPaths): Promise<DaemonState> {
+  const found = recorded(paths);
   if (found === null || !isAlive(found.pid)) return { state: "stopped" };
-  const answer = await health(home, found.port);
+  const answer = await health(paths, found.port);
   if (answer?.pid === found.pid) return { ...found, state: "running", version: answer.version };
   return { state: "stale", pid: found.pid };
 }
 
-function forget(home: string): void {
-  rmSync(infoFile(home), { force: true });
+function forget(paths: GrenierPaths): void {
+  rmSync(paths.daemonInfo, { force: true });
 }
 
 function isAlive(pid: number): boolean {
@@ -120,15 +105,14 @@ const PRUNE_EVERY = 6 * 60 * 60 * 1000;
 /** `grenier daemon`: serves the proxy in the foreground until SIGTERM or SIGINT. */
 export async function runDaemon(io: Io): Promise<number> {
   const { paths, config } = environment(io);
-  const current = await daemonState(paths.home);
-  if (current.state === "running") throw new CommandError(`the daemon is already running (pid ${current.pid})`);
+  const current = await daemonState(paths);
+  if (current.state === "running") throw new Refusal(`the daemon is already running (pid ${current.pid})`);
 
   const store = openSqliteStore(paths.db);
   await ensureBaseTops(store);
   const port = config.proxy.port;
   const prices = loadPrices(config.prices);
   const embedder = embedderLoader(config, paths, io.err);
-  const home = homedir();
   let rules = config;
   const notify = desktopNotifier(io.err);
   let team = teamClient(config, paths, io.env);
@@ -168,57 +152,29 @@ export async function runDaemon(io: Io): Promise<number> {
     link.start();
     runner.start();
   };
-  const extra = routes(
-    joining({ paths, config, store, joined: started }),
-    async (method, path, body) => {
-      if (path !== "/deploy" || method !== "POST") return null;
-      const input = (body ?? {}) as { token?: unknown; name?: unknown; member?: unknown };
-      try {
-        const deployed = await deployTeamStore(
-          {
-            paths,
-            config,
-            store,
-            serverDir: fileURLToPath(new URL("./server/", import.meta.url)),
-            inTeam: team !== null,
-          },
-          {
-            token: String(input.token ?? ""),
-            name: String(input.name ?? "grenier-team"),
-            member: String(input.member ?? ""),
-          },
-        );
-        if (deployed.team) started(deployed.team);
-        return { status: 200, body: { url: deployed.url, created: deployed.team !== null } };
-      } catch (error) {
-        return { status: 409, body: { error: (error as Error).message } };
-      }
+  const admin = createAdmin({
+    store,
+    prices,
+    paths,
+    config,
+    rules: () => rules,
+    reloaded: (next) => {
+      rules = next;
     },
-    anchorDiffs(store),
-    installs(store, home, { deps: () => storeDeps(store, config, embedder) }),
-    machineRoutes(store, paths, { home, platform: process.platform, env: io.env, self: io.self }, (between) =>
-      link ? link.sync(between) : between(),
-    ),
-    async (method, path) => {
-      if (path !== "/sync" || method !== "POST") return null;
-      if (!link) return { status: 409, body: { error: "this machine is in no team" } };
-      const result = await link.sync();
-      return result
-        ? { status: 200, body: result }
-        : { status: 502, body: { error: "the sync failed: the daemon's log says why" } };
+    token: adminToken(paths),
+    version,
+    identity: { pid: process.pid, port },
+    storeDeps: () => storeDeps(store, config, embedder),
+    team: () => team,
+    sync: async (between) => {
+      if (link) return link.sync(between);
+      await between?.();
+      return null;
     },
-    routineRoutes({
-      store,
-      paths,
-      runner,
-      storeDeps: () => storeDeps(store, config, embedder),
-      team: () => team,
-      config: () => rules,
-      reloaded: (next) => {
-        rules = next;
-      },
-    }),
-  );
+    joined: started,
+    runner,
+    where: { home: homedir(), platform: process.platform, env: io.env, self: io.self },
+  });
   const app = createGateway({
     store,
     config,
@@ -228,19 +184,7 @@ export async function runDaemon(io: Io): Promise<number> {
     runGuard: async (session) => runner.guard(session),
     log: io.err,
     mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), me: () => identity(store, config), version },
-    admin: {
-      token: adminToken(paths.home),
-      version,
-      identity: { pid: process.pid, port },
-      host: {
-        storeDeps: () => storeDeps(store, config, embedder),
-        team: () => team,
-        syncNow: async () => {
-          await link?.sync();
-        },
-        extra,
-      },
-    },
+    admin,
   });
 
   const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port });
@@ -252,12 +196,12 @@ export async function runDaemon(io: Io): Promise<number> {
   } catch (error) {
     await store.close();
     const code = (error as NodeJS.ErrnoException).code;
-    throw new CommandError(
+    throw new Refusal(
       code === "EADDRINUSE" ? `127.0.0.1:${port} is in use; set [proxy] port in ${paths.config}` : String(error),
     );
   }
 
-  writeAtomically(infoFile(paths.home), `${JSON.stringify({ pid: process.pid, port, version })}\n`);
+  writeAtomically(paths.daemonInfo, `${JSON.stringify({ pid: process.pid, port, version })}\n`);
   io.err(`grenier ${version} daemon listening on 127.0.0.1:${port} (pid ${process.pid})`);
 
   link?.start();
@@ -294,7 +238,7 @@ export async function runDaemon(io: Io): Promise<number> {
   await closed;
   clearTimeout(cut);
   await store.close();
-  forget(paths.home);
+  forget(paths);
   process.off("SIGTERM", ignore);
   process.off("SIGINT", ignore);
   return 0;
@@ -303,12 +247,12 @@ export async function runDaemon(io: Io): Promise<number> {
 /** Starts the daemon in the background and waits until it answers; or finds the one already running. */
 export async function startDaemon(io: Io): Promise<{ pid: number; port: number; version: string; started: boolean }> {
   const { paths } = environment(io);
-  const current = await daemonState(paths.home);
+  const current = await daemonState(paths);
   if (current.state === "running" && current.version === version) return { ...current, started: false };
   // One of another version, left running by an update, gives way: nothing else stops it now.
   if (current.state === "running") await stopDaemon(io);
 
-  const log = openSync(logFile(paths.home), "a", 0o600);
+  const log = openSync(paths.daemonLog, "a", 0o600);
   const [command = process.execPath, ...args] = io.self;
   const child = spawn(command, [...args, "daemon"], { detached: true, stdio: ["ignore", log, log], env: io.env });
   closeSync(log);
@@ -319,30 +263,30 @@ export async function startDaemon(io: Io): Promise<{ pid: number; port: number; 
   child.unref();
 
   for (let waited = 0; waited < 10_000; waited += 50) {
-    const now = await daemonState(paths.home);
+    const now = await daemonState(paths);
     // Another start may have won the race: its daemon is as good as ours.
     if (now.state === "running") return { ...now, started: now.pid === child.pid };
     if (exited) break;
     await sleep(50);
   }
-  const tail = readFileSync(logFile(paths.home), "utf8").trim().split("\n").slice(-5).join("\n");
-  throw new CommandError(`the daemon did not start. ${logFile(paths.home)} says:\n${tail}`);
+  const tail = readFileSync(paths.daemonLog, "utf8").trim().split("\n").slice(-5).join("\n");
+  throw new Refusal(`the daemon did not start. ${paths.daemonLog} says:\n${tail}`);
 }
 
 /** Stops the daemon; a recorded pid that is another program's is never signalled, only its record removed. */
 export async function stopDaemon(io: Io): Promise<{ pid: number | null; stale?: number }> {
   const { paths } = environment(io);
-  const current = await daemonState(paths.home);
+  const current = await daemonState(paths);
   if (current.state === "stale") {
-    forget(paths.home);
+    forget(paths);
     return { pid: null, stale: current.pid };
   }
   if (current.state === "stopped") return { pid: null };
   const { pid } = current;
   process.kill(pid, "SIGTERM");
   for (let waited = 0; waited < 10_000; waited += 50) {
-    if (!isAlive(pid) || recorded(paths.home) === null) return { pid };
+    if (!isAlive(pid) || recorded(paths) === null) return { pid };
     await sleep(50);
   }
-  throw new CommandError(`the daemon (pid ${pid}) did not stop; see ${logFile(paths.home)}`);
+  throw new Refusal(`the daemon (pid ${pid}) did not stop; see ${paths.daemonLog}`);
 }

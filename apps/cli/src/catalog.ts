@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import { secretIn } from "@grenier/core";
 import { MAX_SKILL_BYTES, MAX_SKILL_FILES, type SkillFiles, skillField, skillFromFiles } from "./installs.ts";
-import { CommandError } from "./io.ts";
+import { Refusal } from "./io.ts";
 
 const SEARCH = "https://skills.sh/api/search";
 const GITHUB = "https://api.github.com/repos";
@@ -11,6 +11,13 @@ const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/(?!\.\.?$)[\w.-]{1,100}$/;
 const COMMIT = /^[0-9a-f]{6,64}$/;
 const MAX_RESULTS = 30;
 const MAX_MANIFESTS = 20;
+
+/** A request to the web, whose failure to get there is refused with what fetch said. */
+function reach(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promise<Response> {
+  return fetchImpl(url, init).catch((error: Error) => {
+    throw new Refusal(error.message);
+  });
+}
 
 /** A skill skills.sh lists: `source` is the GitHub repository that holds it. */
 export interface FoundSkill {
@@ -24,10 +31,10 @@ export interface FoundSkill {
 export async function searchSkills(words: string, fetchImpl: typeof fetch = fetch): Promise<FoundSkill[]> {
   const query = words.trim().slice(0, 200);
   if (!query) return [];
-  const response = await fetchImpl(`${SEARCH}?${new URLSearchParams({ q: query })}`, {
+  const response = await reach(fetchImpl, `${SEARCH}?${new URLSearchParams({ q: query })}`, {
     headers: { accept: "application/json" },
   });
-  if (!response.ok) throw new CommandError(`skills.sh answered ${response.status}`);
+  if (!response.ok) throw new Refusal(`skills.sh answered ${response.status}`);
   const answer = (await response.json().catch(() => ({}))) as { skills?: unknown };
   const found: FoundSkill[] = [];
   for (const entry of Array.isArray(answer.skills) ? answer.skills : []) {
@@ -42,22 +49,25 @@ export async function searchSkills(words: string, fetchImpl: typeof fetch = fetc
 
 /** The skill named `name` in the GitHub repository `source`, from one commit, within a shared skill's limits. */
 export async function fetchSkill(source: string, name: string, fetchImpl: typeof fetch = fetch): Promise<SkillFiles> {
-  if (!REPO.test(source)) throw new CommandError("a skill's source is a GitHub repository, as owner/repo");
+  if (!REPO.test(source)) throw new Refusal("a skill's source is a GitHub repository, as owner/repo");
   const github = async <T>(path: string): Promise<T> => {
-    const response = await fetchImpl(`${GITHUB}/${source}${path}`, {
+    const response = await reach(fetchImpl, `${GITHUB}/${source}${path}`, {
       headers: { accept: "application/vnd.github+json" },
     });
-    if (!response.ok) throw new CommandError(`GitHub answered ${response.status} for ${source}`);
+    if (!response.ok) throw new Refusal(`GitHub answered ${response.status} for ${source}`);
     return (await response.json()) as T;
   };
   const { sha } = await github<{ sha: unknown }>("/commits/HEAD");
-  if (typeof sha !== "string" || !COMMIT.test(sha)) throw new CommandError(`GitHub named no commit for ${source}`);
+  if (typeof sha !== "string" || !COMMIT.test(sha)) throw new Refusal(`GitHub named no commit for ${source}`);
   const { tree } = await github<{ tree: { path: string; type: string; size?: number }[] }>(
     `/git/trees/${sha}?recursive=1`,
   );
   const raw = async (path: string) => {
-    const response = await fetchImpl(`${RAW}/${source}/${sha}/${path.split("/").map(encodeURIComponent).join("/")}`);
-    if (!response.ok) throw new CommandError(`GitHub answered ${response.status} for ${path}`);
+    const response = await reach(
+      fetchImpl,
+      `${RAW}/${source}/${sha}/${path.split("/").map(encodeURIComponent).join("/")}`,
+    );
+    if (!response.ok) throw new Refusal(`GitHub answered ${response.status} for ${path}`);
     return response.text();
   };
   const visible = tree.filter(
@@ -73,13 +83,13 @@ export async function fetchSkill(source: string, name: string, fetchImpl: typeof
     const inside = visible.filter((entry) => entry.path.startsWith(prefix));
     const bytes = inside.reduce((total, entry) => total + (entry.size ?? 0), 0);
     if (inside.length > MAX_SKILL_FILES || bytes > MAX_SKILL_BYTES) {
-      throw new CommandError(`${name} is larger than a shared skill may be: ${MAX_SKILL_FILES} files and 200 KB`);
+      throw new Refusal(`${name} is larger than a shared skill may be: ${MAX_SKILL_FILES} files and 200 KB`);
     }
     const files: Record<string, string> = {};
     for (const entry of inside) files[entry.path.slice(prefix.length)] = await raw(entry.path);
     return skillFromFiles(files, posix.basename(folder));
   }
-  throw new CommandError(`${source} holds no skill named ${name}`);
+  throw new Refusal(`${source} holds no skill named ${name}`);
 }
 
 const REGISTRY = "https://registry.modelcontextprotocol.io/v0/servers";
@@ -180,13 +190,14 @@ function packageConfig(pkg: Record<string, unknown>): Pick<FoundServer, "config"
 export async function searchServers(words: string, fetchImpl: typeof fetch = fetch): Promise<FoundServer[]> {
   const query = words.trim().slice(0, 200);
   if (!query) return [];
-  const response = await fetchImpl(
+  const response = await reach(
+    fetchImpl,
     `${REGISTRY}?${new URLSearchParams({ search: query, version: "latest", limit: "30" })}`,
     {
       headers: { accept: "application/json" },
     },
   );
-  if (!response.ok) throw new CommandError(`the MCP Registry answered ${response.status}`);
+  if (!response.ok) throw new Refusal(`the MCP Registry answered ${response.status}`);
   const answer = (await response.json().catch(() => ({}))) as { servers?: unknown };
   const found: FoundServer[] = [];
   for (const item of Array.isArray(answer.servers) ? answer.servers : []) {

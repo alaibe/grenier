@@ -1,5 +1,6 @@
 import { defaultConfig, sha256 } from "@grenier/core";
 import { createGateway, createMcpServer } from "@grenier/gateway";
+import { gitFiles } from "@grenier/git";
 import { type Reader, StoreUseError } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
@@ -8,7 +9,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ADA, gitFiles, TestRepo } from "../../support/repo.ts";
+import { ADA, TestRepo } from "../../support/repo.ts";
 
 let store: Store;
 let repo: TestRepo;

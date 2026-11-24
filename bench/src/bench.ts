@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { resolvePaths } from "@grenier/core/node";
 
 const exec = promisify(execFile);
 
@@ -83,9 +84,10 @@ const zero = (): RunUsage => ({ inputTokens: 0, cacheWriteTokens: 0, cacheReadTo
 export async function runBenchmark(options: BenchOptions): Promise<QuestionResult[]> {
   const log = options.log ?? (() => {});
   const home = join(options.workDir, "home");
+  const paths = resolvePaths({ GRENIER_HOME: home });
   mkdirSync(home, { recursive: true });
   writeFileSync(
-    join(home, "config.toml"),
+    paths.config,
     [
       `[proxy]\nport = ${options.port}\n`,
       options.upstream ? `upstream_anthropic = ${JSON.stringify(options.upstream)}\n` : "",
@@ -106,7 +108,7 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
 
   /** The daemon's admin API, as the app calls it. */
   const admin = async <T>(path: string, method = "GET"): Promise<T> => {
-    const token = readFileSync(join(home, "admin-token"), "utf8").trim();
+    const token = readFileSync(paths.adminToken, "utf8").trim();
     const response = await fetch(`http://127.0.0.1:${options.port}/admin${path}`, {
       method,
       headers: { authorization: `Bearer ${token}` },
@@ -133,7 +135,7 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
   const daemon = {
     kill() {
       try {
-        process.kill((JSON.parse(readFileSync(join(home, "daemon.json"), "utf8")) as { pid: number }).pid, "SIGTERM");
+        process.kill((JSON.parse(readFileSync(paths.daemonInfo, "utf8")) as { pid: number }).pid, "SIGTERM");
       } catch {
         // Not running.
       }

@@ -12,21 +12,24 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type GrenierPaths, resolvePaths } from "@grenier/core/node";
 import { ASK_FIRST } from "@grenier/gateway";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
 import { run } from "../../../apps/cli/src/cli.ts";
 import { agentArgs, asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
-import { daemonState, infoFile } from "../../../apps/cli/src/daemon.ts";
+import { daemonState } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
 let dir: string;
 let home: string;
+let paths: GrenierPaths;
 
 beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "grenier-cli-")));
   home = join(dir, ".grenier");
+  paths = resolvePaths({ GRENIER_HOME: home });
 });
 
 afterEach(() => {
@@ -51,7 +54,7 @@ async function grenier(...argv: string[]) {
 }
 
 function db() {
-  return openSqliteStore(join(home, "grenier.db"));
+  return openSqliteStore(paths.db);
 }
 
 describe("grenier --version and help", () => {
@@ -84,15 +87,13 @@ describe("the menu bar's grenier today", () => {
   it("creates the home directory and the database on first run, and refuses a config it cannot read", async () => {
     expect(await grenier("today")).toEqual({ code: 0, out: "Nothing spent yet", err: "" });
     expect(statSync(home).mode & 0o777).toBe(0o700);
-    expect(existsSync(join(home, "grenier.db"))).toBe(true);
-    writeFileSync(join(home, "config.toml"), "[proxy]\nport = 0\n");
+    expect(existsSync(paths.db)).toBe(true);
+    writeFileSync(paths.config, "[proxy]\nport = 0\n");
     expect(await grenier("today")).toEqual({
       code: 1,
       out: "",
-      err: `grenier: Invalid config in ${join(home, "config.toml")}:\n  proxy.port: Too small: expected number to be >=1`,
+      err: `grenier: Invalid config in ${paths.config}:\n  proxy.port: Too small: expected number to be >=1`,
     });
-    writeFileSync(join(home, "config.toml"), "[budgets]\ndaily = 10\n");
-    expect((await grenier("today")).err).toContain('Unrecognized key: "budgets"');
   });
 
   it("shows today's spend per project", async () => {
@@ -114,11 +115,11 @@ describe("the menu bar's grenier today", () => {
 describe("the daemon's identity", () => {
   it("is stopped without a record, or with one naming a dead pid or garbage", async () => {
     await grenier("today");
-    expect(await daemonState(home)).toEqual({ state: "stopped" });
-    writeFileSync(infoFile(home), JSON.stringify({ pid: 2147483646, port: 7799, version: "0.0.0" }));
-    expect(await daemonState(home)).toEqual({ state: "stopped" });
-    writeFileSync(infoFile(home), "not json");
-    expect(await daemonState(home)).toEqual({ state: "stopped" });
+    expect(await daemonState(paths)).toEqual({ state: "stopped" });
+    writeFileSync(paths.daemonInfo, JSON.stringify({ pid: 2147483646, port: 7799, version: "0.0.0" }));
+    expect(await daemonState(paths)).toEqual({ state: "stopped" });
+    writeFileSync(paths.daemonInfo, "not json");
+    expect(await daemonState(paths)).toEqual({ state: "stopped" });
   });
 });
 

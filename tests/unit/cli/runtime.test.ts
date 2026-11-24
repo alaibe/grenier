@@ -1,10 +1,11 @@
 import { defaultConfig } from "@grenier/core";
+import { resolvePaths } from "@grenier/core/node";
 import type { Embedder } from "@grenier/index";
 import { describe, expect, it } from "vitest";
-import { EMBEDDER_RETRY_MS, embedderLoader } from "../../../apps/cli/src/exploration.ts";
+import { EMBEDDER_RETRY_MS, embedderLoader } from "../../../apps/cli/src/runtime.ts";
 
 const embedder = { model: "m", dimensions: 1, embed: async () => [] } as unknown as Embedder;
-const paths = { home: "/nowhere", config: "/nowhere/config.toml", db: "/nowhere/grenier.db" };
+const paths = resolvePaths({ GRENIER_HOME: "/nowhere" });
 
 describe("embedderLoader", () => {
   it("loads once, and after a failure tries again a minute later instead of never", async () => {

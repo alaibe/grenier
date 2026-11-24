@@ -6,7 +6,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { repoId } from "@grenier/connectors/git";
+import { resolvePaths } from "@grenier/core/node";
+import { repoId } from "@grenier/git";
 import { ensureRepoTop } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -49,7 +50,7 @@ interface Run {
 
 /** The daemon's admin API, as the app's Routines screen calls it. */
 async function admin<T>(path: string, body?: unknown): Promise<T> {
-  const token = readFileSync(join(dir, ".grenier", "admin-token"), "utf8").trim();
+  const token = readFileSync(resolvePaths(env()).adminToken, "utf8").trim();
   const response = await fetch(`http://127.0.0.1:${port}/admin${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -115,9 +116,10 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
     port = await freePort();
-    mkdirSync(join(dir, ".grenier"), { recursive: true });
+    const paths = resolvePaths(env());
+    mkdirSync(paths.home, { recursive: true });
     writeFileSync(
-      join(dir, ".grenier", "config.toml"),
+      paths.config,
       [
         `[proxy]\nport = ${port}\nupstream_anthropic = "http://127.0.0.1:${(upstream.address() as AddressInfo).port}"`,
         `[store]\nembeddings = "off"`,
@@ -135,7 +137,7 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
 
   it("offers the agent read tools only, and cuts the run off at an edit", async () => {
     // Written as the app's New routine form writes it, in Me since this machine has no team.
-    const store = openSqliteStore(join(dir, ".grenier", "grenier.db"));
+    const store = openSqliteStore(resolvePaths(env()).db);
     const repoIdentity = (await repoId(repo)) as string;
     await ensureRepoTop(store, { root: repo, id: repoIdentity });
     const form = routineFromForm({ title: "Tidy", prompt: "Tidy app.ts.", tools: "Edit", repo: repoIdentity });

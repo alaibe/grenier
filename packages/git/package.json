@@ -1,0 +1,12 @@
+{
+  "name": "@grenier/git",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Reads git repositories: their roots, ids, files and blob hashes. Node only.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/git.ts"
+  },
+  "dependencies": {}
+}

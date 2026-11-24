@@ -1,20 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { defaultConfig } from "@grenier/core";
-import { resolvePaths } from "@grenier/core/node";
-import type { StoreDeps, TeamClient } from "@grenier/index";
+import type { StoreDeps } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  addLibrarian,
-  addRoutine,
-  editRoutine,
-  routineFromForm,
-  routineRoutes,
-} from "../../../apps/cli/src/routines.ts";
-import type { Runner } from "../../../apps/cli/src/runner.ts";
+import { addLibrarian, addRoutine, editRoutine, routineFromForm } from "../../../apps/cli/src/routines.ts";
 import { storeDeps } from "../../support/repo.ts";
 
 let store: Store;
@@ -93,76 +81,5 @@ describe("a routine written in the app", () => {
     );
     expect((await store.records.get(id))?.body).toBe("Ship it.");
     expect(await store.records.list({ tops: ["team"], type: "Routine" })).toHaveLength(1);
-  });
-});
-
-describe("the routines' admin routes", () => {
-  let home: string;
-  let team: TeamClient | null;
-  let runs: { routine: FullRecord; mode: string }[];
-
-  beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), "grenier-routines-"));
-    team = { url: "https://team.test", token: "gt_x" };
-    runs = [];
-  });
-
-  afterEach(() => {
-    rmSync(home, { recursive: true, force: true });
-  });
-
-  function route() {
-    const runner = {
-      running: false,
-      tick: async () => {},
-      run: async (input: { routine: FullRecord; mode: string }) => {
-        runs.push(input);
-      },
-    } as unknown as Runner;
-    return routineRoutes({
-      store,
-      paths: resolvePaths({ GRENIER_HOME: home }),
-      runner,
-      storeDeps: async () => deps,
-      team: () => team,
-      reloaded: () => {},
-      config: defaultConfig,
-    });
-  }
-
-  it("runs a routine by hand only as this machine's person approved it", async () => {
-    const { id } = await addRoutine(deps, {
-      title: "Tidy",
-      prompt: "Tidy up.",
-      fields: { trigger: "request" },
-      repo: null,
-      top: "team",
-    });
-    const run = () => route()("POST", `/routines/${id}/run`, {});
-    expect(await run()).toEqual({ status: 409, body: { error: "approve the routine as it is now before running it" } });
-    expect(runs).toEqual([]);
-    expect((await route()("POST", `/routines/${id}/approve`, { mode: "shadow" }))?.status).toBe(200);
-    expect((await run())?.status).toBe(202);
-    expect(runs[0]?.mode).toBe("shadow");
-    await editRoutine(deps, (await store.records.get(id)) as FullRecord, {
-      title: "Tidy",
-      prompt: "Tidy up, and delete what is old.",
-      fields: { trigger: "request" },
-      repo: null,
-    });
-    expect((await run())?.status).toBe(409);
-    expect(runs).toHaveLength(1);
-  });
-
-  it("adds no routine and no librarian outside a team: routines run on the team's machines", async () => {
-    team = null;
-    const form = { title: "Tidy", prompt: "Tidy up." };
-    for (const reply of [await route()("POST", "/routines", form), await route()("POST", "/routines/librarian", {})]) {
-      expect(reply?.status).toBe(409);
-      expect(reply?.body).toEqual({ error: expect.stringContaining("start or join a team first") });
-    }
-    expect(await store.records.list({ tops: ["team"], type: "Routine" })).toEqual([]);
-    team = { url: "https://team.test", token: "gt_x" };
-    expect((await route()("POST", "/routines", form))?.status).toBe(200);
   });
 });

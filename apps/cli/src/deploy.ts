@@ -4,7 +4,7 @@ import type { Config } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import { type TeamClient, TeamError, teamApi } from "@grenier/index";
 import type { Store } from "@grenier/store";
-import { CommandError } from "./io.ts";
+import { Refusal } from "./io.ts";
 import { deviceName, ensureBaseTops, ensurePersonalKey } from "./runtime.ts";
 import { newTeamToken, saveTeam } from "./team.ts";
 
@@ -37,7 +37,7 @@ async function cloudflare<T>(
     },
     ...(init.json === undefined ? (init.body ? { body: init.body } : {}) : { body: JSON.stringify(init.json) }),
   }).catch((error: Error) => {
-    throw new CommandError(`cannot reach Cloudflare: ${error.message}`);
+    throw new Refusal(`cannot reach Cloudflare: ${error.message}`);
   });
   const answer = (await response.json().catch(() => ({}))) as {
     success?: boolean;
@@ -49,7 +49,7 @@ async function cloudflare<T>(
       .map((error) => error.message)
       .filter(Boolean)
       .join("; ");
-    throw new CommandError(`Cloudflare refused it: ${said || `HTTP ${response.status}`}`);
+    throw new Refusal(`Cloudflare refused it: ${said || `HTTP ${response.status}`}`);
   }
   return answer.result as T;
 }
@@ -65,14 +65,14 @@ export async function deployTeamStore(
   const fetchImpl = deps.fetch ?? fetch;
   const sleep = deps.sleep ?? ((ms: number) => new Promise((done) => setTimeout(done, ms)));
   const token = input.token.trim();
-  if (!token) throw new CommandError("paste an API token from Cloudflare");
+  if (!token) throw new Refusal("paste an API token from Cloudflare");
   if (!/^[a-z0-9-]{1,63}$/.test(input.name))
-    throw new CommandError("the store's name takes lowercase letters, digits and -");
-  if (!/^[\w.@-]{1,64}$/.test(input.member)) throw new CommandError("your name takes letters, digits and . _ @ -");
+    throw new Refusal("the store's name takes lowercase letters, digits and -");
+  if (!/^[\w.@-]{1,64}$/.test(input.member)) throw new Refusal("your name takes letters, digits and . _ @ -");
 
   const accounts = await cloudflare<{ id: string }[]>(fetchImpl, token, "/accounts");
   if (accounts.length !== 1) {
-    throw new CommandError(
+    throw new Refusal(
       accounts.length === 0
         ? "the token reaches no Cloudflare account"
         : "the token reaches several accounts: make one for the account the team store goes in",
@@ -83,7 +83,7 @@ export async function deployTeamStore(
   const exists = scripts.some((script) => script.id === input.name);
   // The upload replaces the store's setup hash: a machine outside it must not touch a store it never joined.
   if (exists && !deps.inTeam) {
-    throw new CommandError(
+    throw new Refusal(
       `a Worker named ${input.name} exists in this account: pick another name, or join it with an invite`,
     );
   }
@@ -118,7 +118,7 @@ export async function deployTeamStore(
     `/accounts/${account}/workers/subdomain`,
   );
   if (!subdomain)
-    throw new CommandError("the account has no workers.dev subdomain yet: choose one in Cloudflare's Workers page");
+    throw new Refusal("the account has no workers.dev subdomain yet: choose one in Cloudflare's Workers page");
   const url = `https://${input.name}.${subdomain}.workers.dev`;
 
   // A new Worker takes a few seconds to answer at its address.
@@ -129,8 +129,7 @@ export async function deployTeamStore(
       break;
     } catch (error) {
       if (error instanceof TeamError && error.status === 409) return { url, team: null };
-      if (attempt >= 15)
-        throw new CommandError(`deployed at ${url}, but it does not answer yet: try again in a minute`);
+      if (attempt >= 15) throw new Refusal(`deployed at ${url}, but it does not answer yet: try again in a minute`);
       await sleep(2000);
     }
   }

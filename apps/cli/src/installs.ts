@@ -1,9 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, posix } from "node:path";
 import { recordProblem, secretIn, sharedHash } from "@grenier/core";
+import { writeAtomically } from "@grenier/core/node";
 import { newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
 import type { Approval, FullRecord, Store } from "@grenier/store";
-import { CommandError, writeAtomically } from "./io.ts";
+import { Refusal } from "./io.ts";
 
 export type Shared = "Skill" | "McpServer";
 
@@ -38,13 +39,13 @@ export function skillField(manifest: string, key: string): string | undefined {
 /** A skill as a record holds it, SKILL.md and the text files beside it, within a shared skill's limits. */
 export function skillFromFiles(files: Record<string, string>, folderName: string): SkillFiles {
   const manifest = files["SKILL.md"];
-  if (manifest === undefined) throw new CommandError("a skill has a SKILL.md");
+  if (manifest === undefined) throw new Refusal("a skill has a SKILL.md");
   let bytes = 0;
   for (const [path, text] of Object.entries(files)) {
-    if (text.includes("\u0000")) throw new CommandError(`${path} is not a text file; a shared skill holds text only`);
+    if (text.includes("\u0000")) throw new Refusal(`${path} is not a text file; a shared skill holds text only`);
     bytes += Buffer.byteLength(text);
   }
-  if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) throw new CommandError(TOO_BIG);
+  if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) throw new Refusal(TOO_BIG);
   const name = skillField(manifest, "name") ?? (folderName || "skill");
   return { name, description: skillField(manifest, "description") ?? "", files };
 }
@@ -109,7 +110,7 @@ export function serverEntry(record: Pick<FullRecord, "fields">, keys: Record<str
   const config = (record.fields.config ?? {}) as Record<string, unknown>;
   const credentials = credentialsOf(record);
   const missing = credentials.filter((name) => !keys[name]);
-  if (missing.length > 0) throw new CommandError(`it needs your ${missing.join(", ")}`);
+  if (missing.length > 0) throw new Refusal(`it needs your ${missing.join(", ")}`);
   if (typeof config.url === "string") {
     const headers = Object.fromEntries(
       Object.entries(headerTemplates(config, credentials)).map(([name, template]) => [
@@ -140,7 +141,7 @@ export function readJson(path: string): Record<string, unknown> {
   try {
     return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
   } catch {
-    throw new CommandError(`${path} is not valid JSON; fix it or move it aside first`);
+    throw new Refusal(`${path} is not valid JSON; fix it or move it aside first`);
   }
 }
 
@@ -148,7 +149,7 @@ export function readJson(path: string): Record<string, unknown> {
 function safePath(path: string): string {
   const normal = posix.normalize(path);
   if (isAbsolute(normal) || normal.startsWith("..") || /[\0\\]/.test(normal) || normal === ".") {
-    throw new CommandError(`the skill's file ${path} would land outside its folder`);
+    throw new Refusal(`the skill's file ${path} would land outside its folder`);
   }
   return normal;
 }
@@ -176,14 +177,14 @@ export async function install(
   options: { hash?: string; keys?: Record<string, string> } = {},
 ): Promise<Approval> {
   const kind = KIND[record.type as Shared];
-  if (!kind) throw new CommandError(`${record.title} is a ${record.type}, not a skill or an MCP server`);
+  if (!kind) throw new Refusal(`${record.title} is a ${record.type}, not a skill or an MCP server`);
   const before = await store.approvals.get(record.id, kind);
   const hash = options.hash ?? (await sharedHash(record));
   let installedPath: string;
   if (record.type === "Skill") {
     installedPath = skillFolder(home, record);
     if (existsSync(installedPath) && !before) {
-      throw new CommandError(`${installedPath} exists and is not one Grenier installed; move it aside first`);
+      throw new Refusal(`${installedPath} exists and is not one Grenier installed; move it aside first`);
     }
     writeSkill(installedPath, (record.fields.files ?? {}) as Record<string, string>);
   } else {
@@ -192,7 +193,7 @@ export async function install(
     const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
     const name = `grenier-${slug(record.title)}`;
     if (servers[name] && !before) {
-      throw new CommandError(`Claude Code has a server named ${name} already, not one Grenier installed`);
+      throw new Refusal(`Claude Code has a server named ${name} already, not one Grenier installed`);
     }
     const kept = keysIn(record, servers[name] as Record<string, unknown> | undefined);
     servers[name] = serverEntry(record, { ...kept, ...(options.keys ?? {}) });
@@ -236,7 +237,7 @@ export async function uninstall(store: Store, record: Pick<FullRecord, "id" | "t
 export async function rollback(store: Store, home: string, record: FullRecord): Promise<Approval> {
   const kind = KIND[record.type as Shared];
   const approval = kind ? await store.approvals.get(record.id, kind) : undefined;
-  if (!approval?.previousHash) throw new CommandError(`${record.title} has no earlier installed version to go back to`);
+  if (!approval?.previousHash) throw new Refusal(`${record.title} has no earlier installed version to go back to`);
   for (const entry of [...(await store.history.list(record.id))].reverse()) {
     const snapshot = entry.snapshot as Pick<FullRecord, "type" | "fields">;
     if ((await sharedHash({ type: record.type, fields: snapshot.fields ?? {} })) !== approval.previousHash) continue;
@@ -249,7 +250,7 @@ export async function rollback(store: Store, home: string, record: FullRecord): 
     await store.approvals.put({ ...restored, previousHash: null });
     return restored;
   }
-  throw new CommandError(`the version installed before is not in this machine's history of ${record.title}`);
+  throw new Refusal(`the version installed before is not in this machine's history of ${record.title}`);
 }
 
 export interface SharedState {
@@ -304,6 +305,9 @@ export async function removeRetired(store: Store): Promise<string[]> {
   return done;
 }
 
+/** Flags and values that look like they carry a credential, which a shared server's arguments may not. */
+const CREDENTIAL_FLAG = /^--?[\w-]*(key|token|secret|password|auth)[\w-]*(=|$)/i;
+
 /**
  * A server as an admin adds it from the app: a URL with header templates, or a command with its arguments and fixed
  * environment, plus the names of the keys each person enters. Nothing in it may already be a key.
@@ -315,7 +319,7 @@ export function serverToShare(input: { config?: unknown; credentials?: unknown }
   const given = (input.config ?? {}) as Record<string, unknown>;
   const credentials = Array.isArray(input.credentials) ? input.credentials.map(String) : [];
   if (credentials.some((name) => !/^[\w-]{1,80}$/.test(name))) {
-    throw new CommandError("a key's name takes letters, digits, _ and -");
+    throw new Refusal("a key's name takes letters, digits, _ and -");
   }
   const strings = (value: unknown) =>
     Object.fromEntries(
@@ -323,54 +327,36 @@ export function serverToShare(input: { config?: unknown; credentials?: unknown }
     );
   let config: Record<string, unknown>;
   if (typeof given.url === "string" && given.url.trim()) {
-    const { config: checked } = shareableServer({ type: given.type, url: given.url.trim() });
-    const headers = strings(given.headers);
-    config = { ...checked, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
-  } else if (typeof given.command === "string" && given.command.trim()) {
-    const args = Array.isArray(given.args) ? given.args.map(String) : [];
-    const { config: checked } = shareableServer({ command: given.command.trim(), args });
-    const env = strings(given.env);
-    config = { ...checked, ...(Object.keys(env).length > 0 ? { env } : {}) };
-  } else {
-    throw new CommandError("a server has a URL, or a command to run");
-  }
-  if (secretIn(JSON.stringify(config)))
-    throw new CommandError("its configuration holds what looks like a key or a token");
-  return { config, credentials };
-}
-
-/** Flags and values that look like they carry a credential, which a shared server's arguments may not. */
-const CREDENTIAL_FLAG = /^--?[\w-]*(key|token|secret|password|auth)[\w-]*(=|$)/i;
-
-/** A Claude Code MCP server as the team may share it: its command or URL, and the names of its credentials only. */
-export function shareableServer(entry: Record<string, unknown>): {
-  config: Record<string, unknown>;
-  credentials: string[];
-} {
-  const credentials = [
-    ...Object.keys((entry.env ?? {}) as Record<string, unknown>),
-    ...Object.keys((entry.headers ?? {}) as Record<string, unknown>),
-  ];
-  let config: Record<string, unknown>;
-  if (typeof entry.url === "string") {
-    const url = new URL(entry.url);
+    let url: URL;
+    try {
+      url = new URL(given.url.trim());
+    } catch (error) {
+      throw new Refusal((error as Error).message);
+    }
     if (
       url.username ||
       url.password ||
       [...url.searchParams.keys()].some((key) => /key|token|secret|auth/i.test(key))
     ) {
-      throw new CommandError("its URL carries a credential; move it to a header first");
+      throw new Refusal("its URL carries a credential; move it to a header first");
     }
-    config = { type: entry.type === "sse" ? "sse" : "http", url: entry.url };
-  } else {
-    const args = Array.isArray(entry.args) ? entry.args.map(String) : [];
+    const headers = strings(given.headers);
+    config = {
+      type: given.type === "sse" ? "sse" : "http",
+      url: given.url.trim(),
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    };
+  } else if (typeof given.command === "string" && given.command.trim()) {
+    const args = Array.isArray(given.args) ? given.args.map(String) : [];
     if (args.some((arg) => CREDENTIAL_FLAG.test(arg))) {
-      throw new CommandError("its arguments carry a credential; pass it in an environment variable first");
+      throw new Refusal("its arguments carry a credential; pass it in an environment variable first");
     }
-    config = { command: String(entry.command ?? ""), args };
+    const env = strings(given.env);
+    config = { command: given.command.trim(), args, ...(Object.keys(env).length > 0 ? { env } : {}) };
+  } else {
+    throw new Refusal("a server has a URL, or a command to run");
   }
-  if (secretIn(JSON.stringify(config)))
-    throw new CommandError("its configuration holds what looks like a key or a token");
+  if (secretIn(JSON.stringify(config))) throw new Refusal("its configuration holds what looks like a key or a token");
   return { config, credentials };
 }
 
@@ -380,13 +366,13 @@ export async function share(
   input: { type: Shared; title: string; body: string; fields: Record<string, unknown> },
 ): Promise<{ id: string; updated: boolean }> {
   const tops = (await deps.store.tops.list()).map((top) => top.id);
-  if (!tops.includes("team")) throw new CommandError("this machine is in no team: join one first");
+  if (!tops.includes("team")) throw new Refusal("this machine is in no team: join one first");
   const existing = (await deps.store.records.list({ tops: ["team"], type: input.type })).find(
     (record) => slug(record.title) === slug(input.title),
   );
   const fields = { ...(existing?.fields ?? {}), ...input.fields };
   const why = recordProblem({ ...input, fields }, await typeOf(deps.store, input.type, tops));
-  if (why) throw new CommandError(`the team store would refuse it: ${why}`);
+  if (why) throw new Refusal(`the team store would refuse it: ${why}`);
   const parts = { title: input.title, body: input.body, fields };
   const next = existing
     ? { ...(({ seq: _seq, hits: _hits, ...rest }) => rest)(existing), ...parts, updatedAt: Date.now() }

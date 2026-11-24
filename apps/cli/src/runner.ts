@@ -17,9 +17,9 @@ import {
 import type { RunGuard } from "@grenier/gateway";
 import { newId, refusal, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
 import type { FullRecord, RecordInput, Session, Store } from "@grenier/store";
-import { newSessionId } from "./commands/run.ts";
 import { LIBRARIAN, librarian } from "./librarian.ts";
 import { type Availability, availability, type Probes, systemProbes } from "./machine.ts";
+import { newSessionId } from "./runtime.ts";
 
 export interface AgentResult {
   code: number;

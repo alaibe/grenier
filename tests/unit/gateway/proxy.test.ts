@@ -122,6 +122,19 @@ describe("passthrough", () => {
 });
 
 describe("usage", () => {
+  it("lets a model with no price through, and says once that it counts as $0", async () => {
+    gateway = testGateway(fakeUpstream(() => sse(STREAM)));
+    const send = async (path: string, body: unknown) => {
+      const response = await gateway.request(path, messagesRequest(body));
+      await response.text();
+      return { status: response.status };
+    };
+    expect((await send("/s/s1/v1/messages", { model: "mystery-model" })).status).toBe(200);
+    expect((await send("/s/s2/v1/messages", { model: "mystery-model" })).status).toBe(200);
+    expect(gateway.notifications.filter((line) => line.includes("mystery-model"))).toHaveLength(1);
+    expect(await gateway.store.events.list({ kind: "unpriced" })).toHaveLength(1);
+  });
+
   it("writes one row per request with the four token counts and the cost, from a stream", async () => {
     gateway = testGateway(fakeUpstream(() => sse(STREAM)));
 

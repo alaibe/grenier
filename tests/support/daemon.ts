@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { resolvePaths } from "@grenier/core/node";
 
 /** `grenier daemon` started as the app starts it, once it answers; `stop` ends it. */
 export async function startDaemon(
@@ -19,7 +19,7 @@ export async function startDaemon(
     child.kill("SIGTERM");
     await exited;
   };
-  const info = join(String(env.GRENIER_HOME), "daemon.json");
+  const info = resolvePaths(env).daemonInfo;
   for (let waited = 0; waited < 20_000; waited += 100) {
     if (existsSync(info)) {
       const recorded = JSON.parse(readFileSync(info, "utf8")) as { pid: number; port: number };

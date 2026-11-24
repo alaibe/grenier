@@ -14,15 +14,15 @@ importers:
       '@biomejs/biome':
         specifier: 2.6.6
         version: 2.6.6
-      '@grenier/connectors':
-        specifier: workspace:*
-        version: link:packages/connectors
       '@grenier/core':
         specifier: workspace:*
         version: link:packages/core
       '@grenier/gateway':
         specifier: workspace:*
         version: link:packages/gateway
+      '@grenier/git':
+        specifier: workspace:*
+        version: link:packages/git
       '@grenier/index':
         specifier: workspace:*
         version: link:packages/index
@@ -69,15 +69,15 @@ importers:
         specifier: 13.0.3
         version: 13.0.3
     devDependencies:
-      '@grenier/connectors':
-        specifier: workspace:*
-        version: link:../../packages/connectors
       '@grenier/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@grenier/gateway':
         specifier: workspace:*
         version: link:../../packages/gateway
+      '@grenier/git':
+        specifier: workspace:*
+        version: link:../../packages/git
       '@grenier/index':
         specifier: workspace:*
         version: link:../../packages/index
@@ -96,6 +96,9 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      hono:
+        specifier: 4.13.17
+        version: 4.13.17
 
   apps/desktop:
     dependencies:
@@ -152,11 +155,12 @@ importers:
 
   bench:
     devDependencies:
+      '@grenier/core':
+        specifier: workspace:*
+        version: link:../packages/core
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
-
-  packages/connectors: {}
 
   packages/core:
     dependencies:
@@ -190,6 +194,8 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+
+  packages/git: {}
 
   packages/index:
     dependencies:

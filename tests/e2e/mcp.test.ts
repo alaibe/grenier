@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePaths } from "@grenier/core/node";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -46,7 +47,10 @@ beforeAll(async () => {
   await new Promise((resolve) => free.close(resolve));
 
   mkdirSync(home, { recursive: true });
-  writeFileSync(join(home, "config.toml"), `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n`);
+  writeFileSync(
+    resolvePaths({ GRENIER_HOME: home }).config,
+    `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n`,
+  );
 });
 
 afterAll(async () => {

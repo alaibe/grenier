@@ -89,7 +89,7 @@ describe("creating the team store from the app", () => {
       migrations: { new_tag: "v1", new_sqlite_classes: ["TeamStore"] },
     });
     expect(readFileSync(paths.config, "utf8")).toContain('url = "https://grenier-team.acme.workers.dev"');
-    expect(statSync(join(dir, ".grenier", "team-token")).mode & 0o777).toBe(0o600);
+    expect(statSync(paths.teamToken).mode & 0o777).toBe(0o600);
     expect(await store.state.get("team_role")).toBe("admin");
 
     const updated = await deployTeamStore(

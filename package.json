@@ -23,9 +23,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",
-    "@grenier/connectors": "workspace:*",
     "@grenier/core": "workspace:*",
     "@grenier/gateway": "workspace:*",
+    "@grenier/git": "workspace:*",
     "@grenier/index": "workspace:*",
     "@grenier/log": "workspace:*",
     "@grenier/store": "workspace:*",

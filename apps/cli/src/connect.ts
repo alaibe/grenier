@@ -1,19 +1,18 @@
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, delimiter, join } from "node:path";
-import { open, seal, VaultError } from "@grenier/core";
-import type { GrenierPaths } from "@grenier/core/node";
-import { addClient, rekeyed, resolveScopes, unopenedCount } from "@grenier/index";
+import { writeAtomically } from "@grenier/core/node";
+import { addClient, resolveScopes } from "@grenier/index";
 import type { Store } from "@grenier/store";
-import type { Route } from "./host.ts";
-import { CommandError, writeAtomically } from "./io.ts";
-import { ensureBaseTops, ensurePersonalKey, personalKey, personalKeyFile } from "./runtime.ts";
+import { Refusal } from "./io.ts";
+import { ensureBaseTops } from "./runtime.ts";
 
-export const CLIENTS = ["claude-code", "cursor", "codex", "claude-desktop"] as const;
-export type McpClient = (typeof CLIENTS)[number];
+/** The apps on this computer Grenier's MCP server can be added to. */
+export const APPS = ["claude-code", "cursor", "codex", "claude-desktop"] as const;
+export type App = (typeof APPS)[number];
 
-/** Where each client keeps its MCP servers, for this user. */
-export function configPath(client: McpClient, home: string, platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string {
-  switch (client) {
+/** Where each app keeps its MCP servers, for this user. */
+export function configPath(app: App, home: string, platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string {
+  switch (app) {
     case "claude-code":
       return join(home, ".claude.json");
     case "cursor":
@@ -90,7 +89,7 @@ export function withJsonServer(
     try {
       config = JSON.parse(text) as Record<string, unknown>;
     } catch {
-      throw new CommandError("the client's config file is not valid JSON; fix it or move it aside first");
+      throw new Refusal("the client's config file is not valid JSON; fix it or move it aside first");
     }
   }
   const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
@@ -99,9 +98,8 @@ export function withJsonServer(
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 
-/** A word for a POSIX shell, quoted unless it is plain. */
-
-const LABELS: Record<McpClient, string> = {
+/** Each app's name, as its own window shows it. */
+export const LABELS: Record<App, string> = {
   "claude-code": "Claude Code",
   cursor: "Cursor",
   codex: "Codex",
@@ -117,7 +115,7 @@ export interface Where {
 }
 
 /** Whether an app's config starts Grenier's MCP server. */
-function connected(app: McpClient, path: string): boolean {
+export function connected(app: App, path: string): boolean {
   if (!existsSync(path)) return false;
   const text = readFileSync(path, "utf8");
   if (app === "codex") return /^\[mcp_servers\.grenier\]/m.test(text);
@@ -129,7 +127,7 @@ function connected(app: McpClient, path: string): boolean {
 }
 
 /** Adds Grenier's MCP server to an app on this computer, with a token of its own; adding it again replaces the token. */
-export async function connectApp(store: Store, app: McpClient, scopes: string[], where: Where): Promise<string> {
+export async function connectApp(store: Store, app: App, scopes: string[], where: Where): Promise<string> {
   const path = configPath(app, where.home, where.platform, where.env);
   const [self = process.execPath, ...prefix] = where.self;
   const command = stableProgram(self, where.env.PATH);
@@ -149,62 +147,9 @@ export async function connectApp(store: Store, app: McpClient, scopes: string[],
   configFor("gc_check");
   await ensureBaseTops(store);
   await resolveScopes(store, scopes).catch((error: Error) => {
-    throw new CommandError(error.message);
+    throw new Refusal(error.message);
   });
   await store.clients.revoke(app, Date.now());
   writeAtomically(path, configFor(await addClient(store, app, scopes)));
   return path;
-}
-
-/** The apps on this computer Grenier can be added to, and the personal key; `resync` runs a step between sync rounds. */
-export function machineRoutes(
-  store: Store,
-  paths: GrenierPaths,
-  where: Where,
-  resync: (between: () => Promise<void>) => Promise<unknown>,
-): Route {
-  const ok = (body: unknown) => ({ status: 200, body });
-  const no = (status: number, error: string) => ({ status, body: { error } });
-  return async (method, path, body) => {
-    if (path === "/apps" && method === "GET") {
-      return ok({
-        apps: CLIENTS.map((app) => ({
-          app,
-          label: LABELS[app],
-          connected: connected(app, configPath(app, where.home, where.platform, where.env)),
-        })),
-      });
-    }
-    const app = /^\/apps\/([\w-]+)$/.exec(path)?.[1];
-    if (app && method === "POST") {
-      if (!CLIENTS.includes(app as McpClient)) return no(404, `Grenier cannot be added to ${app}`);
-      const given = (body as { scopes?: unknown } | undefined)?.scopes;
-      const scopes = Array.isArray(given) ? given.map(String) : ["*"];
-      try {
-        const file = await connectApp(store, app as McpClient, scopes, where);
-        return ok({ app, file, restart: LABELS[app as McpClient] });
-      } catch (error) {
-        return no(409, (error as Error).message);
-      }
-    }
-    // The key is shown only when asked for, and never written anywhere but its own file.
-    if (path === "/key" && method === "GET") return ok({ unopened: await unopenedCount(store) });
-    if (path === "/key" && method === "POST") return ok({ key: ensurePersonalKey(paths) });
-    if (path === "/key" && method === "PUT") {
-      const key = String((body as { key?: unknown } | undefined)?.key ?? "").trim();
-      try {
-        await open(key, "check", await seal(key, "check", new Uint8Array([1])));
-      } catch (error) {
-        return no(400, error instanceof VaultError ? error.message : "that is not a personal key");
-      }
-      if (personalKey(paths) !== key) {
-        await resync(async () => {
-          writeFileSync(personalKeyFile(paths), `${key}\n`, { mode: 0o600 });
-          await rekeyed(store);
-        });
-      }
-      return ok({ saved: true, unopened: await unopenedCount(store) });
-    }
-    return null;
-  };
 }
