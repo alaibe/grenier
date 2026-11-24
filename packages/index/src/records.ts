@@ -3,6 +3,8 @@ import {
   copiedLines,
   customType,
   MAX_CODE_LINES,
+  MEMBER_WRITES,
+  memberMay,
   recordProblem,
   redact,
   repoSpace,
@@ -345,6 +347,8 @@ export interface RememberInput {
   type?: string;
   kind?: string;
   title: string;
+  /** Where it sits in its space; a replaced record keeps its own. */
+  folder?: string;
   body?: string;
   fields?: Record<string, unknown>;
   /** By default the repository's space for what is about its code, else `team` when writable, else `me`. */
@@ -418,17 +422,15 @@ export async function remember(
   const writable = (await readable(deps.store, reader)).map((space) => space.id);
   let space = input.space;
   if (!space) {
+    const member = (await deps.store.state.get("team_role")) === "member";
     if (repo && anchors.some((anchor) => anchor.kind === "git")) space = repoSpace(repo.id);
-    else space = writable.includes("team") ? "team" : "me";
+    else space = writable.includes("team") && !member ? "team" : "me";
   }
   if (space !== "me" && !(await deps.store.spaces.get(space))) throw new StoreUseError(`there is no space ${space}`);
   if (reader && space !== "me" && !writable.includes(space))
     throw new StoreUseError(`this client may not write to ${space}`);
 
   const typeDef = await typeOf(deps.store, type, writable);
-  const problem = recordProblem({ type, kind, title, body, fields }, typeDef);
-  if (problem) throw new StoreUseError(`the record is refused: ${problem}`);
-
   let existing = input.id ? await deps.store.records.get(input.id) : undefined;
   if (input.id && (!existing || (reader && existing.space !== "me" && !writable.includes(existing.space))))
     throw new StoreUseError(`there is no record ${input.id}`);
@@ -439,6 +441,10 @@ export async function remember(
         : record.title.trim().toLowerCase() === title.toLowerCase(),
     );
   }
+
+  const folder = input.folder ?? existing?.folder ?? "";
+  const problem = recordProblem({ type, kind, title, folder, body, fields }, typeDef);
+  if (problem) throw new StoreUseError(`the record is refused: ${problem}`);
 
   const links = [...(input.links ?? [])];
   if (
@@ -462,6 +468,7 @@ export async function remember(
     type,
     kind,
     title,
+    folder,
     body,
     fields,
     author: deps.me.member,
@@ -480,7 +487,7 @@ export async function remember(
 
 /** The fields a change touches, which the team store applies over what it has. */
 function changedFields(before: FullRecord | undefined, after: RecordInput): string[] {
-  const keys = ["space", "type", "kind", "title", "body", "fields", "retiredAt", "anchors", "links"] as const;
+  const keys = ["space", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "anchors", "links"] as const;
   if (!before) return [...keys];
   return keys.filter(
     (key) => JSON.stringify((before as unknown as Record<string, unknown>)[key]) !== JSON.stringify(after[key]),
@@ -488,6 +495,10 @@ function changedFields(before: FullRecord | undefined, after: RecordInput): stri
 }
 
 export async function write(deps: StoreDeps, record: RecordInput, before?: FullRecord): Promise<void> {
+  // The team store refuses the rest from a member; refusing here says so at once, not at the next sync.
+  if ((await deps.store.state.get("team_role")) === "member" && !memberMay(before, record, "me", true)) {
+    throw new StoreUseError(`the record is refused: ${MEMBER_WRITES}`);
+  }
   const [vector] = deps.embedder ? await deps.embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)]) : [];
   await deps.store.records.put(record, vector && deps.embedder ? { model: deps.embedder.model, vector } : undefined);
   const changed = changedFields(before, record);

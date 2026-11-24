@@ -92,7 +92,7 @@ async function joinTeam(name: string, device: string, role = "member"): Promise<
 }
 const sam = await joinTeam("sam", "sam-thinkpad");
 const lea = await joinTeam("lea", "lea-pc", "admin");
-const anthony = await joinTeam("anthony", "anthony-mbp");
+const anthony = await joinTeam("anthony", "anthony-mbp", "admin");
 await teamApi(marie, "/api/invites", { body: { name: "noor" } });
 
 const store: Store = openSqliteStore(join(home, "grenier.db"));
@@ -126,6 +126,7 @@ async function record(input: Partial<RecordInput> & Pick<RecordInput, "type" | "
     id,
     space: "team",
     kind: null,
+    folder: "",
     body: "",
     fields: {},
     author: "marie",
@@ -144,7 +145,7 @@ async function record(input: Partial<RecordInput> & Pick<RecordInput, "type" | "
     await write(deps, full);
     return id;
   }
-  const changed = ["space", "type", "kind", "title", "body", "fields", "anchors", "links"];
+  const changed = ["space", "type", "kind", "title", "folder", "body", "fields", "anchors", "links"];
   await teamApi(teammate, "/api/changes", {
     body: { changes: [{ id: newId(), recordId: id, baseVersion: 0, changed, record: full }] },
   });
@@ -165,12 +166,14 @@ const project = await record({
   id: "5c3f0a1e9b2d4c6e8a7f1b3d",
   type: "Project",
   title: "Checkout",
+  folder: "Projects",
   fields: { owner: "marie", status: "active", repos: [repoIdentity] },
   body: "The new checkout: one page, retries that never charge twice, and Apple Pay by January.\n\n## Goals\n\n- Fewer abandoned carts\n- No double charge, ever\n- Apple Pay before the sales",
 });
 const decision = await record({
   type: "Decision",
   title: "Retry failed payments from a queue",
+  folder: "Projects/Checkout/Decisions",
   fields: { owner: "marie", date: "2026-11-18", reason: "A retry in the request doubled a charge twice last month." },
   body: "Failed payments go to the payments queue and are retried there, with the attempt number as the idempotency key.",
   links: [link(project)],
@@ -179,7 +182,8 @@ await record({
   id: "8e2b6d4f1a3c5e7b9d0f2a4c",
   type: "Meeting",
   title: "Checkout weekly",
-  author: "sam",
+  folder: "Projects/Checkout/Meetings",
+  author: "lea",
   device: "sam-thinkpad",
   fields: { date: "2026-11-18", people: ["marie", "sam", "lea", "anthony"] },
   body: `Marie, Sam, Léa and Anthony.\n\n- Payments retried in the request doubled two charges: [Retry failed payments from a queue](record:${decision}).\n- Léa takes Apple Pay; Sam moves the retries.\n- Anthony keeps the dependencies up to date with the routine.`,
@@ -188,7 +192,7 @@ await record({
 await record({
   type: "Task",
   title: "Move payment retries to the queue",
-  author: "sam",
+  author: "lea",
   device: "sam-thinkpad",
   fields: { status: "doing", owner: "sam" },
   links: [link(project), link(decision)],
@@ -210,6 +214,7 @@ await record({
 await record({
   type: "Doc",
   title: "How to run checkout locally",
+  folder: "Onboarding",
   body: "## Setup\n\n1. `pnpm install`\n2. Copy `.env.example` to `.env`\n3. `pnpm dev`, then open http://localhost:3000\n\nPayments use the test keys of the sandbox; **never** a live key.",
   links: [link(project)],
 });
@@ -223,6 +228,7 @@ const retryAnswer = await record({
   type: "Memory",
   kind: "answer",
   title: "Where are failed payments retried?",
+  folder: "Payments",
   author: "sam",
   device: "sam-thinkpad",
   fields: { kind: "answer" },
@@ -246,6 +252,7 @@ const cents = await record({
   type: "Memory",
   kind: "convention",
   title: "Money is always in cents",
+  folder: "Conventions",
   fields: { kind: "convention" },
   body: "Amounts are integers in cents everywhere; `cents()` in src/money.ts converts at the edges.",
 });
@@ -357,6 +364,7 @@ git("commit", "-q", "-am", "PAY-112 cap retries at five attempts");
 await record({
   type: "Suggestion",
   title: "Where are failed payments retried?: Its files changed since it was written",
+  folder: "Suggestions",
   author: "marie",
   fields: {
     target: retryAnswer,

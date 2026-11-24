@@ -49,6 +49,8 @@ interface Remote {
   type: string;
   kind: string | null;
   title: string;
+  /** Missing from a team store deployed before folders. */
+  folder?: string;
   body: string;
   fields: Record<string, unknown>;
   author: string;
@@ -63,7 +65,7 @@ interface Remote {
   sealed: string | null;
 }
 
-const SEALED_PARTS = ["type", "kind", "title", "body", "fields", "anchors", "links"] as const;
+const SEALED_PARTS = ["type", "kind", "title", "folder", "body", "fields", "anchors", "links"] as const;
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -84,6 +86,7 @@ export async function sealRecord(key: string, record: Record<string, unknown>): 
     type: "Sealed",
     kind: null,
     title: "",
+    folder: "",
     body: "",
     fields: {},
     anchors: [],
@@ -203,7 +206,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
         }
       }
       const { sealed: _sealed, ...rest } = remote;
-      const record: RecordInput = rest;
+      const record: RecordInput = { ...rest, folder: rest.folder ?? "" };
       const before = await store.records.get(record.id);
       const [vector] =
         deps.embedder && (!before || before.title !== record.title || before.body !== record.body)

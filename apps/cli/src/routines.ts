@@ -225,6 +225,7 @@ export async function addRoutine(
     type: "Routine",
     kind: null,
     title: input.title,
+    folder: "",
     body: "",
     fields: {
       ...(input.fields.collector === "yes" ? { owner: deps.me.member } : {}),

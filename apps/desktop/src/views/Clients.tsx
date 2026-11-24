@@ -59,8 +59,8 @@ export function Clients(_: ViewProps) {
       title="Clients"
       intro={
         <>
-          Each app that reads the store through Grenier has its own token. It reads the space of every repository on
-          this machine, and only the spaces you give it beyond them: me, the team, a project's.{" "}
+          Each app that reads the store through Grenier has its own token. It reads the folder of every repository on
+          this machine, and only the top folders you give it beyond them: me, team, or one for some members.{" "}
           <code>grenier mcp install</code> creates the client for the app it installs into; create one here only for
           another app or a script.
         </>
@@ -129,7 +129,7 @@ export function Clients(_: ViewProps) {
               ))}
             </div>
             <span className="text-sm font-normal text-muted">
-              With nothing ticked, it reads only the repositories' spaces. * is every space.
+              With nothing ticked, it reads only the repositories' folders. * is every top folder.
             </span>
           </fieldset>
           <div className="flex items-center gap-2">

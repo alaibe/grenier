@@ -120,6 +120,7 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
   saveTeam(paths, url, token);
   await withStore(paths, async (store) => {
     await store.state.set("team_member", member);
+    await store.state.set("team_role", "admin");
     await ensureBaseSpaces(store);
   });
   ensurePersonalKey(paths);

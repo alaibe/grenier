@@ -31,7 +31,7 @@ const loadRuns = () =>
     .catch(() => [] as Run[]);
 
 /** For Routines: asking a routine for work, and what came of it. */
-export function Requests({ go }: Pick<ViewProps, "go">) {
+export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
   const routines = useLoad(loadRoutines);
   const tasks = useLoad(loadTasks);
   const runs = useLoad(loadRuns);
@@ -73,10 +73,14 @@ export function Requests({ go }: Pick<ViewProps, "go">) {
   return (
     <Part
       title="Requests"
-      intro="Ask a routine for work. Its task goes to the team's store, and an idle machine that allows the routine runs it, read-only until the routine is trusted."
+      intro={
+        member
+          ? "What the team asked its routines for, and what came of it."
+          : "Ask a routine for work. Its task goes to the team's store, and an idle machine that allows the routine runs it, read-only until the routine is trusted."
+      }
     >
       <Notice message={routines.error ?? tasks.error ?? action.message} />
-      {routines.data && routines.data.length > 0 && (
+      {!member && routines.data && routines.data.length > 0 && (
         <form
           className="mb-7 grid grid-cols-[200px_1fr] gap-3 rounded-xl border border-line bg-panel px-5 py-4"
           onSubmit={file}
@@ -159,7 +163,7 @@ export function Requests({ go }: Pick<ViewProps, "go">) {
                 <th>Started</th>
                 <th className="text-right tabular-nums">Actions</th>
                 <th className="text-right tabular-nums">API cost</th>
-                <th title="A yes or a no adds the run to the routine's eval set">Useful?</th>
+                {!member && <th title="A yes or a no adds the run to the routine's eval set">Useful?</th>}
               </tr>
             </thead>
             <tbody>
@@ -173,7 +177,7 @@ export function Requests({ go }: Pick<ViewProps, "go">) {
                   <td className="whitespace-nowrap">{ago(run.started_at)}</td>
                   <td className="text-right tabular-nums">{run.actions}</td>
                   <td className="text-right tabular-nums">{money(run.cost)}</td>
-                  <td className="whitespace-nowrap">
+                  <td className={`whitespace-nowrap ${member ? "hidden" : ""}`}>
                     <Button
                       quiet
                       aria-pressed={run.thumbs === 1}

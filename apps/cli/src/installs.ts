@@ -351,6 +351,7 @@ export async function share(
         space: "team",
         type: input.type,
         kind: null,
+        folder: "",
         author: deps.me.member,
         device: deps.me.device,
         sessionId: null,

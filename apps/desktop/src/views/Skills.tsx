@@ -243,7 +243,7 @@ function AutoInstall({ changed }: { changed: () => void }) {
   );
 }
 
-export function Skills({ go }: ViewProps) {
+export function Skills({ go, member }: ViewProps) {
   const [round, setRound] = useState(0);
   const again = () => setRound((n) => n + 1);
   return (
@@ -253,7 +253,7 @@ export function Skills({ go }: ViewProps) {
     >
       <AutoInstall changed={again} />
       <Shared key={round} type="Skill" none="grenier skills share <folder>" go={go} />
-      <FindSkills shared={again} />
+      {!member && <FindSkills shared={again} />}
     </Page>
   );
 }

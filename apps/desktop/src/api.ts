@@ -107,6 +107,8 @@ export interface Overview {
   /** Records changed here that the team store has not taken yet. */
   waiting: number;
   team: { url: string; lastSync: number | null } | null;
+  /** In a team, this machine's person's role: a member writes in me only, and their agents' answers. */
+  role: "admin" | "member" | null;
   /** Sessions the loop guard paused, waiting to be resumed. */
   paused: number;
 }
@@ -155,6 +157,8 @@ export interface RecordRow {
   type: string;
   kind: string | null;
   title: string;
+  /** Where it sits in its top folder, as "Decisions/2026"; empty at the top. */
+  folder: string;
   body: string;
   fields: Record<string, unknown>;
   author: string;
@@ -164,6 +168,16 @@ export interface RecordRow {
   changed: string[];
   anchors: Anchor[];
   links: Link[];
+}
+
+/** A page in Knowledge's tree. */
+export interface PageRow {
+  id: string;
+  space: string;
+  folder: string;
+  title: string;
+  type: string;
+  updatedAt: number;
 }
 
 export interface RecordFull extends RecordRow {

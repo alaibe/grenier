@@ -150,6 +150,35 @@ describe("the admin API", () => {
     expect(((await (await call("/overview")).json()) as { waiting: number }).waiting).toBe(1);
   });
 
+  it("lists the tree's pages without what other screens manage, and moves a folder with what it holds", async () => {
+    const make = async (body: Record<string, unknown>) =>
+      ((await (await call("/records", { method: "POST", body: JSON.stringify(body) })).json()) as { id: string }).id;
+    const plan = await make({ title: "Plan", folder: "Ops" });
+    const deep = await make({ title: "Runbook", folder: "Ops/Deploys" });
+    await make({ title: "Elsewhere", folder: "Opsx" });
+    await make({ type: "Task", title: "Bump hono", fields: { status: "to-do" } });
+    expect(
+      (await call("/records", { method: "POST", body: JSON.stringify({ title: "x", folder: "../up" }) })).status,
+    ).toBe(400);
+    const pages = async () =>
+      ((await (await call("/pages")).json()) as { pages: { id: string; folder: string; title: string }[] }).pages;
+    expect((await pages()).map((page) => [page.title, page.folder]).sort()).toEqual([
+      ["Elsewhere", "Opsx"],
+      ["Plan", "Ops"],
+      ["Runbook", "Ops/Deploys"],
+    ]);
+
+    const move = (body: Record<string, unknown>) =>
+      call("/folders/move", { method: "POST", body: JSON.stringify({ space: "team", ...body }) });
+    expect((await move({ from: "Ops", to: "Ops/Inner" })).status).toBe(400);
+    expect(await (await move({ from: "Ops", to: "Infra/Operations" })).json()).toEqual({ moved: 2 });
+    expect((await store.records.get(plan))?.folder).toBe("Infra/Operations");
+    expect((await store.records.get(deep))?.folder).toBe("Infra/Operations/Deploys");
+    expect(await (await move({ from: "Infra", to: "Infra", toSpace: "me" })).json()).toEqual({ moved: 2 });
+    expect((await store.records.get(deep))?.space).toBe("me");
+    expect((await pages()).find((page) => page.title === "Elsewhere")?.folder).toBe("Opsx");
+  });
+
   it("saves straight to the team store, and hands back a teammate's version when they changed the same field", async () => {
     const sent: unknown[] = [];
     let conflict = false;

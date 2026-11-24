@@ -27,6 +27,7 @@ let calls: {
 }[];
 let answer: (runner: Runner, args: string[]) => Promise<{ code: number; text: string }>;
 let notices: string[];
+let logs: string[];
 
 const idle: Probes = {
   pluggedIn: async () => true,
@@ -50,7 +51,7 @@ function newRunner(): Runner {
     sync: async () => {
       await syncOnce({ store, team, embedder: null, personalKey: null });
     },
-    log: () => {},
+    log: (line) => logs.push(line),
     notify: (title, message) => notices.push(`${title}: ${message}`),
     probes: idle,
     spawner: (async (command, args, options) => {
@@ -76,6 +77,7 @@ async function task(title: string, routine: string): Promise<string> {
     type: "Task",
     kind: null,
     title,
+    folder: "",
     body: "",
     fields: { status: "to-do", routine },
     author: "ada",
@@ -108,6 +110,7 @@ beforeEach(async () => {
   deps = await storeDeps(store);
   calls = [];
   notices = [];
+  logs = [];
   answer = async () => ({ code: 0, text: JSON.stringify({ result: "Bumped hono to 4.12." }) });
 }, 60_000);
 
@@ -246,7 +249,23 @@ describe("a machine that takes the team's routine runs", () => {
     expect((await store.runs.list({ routineId: routine.id }))[0]?.status).toBe("failed");
   });
 
-  it("runs the librarian here, which suggests fixes instead of starting an agent", async () => {
+  it("leaves the librarian to an admin's machine: it writes for the team", async () => {
+    const routine = await addRoutine(deps, {
+      title: "Librarian",
+      prompt: "Built in.",
+      fields: { trigger: "request", builtin: LIBRARIAN },
+      repo: null,
+      space: "team",
+    });
+    await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
+    await task("Look through the store", routine.id);
+    await store.state.set("team_role", "member");
+    await newRunner().tick(true);
+    expect(logs).toContainEqual(expect.stringContaining("an admin's machine runs it"));
+    expect(await store.records.list({ spaces: ["team"], type: "Suggestion" })).toEqual([]);
+  });
+
+  it("runs the librarian on an admin's machine, which suggests fixes instead of starting an agent", async () => {
     const routine = await addRoutine(deps, {
       title: "Librarian",
       prompt: "Built in.",
@@ -265,6 +284,7 @@ describe("a machine that takes the team's routine runs", () => {
         type: "Doc",
         kind: null,
         title: "How to release",
+        folder: "",
         body: "",
         fields: {},
         author: "ada",

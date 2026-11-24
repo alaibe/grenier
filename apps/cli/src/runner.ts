@@ -295,6 +295,9 @@ export class Runner {
       );
       return decline(approval ? "it changed since it was approved here" : "it is not approved here");
     }
+    if (routine.fields.builtin === LIBRARIAN && (await this.deps.store.state.get("team_role")) === "member") {
+      return decline("the librarian writes suggestions for the team: an admin's machine runs it");
+    }
     const asked = typeof task.fields.version === "number" ? task.fields.version : undefined;
     const version = pickVersion(routine, asked);
     if (!version) return decline(asked ? `it has no version ${asked} to run` : "it has no version in production");

@@ -1,0 +1,1 @@
+ALTER TABLE `records` ADD `folder` text DEFAULT '' NOT NULL;

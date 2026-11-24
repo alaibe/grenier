@@ -256,6 +256,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const id = newId();
         await write(store, {
           ...task,
+          folder: "",
           id,
           space: routine.space,
           kind: null,

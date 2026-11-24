@@ -49,7 +49,7 @@ export const events = sqliteTable(
   (table) => [index("events_session_ts").on(table.sessionId, table.ts)],
 );
 
-/** Small values this machine keeps: team cursor, last sync, member, `me` space, auto-install, eval scores. */
+/** Small values this machine keeps: team cursor, last sync, member, role, `me` space, auto-install, eval scores. */
 export const state = sqliteTable("state", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -75,6 +75,8 @@ export const records = sqliteTable(
     /** A memory's kind: answer, summary, convention or fact. */
     kind: text("kind"),
     title: text("title").notNull(),
+    /** Where the record sits in its space, as "Decisions/2026"; empty at the space's top. */
+    folder: text("folder").notNull().default(""),
     body: text("body").notNull().default(""),
     fields: text("fields", { mode: "json" }).$type<Record<string, unknown>>().notNull().default({}),
     author: text("author").notNull(),

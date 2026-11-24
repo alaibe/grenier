@@ -1,4 +1,4 @@
-import { BUILTIN_TYPES, builtinType, customType, recordProblem } from "@grenier/core";
+import { BUILTIN_TYPES, builtinType, customType, folderProblem, recordProblem } from "@grenier/core";
 import {
   addClient,
   check,
@@ -50,6 +50,9 @@ function sessionReport(rows: readonly UsageWithSession[], prices: Prices) {
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }
+
+/** Records Skills, Routines and Settings manage, which Knowledge's tree leaves out. */
+const MANAGED_ELSEWHERE = new Set(["Skill", "McpServer", "Routine", "Task", "Type"]);
 
 /** The desktop app's webview: Tauri serves it from these origins; the Vite dev server from the last. */
 const APP_ORIGINS = new Set([
@@ -139,6 +142,7 @@ export function createAdmin(options: AdminOptions): Hono {
       sessions: sessionReport(rows, prices),
       waiting: team ? new Set((await store.outbox.list()).map((entry) => entry.recordId)).size : 0,
       team: team ? { url: team.url, lastSync: Number((await store.state.get("last_sync")) ?? 0) || null } : null,
+      role: team ? ((await store.state.get("team_role")) ?? null) : null,
       paused: (await store.sessions.paused()).length,
     });
   });
@@ -151,6 +155,44 @@ export function createAdmin(options: AdminOptions): Hono {
         records: stats.filter((row) => row.space === space.id).reduce((total, row) => total + row.records, 0),
       })),
     });
+  });
+
+  /** Knowledge's tree: every page but the records other screens manage. */
+  app.get("/pages", async (c) => {
+    const records = await store.records.list({ spaces: await allSpaces(), limit: 100_000 });
+    return c.json({
+      pages: records
+        .filter((record) => !MANAGED_ELSEWHERE.has(record.type))
+        .map(({ id, space, folder, title, type, updatedAt }) => ({ id, space, folder, title, type, updatedAt })),
+    });
+  });
+
+  /** Moves a folder and every page under it: `to` is the folder's new path, in `toSpace` or its own top folder. */
+  app.post("/folders/move", async (c) => {
+    const body = await c.req
+      .json<{ space?: unknown; from?: unknown; to?: unknown; toSpace?: unknown }>()
+      .catch(() => ({}) as Record<string, unknown>);
+    const space = String(body.space ?? "");
+    const from = String(body.from ?? "");
+    const to = String(body.to ?? "");
+    const toSpace = typeof body.toSpace === "string" ? body.toSpace : space;
+    if (from === "" || to === "") return problem(400, "a move names the folder and where it goes");
+    const why = folderProblem(to);
+    if (why) return problem(400, why);
+    if (toSpace === space && (to === from || to.startsWith(`${from}/`))) {
+      return problem(400, "a folder cannot move into itself");
+    }
+    if (toSpace !== "me" && !(await store.spaces.get(toSpace))) return problem(400, `there is no space ${toSpace}`);
+    const inside = (await store.records.list({ spaces: [space], limit: 100_000 })).filter(
+      (record) => record.folder === from || record.folder.startsWith(`${from}/`),
+    );
+    for (const before of inside) {
+      const { seq: _seq, hits: _hits, ...current } = before;
+      const folder = `${to}${before.folder.slice(from.length)}`;
+      const result = await save({ ...current, space: toSpace, folder, updatedAt: Date.now() }, before, before.version);
+      if ("conflict" in result) return problem(409, `${before.title} changed meanwhile: move the folder again`);
+    }
+    return c.json({ moved: inside.length });
   });
 
   app.get("/types", async (c) => {
@@ -218,7 +260,7 @@ export function createAdmin(options: AdminOptions): Hono {
     if (why) throw new StoreUseError(`the record is refused: ${why}`);
     const team = host.team();
     if (team && record.space !== "me" && (await store.spaces.get(record.space))?.kind !== undefined) {
-      const changed = ["space", "type", "kind", "title", "body", "fields", "retiredAt", "links"].filter(
+      const changed = ["space", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "links"].filter(
         (key) =>
           !before ||
           JSON.stringify((before as unknown as Record<string, unknown>)[key]) !==
@@ -260,6 +302,7 @@ export function createAdmin(options: AdminOptions): Hono {
       type: typeof body.type === "string" ? body.type : "Doc",
       kind: typeof body.kind === "string" ? body.kind : body.type === "Memory" ? "fact" : null,
       title: String(body.title ?? "").trim(),
+      folder: typeof body.folder === "string" ? body.folder : "",
       body: String(body.body ?? ""),
       fields: body.fields && typeof body.fields === "object" ? body.fields : {},
       author: storeDeps.me.member,
@@ -287,6 +330,7 @@ export function createAdmin(options: AdminOptions): Hono {
     const record: RecordInput = {
       ...current,
       ...(typeof body.title === "string" ? { title: body.title.trim() } : {}),
+      ...(typeof body.folder === "string" ? { folder: body.folder } : {}),
       ...(typeof body.body === "string" ? { body: body.body } : {}),
       ...(body.fields && typeof body.fields === "object" ? { fields: body.fields } : {}),
       ...(Array.isArray(body.links) ? { links: body.links } : {}),

@@ -144,6 +144,20 @@ describe("remember and recall", () => {
   });
 });
 
+describe("a member, not an admin", () => {
+  it("keeps facts in me, shares answers about the code, and is refused a page for the team", async () => {
+    await store.state.set("team_role", "member");
+    const fact = await remember(deps, null, repo.repo, { kind: "fact", title: "Standup is at ten" });
+    expect(fact.space).toBe("me");
+    const kept = await answer("How does routing work?", "route() splits the path on slashes.", ["src/router.ts"]);
+    expect(kept.space).toBe(repoSpace(repo.repo.id));
+    await expect(remember(deps, null, repo.repo, { type: "Doc", title: "Onboarding", space: "team" })).rejects.toThrow(
+      "only an admin writes there",
+    );
+    await expect(retire(deps, fact.id)).resolves.toBe(true);
+  });
+});
+
 describe("asking first", () => {
   it("records an answer about code without asking, and asks before any other record leaves this machine", async () => {
     const asked: string[] = [];

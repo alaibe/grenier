@@ -66,10 +66,11 @@ export function joining(deps: {
     const deadline = Date.now() + 10 * 60 * 1000;
     const poll = async () => {
       try {
-        const me = await teamApi<{ name: string; me: string }>(team, "/api/me");
+        const me = await teamApi<{ name: string; me: string; role: string }>(team, "/api/me");
         saveTeam(deps.paths, invite.url, token);
         await deps.store.state.set("team_member", me.name);
         await deps.store.state.set("team_me_space", me.me);
+        await deps.store.state.set("team_role", me.role);
         await ensureBaseSpaces(deps.store);
         ensurePersonalKey(deps.paths);
         state = { state: "joined", url: invite.url, member: me.name };

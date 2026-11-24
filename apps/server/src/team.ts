@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { sha256 } from "@grenier/core/policy";
-import { builtinType, customType, joinCode, recordProblem } from "@grenier/core/records";
+import { builtinType, customType, joinCode, MEMBER_WRITES, memberMay, recordProblem } from "@grenier/core/records";
 import { nextDue } from "@grenier/core/routines";
 import { Hono } from "hono";
 
@@ -34,6 +34,7 @@ export interface StoredRecord {
   type: string;
   kind: string | null;
   title: string;
+  folder: string;
   body: string;
   fields: Record<string, unknown>;
   author: string;
@@ -58,7 +59,19 @@ export interface Change {
   check?: boolean;
 }
 
-const RECORD_FIELDS = ["space", "type", "kind", "title", "body", "fields", "retiredAt", "anchors", "links", "sealed"];
+const RECORD_FIELDS = [
+  "space",
+  "type",
+  "kind",
+  "title",
+  "folder",
+  "body",
+  "fields",
+  "retiredAt",
+  "anchors",
+  "links",
+  "sealed",
+];
 const INVITE_LIFE = 24 * 60 * 60 * 1000;
 const CONFIRM_WINDOW = 10 * 60 * 1000;
 const LEASE = 5 * 60 * 1000;
@@ -97,7 +110,17 @@ export class TeamStore extends DurableObject<Env> {
 
   #migrate(): void {
     this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-    if (Number(this.#one("SELECT value FROM meta WHERE key = 'schema'")?.value ?? 0) >= 1) return;
+    const schema = Number(this.#one("SELECT value FROM meta WHERE key = 'schema'")?.value ?? 0);
+    if (schema < 1) this.#schemaOne();
+    if (schema < 2) {
+      this.ctx.storage.sql.exec(`
+        ALTER TABLE records ADD COLUMN folder TEXT NOT NULL DEFAULT '';
+        UPDATE meta SET value = '2' WHERE key = 'schema';
+      `);
+    }
+  }
+
+  #schemaOne(): void {
     this.ctx.storage.sql.exec(`
       CREATE TABLE members (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, role TEXT NOT NULL, created_at INTEGER NOT NULL, removed_at INTEGER);
       CREATE TABLE devices (
@@ -244,6 +267,7 @@ export class TeamStore extends DurableObject<Env> {
       type: row.type as string,
       kind: (row.kind as string | null) ?? null,
       title: row.title as string,
+      folder: (row.folder as string | null) ?? "",
       body: row.body as string,
       fields: JSON.parse(row.fields as string),
       author: row.author as string,
@@ -267,10 +291,10 @@ export class TeamStore extends DurableObject<Env> {
   #put(record: StoredRecord, member: Member, device: Device): void {
     this.#sql("DELETE FROM records_fts WHERE id = ?", record.id);
     this.#sql(
-      `INSERT INTO records (id, space, type, kind, title, body, fields, author, device, session_id, created_at, updated_at,
-        retired_at, version, anchors, links, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO records (id, space, type, kind, title, folder, body, fields, author, device, session_id, created_at,
+        updated_at, retired_at, version, anchors, links, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET space = excluded.space, type = excluded.type, kind = excluded.kind,
-        title = excluded.title, body = excluded.body, fields = excluded.fields, author = excluded.author,
+        title = excluded.title, folder = excluded.folder, body = excluded.body, fields = excluded.fields, author = excluded.author,
         device = excluded.device, session_id = excluded.session_id, updated_at = excluded.updated_at,
         retired_at = excluded.retired_at, version = excluded.version, anchors = excluded.anchors,
         links = excluded.links, sealed = excluded.sealed`,
@@ -279,6 +303,7 @@ export class TeamStore extends DurableObject<Env> {
       record.type,
       record.kind,
       record.title,
+      record.folder,
       record.body,
       JSON.stringify(record.fields),
       record.author,
@@ -349,6 +374,7 @@ export class TeamStore extends DurableObject<Env> {
         type: "Memory",
         kind: null,
         title: "",
+        folder: "",
         body: "",
         fields: {},
         author: member.name,
@@ -368,8 +394,15 @@ export class TeamStore extends DurableObject<Env> {
     next.anchors ??= [];
     next.links ??= [];
     next.title ??= "";
+    next.folder ??= "";
     next.body ??= "";
     if (next.space === "me") next.space = `me:${member.id}`;
+    if (member.role !== "admin") {
+      const ran =
+        current?.type === "Task" &&
+        this.#one("SELECT 1 AS ran FROM runs WHERE task_id = ? AND device_id = ?", current.id, device.id) !== undefined;
+      if (!memberMay(current, next, `me:${member.id}`, ran)) return { refused: MEMBER_WRITES };
+    }
     if (!spaces.includes(next.space)) {
       if (next.space.startsWith("repo:")) {
         this.#sql(
@@ -381,6 +414,7 @@ export class TeamStore extends DurableObject<Env> {
       } else return { refused: `there is no space ${next.space} you may write to` };
     }
     if (next.sealed !== null && !next.space.startsWith("me:")) return { refused: "only a record in me is sealed" };
+    if (next.sealed !== null && next.folder !== "") return { refused: "a sealed record keeps its folder sealed" };
     if (next.sealed === null) {
       const defined = this.#one(
         "SELECT title, body, fields FROM records WHERE type = 'Type' AND title = ? AND retired_at IS NULL",
@@ -397,23 +431,6 @@ export class TeamStore extends DurableObject<Env> {
           : undefined);
       const why = recordProblem(next, type);
       if (why) return { refused: why };
-    }
-    // Machines that install recommended skills and servers by themselves run what they hold: only admins set that.
-    const installed = (type: string | undefined) => type === "Skill" || type === "McpServer";
-    if ((installed(next.type) || installed(current?.type)) && member.role !== "admin") {
-      const was = installed(current?.type) && current?.fields.recommended === "yes";
-      const is = installed(next.type) && next.fields.recommended === "yes";
-      if (was !== is) return { refused: "only an admin recommends a skill or an MCP server, or stops recommending it" };
-      const code = next.type === "Skill" ? ["files"] : ["config", "credentials"];
-      if (
-        is &&
-        (current?.type !== next.type ||
-          code.some((name) => JSON.stringify(current?.fields[name]) !== JSON.stringify(next.fields[name])))
-      ) {
-        return {
-          refused: "a recommended one changes only by an admin's hand: ask an admin, or share it under another name",
-        };
-      }
     }
     next.author = member.name;
     next.device = device.name;
@@ -574,6 +591,7 @@ export class TeamStore extends DurableObject<Env> {
       type: "Task",
       kind: null,
       title,
+      folder: "",
       body,
       fields: { status: "to-do", routine: routine.id },
       author: by,
@@ -1097,7 +1115,7 @@ export class TeamStore extends DurableObject<Env> {
       return c.json({ ok: true });
     });
 
-    app.post("/api/runs/:id/thumbs", async (c) => {
+    app.post("/api/runs/:id/thumbs", adminOnly, async (c) => {
       const { up } = await c.req.json<{ up?: unknown }>().catch(() => ({}) as { up?: unknown });
       this.#sql(
         "UPDATE runs SET thumbs = ? WHERE id = ?",

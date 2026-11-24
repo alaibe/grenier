@@ -75,6 +75,7 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
       type: "Suggestion",
       kind: null,
       title: `${finding.target.title}: ${finding.reason.split(":")[0]}`.slice(0, 300),
+      folder: "Suggestions",
       body: "",
       fields: { target: finding.target.id, change: finding.change, reason: finding.reason },
       author: deps.me.member,

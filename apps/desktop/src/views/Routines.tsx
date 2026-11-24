@@ -57,7 +57,7 @@ function scores(runs: Run[], routine: string): Map<number, number> {
   return new Map([...sums].map(([version, list]) => [version, list.reduce((a, b) => a + b, 0) / list.length]));
 }
 
-export function Routines({ go }: ViewProps) {
+export function Routines({ go, member }: ViewProps) {
   const routines = useLoad(load);
   const runs = useLoad(loadRuns);
   const teamRuns = useLoad(loadTeamRuns);
@@ -195,7 +195,7 @@ export function Routines({ go }: ViewProps) {
                           Run evals
                         </Button>
                       )}
-                      {version.status === "testing" && (
+                      {!member && version.status === "testing" && (
                         <Button
                           disabled={action.busy !== null}
                           onClick={() =>
@@ -240,7 +240,7 @@ export function Routines({ go }: ViewProps) {
           </section>
         );
       })}
-      <Requests go={go} />
+      <Requests go={go} member={member} />
     </Page>
   );
 }

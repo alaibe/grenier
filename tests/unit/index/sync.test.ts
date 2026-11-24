@@ -82,8 +82,18 @@ describe("sync between machines", () => {
   it("brings a teammate's team record to another machine, and keeps a me record sealed to its person", async () => {
     const adaDeps = await device(laptop, "ada", await meSpace(ada));
     await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-    await remember(adaDeps, PERSON, null, { kind: "convention", title: "Squash merges only", space: "team" });
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "My dentist is on Tuesday", space: "me" });
+    await remember(adaDeps, PERSON, null, {
+      kind: "convention",
+      title: "Squash merges only",
+      folder: "Engineering/Git",
+      space: "team",
+    });
+    await remember(adaDeps, PERSON, null, {
+      kind: "fact",
+      title: "My dentist is on Tuesday",
+      folder: "Health/Appointments",
+      space: "me",
+    });
     const pushed = await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
     expect(pushed.pushed).toBe(2);
     expect(await laptop.outbox.list()).toEqual([]);
@@ -92,17 +102,20 @@ describe("sync between machines", () => {
     const pulled = await syncOnce({ store: bobStore, team: bob, embedder: null, personalKey: null });
     expect(pulled.pulled).toBe(1);
     expect((await recall(bobDeps, PERSON, { query: "squash merges", repo: null })).results[0]?.author).toBe("ada");
+    expect((await bobStore.records.list({ spaces: ["team"] }))[0]?.folder).toBe("Engineering/Git");
 
     const deskDeps = await device(desktop, "ada", await meSpace(adaDesktop));
     await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: KEY });
     const mine = await recall(deskDeps, PERSON, { query: "dentist Tuesday", repo: null });
     expect(mine.results[0]).toMatchObject({ space: "me", title: "My dentist is on Tuesday" });
+    expect((await desktop.records.get(mine.results[0]?.id as string))?.folder).toBe("Health/Appointments");
 
     const stored = await workerFetch("https://team.test/api/changes?after=0", {
       headers: { authorization: `Bearer ${ada.token}` },
     });
     const text = await stored.text();
     expect(text).not.toContain("dentist");
+    expect(text).not.toContain("Health");
   });
 
   it("shares a me record moved to the team in the clear", async () => {

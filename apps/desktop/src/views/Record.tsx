@@ -1,24 +1,11 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import {
-  ApiError,
-  api,
-  type FieldDef,
-  type HistoryEntry,
-  type Link,
-  type Member,
-  type Overview,
-  type RecordFull,
-  type RecordRow,
-  type TypeDef,
-} from "../api.ts";
+import { ApiError, api, type HistoryEntry, type Link, type RecordFull, type RecordRow, type Space } from "../api.ts";
 import { hunks, lineDiff } from "../diff.ts";
 import { Markdown } from "../markdown.tsx";
 import {
   ago,
   Button,
   ConfirmButton,
-  Field,
-  Input,
   Loading,
   type Message,
   moment,
@@ -27,100 +14,86 @@ import {
   useAction,
   useLoad,
 } from "../ui.tsx";
-import { loadSpaces, loadTypes } from "./Knowledge.tsx";
 
 interface Draft {
   space: string;
+  folder: string;
   title: string;
   body: string;
-  fields: Record<string, unknown>;
   links: Link[];
 }
 
-/** What `/` offers to create from a body: types whose required fields all have a default. */
-const QUICK = ["Task", "Meeting", "Doc", "Project", "Person"] as const;
+/** What a page editor opens: a page, or a new one in a folder. */
+export type Target = { id: string } | { space: string; folder: string };
 
-const today = () => new Date().toISOString().slice(0, 10);
-
-/** The required fields of a new record, filled with what they start as. */
-function defaults(type: TypeDef, me: string): Record<string, unknown> {
-  const fields: Record<string, unknown> = {};
-  for (const field of type.fields) {
-    if (!field.required) continue;
-    if (field.kind === "select") fields[field.name] = field.options?.[0];
-    if (field.kind === "date") fields[field.name] = today();
-    if (field.kind === "person") fields[field.name] = me;
-    if (field.kind === "list") fields[field.name] = [];
-  }
-  return fields;
+/** Where a page can go: the top of each top folder this machine writes to, and every folder in them. */
+export interface Place {
+  space: string;
+  folder: string;
+  label: string;
 }
 
-const loadMe = () => api<Overview>("/overview").then((overview) => overview.me ?? "");
+export const placeKey = (place: { space: string; folder: string }) => `${place.space}\u0000${place.folder}`;
 
-const loadMembers = () =>
-  api<{ members: Member[] }>("/team/members")
-    .then((answer) => answer.members.map((member) => member.name))
-    .catch(() => [] as string[]);
-
-export function RecordEditor({ id, open, back }: { id: string; open: (id: string) => void; back: () => void }) {
-  const isNew = id.startsWith("new:");
+export function PageEditor({
+  target,
+  places,
+  spaces,
+  member,
+  open,
+  changed,
+  closed,
+}: {
+  target: Target;
+  places: Place[];
+  spaces: Space[];
+  member: boolean;
+  open: (id: string) => void;
+  /** After a save or a move: the tree reloads. */
+  changed: () => void;
+  /** After it is retired. */
+  closed: () => void;
+}) {
+  const id = "id" in target ? target.id : null;
   const load = useCallback(
-    () => (isNew ? Promise.resolve(null) : api<RecordFull>(`/records/${encodeURIComponent(id)}`)),
-    [id, isNew],
+    () => (id ? api<RecordFull>(`/records/${encodeURIComponent(id)}`) : Promise.resolve(null)),
+    [id],
   );
   const record = useLoad(load);
-  const types = useLoad(loadTypes);
-  const spaces = useLoad(loadSpaces);
-  const members = useLoad(loadMembers);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [base, setBase] = useState(0);
   const [conflict, setConflict] = useState<RecordFull | null>(null);
   const action = useAction(() => {});
-  const [, newType, templateId] = isNew ? id.split(":") : [];
-  const typeName = isNew ? newType : record.data?.type;
-  const loadTemplate = useCallback(
-    () => (templateId ? api<RecordFull>(`/records/${encodeURIComponent(templateId)}`) : Promise.resolve(null)),
-    [templateId],
-  );
-  const template = useLoad(loadTemplate);
-  const type = types.data?.find((entry) => entry.name === typeName);
-  const who = useLoad(loadMe);
-  const me = who.data ?? "";
 
   useEffect(() => {
     if (draft) return;
     if (record.data) {
-      const { space, title, body, fields, links, version } = record.data;
-      setDraft({ space, title, body, fields, links });
+      const { space, folder, title, body, links, version } = record.data;
+      setDraft({ space, folder, title, body, links });
       setBase(version);
-    } else if (isNew && type && who.data !== null && (!templateId || template.data)) {
-      setDraft({
-        space: template.data?.space ?? "team",
-        title: "",
-        body: template.data?.body ?? "",
-        fields: { ...defaults(type, me), ...(template.data?.fields ?? {}) },
-        links: [],
-      });
+    } else if (!id && "space" in target) {
+      setDraft({ space: target.space, folder: target.folder, title: "", body: "", links: [] });
     }
-  }, [draft, record.data, isNew, type, me, who.data, templateId, template.data]);
+  }, [draft, record.data, id, target]);
 
   const save = (version = base) =>
     void action.run("save", async (): Promise<Message> => {
-      if (!draft || !typeName) return { text: "Nothing to save." };
-      const payload = { ...draft, type: typeName, ...(typeName === "Memory" ? { kind: draft.fields.kind } : {}) };
+      if (!draft) return { text: "Nothing to save." };
       try {
-        if (isNew) {
-          const created = await api<{ id: string; waiting?: boolean }>("/records", { body: payload });
+        if (!id) {
+          const created = await api<{ id: string }>("/records", { body: { ...draft, type: "Doc" } });
+          changed();
           open(created.id);
           return { text: "Saved." };
         }
         const saved = await api<{ waiting?: boolean; team?: boolean }>(`/records/${encodeURIComponent(id)}`, {
           method: "PUT",
-          body: { ...payload, baseVersion: version },
+          body: { ...draft, baseVersion: version },
         });
         setConflict(null);
         record.reload();
         setDraft(null);
+        changed();
         if (!saved.waiting) return { text: "Saved and shared." };
         return { text: saved.team ? "Saved here; it goes to the team at the next sync." : "Saved on this machine." };
       } catch (error) {
@@ -128,7 +101,7 @@ export function RecordEditor({ id, open, back }: { id: string; open: (id: string
           const current = (error.body as { conflict?: RecordFull }).conflict;
           if (current) {
             setConflict(current);
-            return { text: "Someone changed this record since you opened it.", problem: true };
+            return { text: "Someone changed this page since you opened it.", problem: true };
           }
         }
         throw error;
@@ -138,51 +111,80 @@ export function RecordEditor({ id, open, back }: { id: string; open: (id: string
   const take = (theirs: RecordFull) => {
     setDraft({
       space: theirs.space,
+      folder: theirs.folder,
       title: theirs.title,
       body: theirs.body,
-      fields: theirs.fields,
       links: theirs.links,
     });
     setBase(theirs.version);
     setConflict(null);
   };
 
-  if (record.error || types.error) return <Notice message={record.error ?? types.error} />;
-  if (!draft || !type) return <Loading what="the record" />;
+  if (record.error) return <Notice message={record.error} />;
+  if (!draft) return <Loading what="the page" />;
   const set = (change: Partial<Draft>) => setDraft({ ...draft, ...change });
-  const writable = (spaces.data ?? []).filter((space) => space.kind !== "repo" || space.id === draft.space);
+  const here = { space: draft.space, folder: draft.folder };
+  const kindOf = (space: string) => spaces.find((entry) => entry.id === space)?.kind;
+  // A member writes in Me, and their agents' answers where they are; the team store refuses the rest.
+  const from = record.data?.space ?? draft.space;
+  const answer = record.data?.type === "Memory" && kindOf(from) === "repo";
+  const writes = (space: string) => !member || kindOf(space) === "me" || (answer && space === from);
+  const editable = writes(from);
+  const allowed = places.filter((place) => writes(place.space));
+  const choices = allowed.some((place) => placeKey(place) === placeKey(here))
+    ? allowed
+    : [...allowed, { ...here, label: placeLabel(spaces, draft.space, draft.folder) }];
+  const kind =
+    record.data && record.data.type !== "Doc"
+      ? `${record.data.type}${record.data.kind ? ` · ${record.data.kind}` : ""} · `
+      : "";
 
   return (
     <article>
-      <header className="mb-5 flex items-start justify-between gap-4">
+      <header className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <button type="button" className="mb-2 cursor-pointer text-sm text-muted hover:underline" onClick={back}>
-            ← Knowledge
-          </button>
+          <Select
+            className="mb-2 max-w-full text-sm"
+            aria-label="Folder"
+            disabled={!editable}
+            value={placeKey(here)}
+            onChange={(event) => {
+              const place = choices.find((entry) => placeKey(entry) === event.currentTarget.value);
+              if (place) set({ space: place.space, folder: place.folder });
+            }}
+          >
+            {choices.map((place) => (
+              <option key={placeKey(place)} value={placeKey(place)}>
+                {place.label}
+              </option>
+            ))}
+          </Select>
           <input
             className="w-full bg-transparent font-serif text-4xl leading-[1.2] font-semibold outline-none placeholder:text-muted"
             aria-label="Title"
-            placeholder={`New ${type.name}`}
+            placeholder="Untitled"
+            readOnly={!editable}
             value={draft.title}
             onChange={(event) => set({ title: event.currentTarget.value })}
           />
-          <p className="mt-1.5 text-sm text-muted">
-            {type.name}
-            {record.data &&
-              ` · by ${record.data.author} on ${record.data.device} · changed ${ago(record.data.updatedAt)} · version ${record.data.version}`}
-            {record.data && record.data.hits > 0 && ` · used ${record.data.hits} times`}
-          </p>
+          {record.data && (
+            <p className="mt-1.5 text-sm text-muted">
+              {kind}by {record.data.author} on {record.data.device} · changed {ago(record.data.updatedAt)}
+              {record.data.hits > 0 && ` · used ${record.data.hits} times`}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2 pt-7">
+        <div className={`flex items-center gap-2 pt-8 ${editable ? "" : "hidden"}`}>
           {record.data && !record.data.retiredAt && (
             <ConfirmButton
               label="Retire"
-              question="Retire it for the whole team?"
+              question={draft.space === "me" ? "Retire it?" : "Retire it for everyone who reads it?"}
               disabled={action.busy !== null}
               onConfirm={() =>
                 void action.run("retire", async () => {
-                  await api(`/records/${encodeURIComponent(id)}`, { method: "DELETE" });
-                  back();
+                  await api(`/records/${encodeURIComponent(record.data?.id ?? "")}`, { method: "DELETE" });
+                  changed();
+                  closed();
                   return undefined;
                 })
               }
@@ -194,7 +196,8 @@ export function RecordEditor({ id, open, back }: { id: string; open: (id: string
         </div>
       </header>
       <Notice message={action.message} />
-      {!isNew && <Presence id={id} />}
+      {!editable && <p className="mb-4 text-sm text-muted">Only an admin changes the pages here.</p>}
+      {id && <Presence id={id} />}
       {conflict && (
         <section className="mb-5 rounded-xl border border-problem bg-problem-soft px-4 py-3" aria-label="Their version">
           <p className="font-medium">
@@ -202,8 +205,7 @@ export function RecordEditor({ id, open, back }: { id: string; open: (id: string
           </p>
           <p className="mt-1 text-sm">
             Theirs: <b className="font-semibold">{conflict.title}</b>
-            {conflict.body !== draft.body && " — the body differs"}
-            {JSON.stringify(conflict.fields) !== JSON.stringify(draft.fields) && " — the fields differ"}
+            {conflict.body !== draft.body && " — the text differs"}
           </p>
           <div className="mt-2.5 flex gap-2">
             <Button onClick={() => save(conflict.version)}>Keep mine</Button>
@@ -214,289 +216,110 @@ export function RecordEditor({ id, open, back }: { id: string; open: (id: string
         </section>
       )}
       {record.data?.retiredAt && <Notice message={`Retired ${ago(record.data.retiredAt)}.`} />}
-      {type.name === "Suggestion" && record.data && <SuggestionActions record={record.data} back={back} />}
+      {record.data?.type === "Suggestion" && <SuggestionActions record={record.data} back={closed} />}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 max-md:grid-cols-1">
-        <Field>
-          Space
-          <Select value={draft.space} onChange={(event) => set({ space: event.currentTarget.value })}>
-            {writable.map((space) => (
-              <option key={space.id} value={space.id}>
-                {space.kind === "me" ? "me (only you)" : space.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        {type.fields.map((field) => (
-          <FieldInput
-            key={field.name}
-            field={field}
-            value={draft.fields[field.name]}
-            members={members.data ?? []}
-            onChange={(value) => set({ fields: { ...draft.fields, [field.name]: value } })}
-          />
-        ))}
-      </div>
-
-      {type.body && (
-        <Body
-          text={draft.body}
-          onChange={(body, link) =>
-            set({ body, ...(link ? { links: [...draft.links.filter((entry) => entry.ref !== link.ref), link] } : {}) })
-          }
-          open={open}
-          space={draft.space}
-          me={me}
-          types={types.data ?? []}
-        />
-      )}
+      <Body
+        editable={editable}
+        text={draft.body}
+        onChange={(body, link) =>
+          set({ body, ...(link ? { links: [...draft.links.filter((entry) => entry.ref !== link.ref), link] } : {}) })
+        }
+        open={open}
+      />
 
       {record.data && (
         <>
           <Anchors record={record.data} />
           <Linked title="Links to" items={record.data.linksTo} open={open} />
           <Linked title="Linked from" items={record.data.linkedFrom} open={open} />
-          <History id={id} restore={(snapshot) => set(snapshot)} />
+          <History id={record.data.id} restore={(snapshot) => set(snapshot)} />
         </>
       )}
     </article>
   );
 }
 
-function FieldInput({
-  field,
-  value,
-  members,
-  onChange,
-}: {
-  field: FieldDef;
-  value: unknown;
-  members: string[];
-  onChange: (value: unknown) => void;
-}) {
-  const label = `${field.name}${field.required ? "" : " (optional)"}`;
-  const [json, setJson] = useState(() => (value === undefined ? "" : JSON.stringify(value, null, 2)));
-  const [bad, setBad] = useState(false);
-  const loadOptions = useCallback(
-    () =>
-      field.kind === "record" && field.type
-        ? api<{ records: RecordRow[] }>(`/records?type=${encodeURIComponent(field.type)}`).then((a) => a.records)
-        : Promise.resolve([] as RecordRow[]),
-    [field.kind, field.type],
-  );
-  const options = useLoad(loadOptions);
-
-  if (field.kind === "select") {
-    return (
-      <Field>
-        {label}
-        <Select value={String(value ?? "")} onChange={(event) => onChange(event.currentTarget.value || undefined)}>
-          {!field.required && <option value="">–</option>}
-          {field.options?.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </Select>
-      </Field>
-    );
-  }
-  if (field.kind === "record") {
-    return (
-      <Field>
-        {label}
-        <Select value={String(value ?? "")} onChange={(event) => onChange(event.currentTarget.value || undefined)}>
-          <option value="">–</option>
-          {options.data?.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.title}
-            </option>
-          ))}
-        </Select>
-      </Field>
-    );
-  }
-  if (field.kind === "json") {
-    return (
-      <div className="col-span-full">
-        <Field>
-          {label}
-          <textarea
-            className={`min-h-24 rounded-md border bg-panel px-2.5 py-2 font-mono text-sm ${bad ? "border-problem" : "border-line-strong"}`}
-            value={json}
-            spellCheck={false}
-            onChange={(event) => {
-              const text = event.currentTarget.value;
-              setJson(text);
-              try {
-                onChange(text.trim() === "" ? undefined : JSON.parse(text));
-                setBad(false);
-              } catch {
-                setBad(true);
-              }
-            }}
-          />
-        </Field>
-        {bad && <p className="mt-1 text-sm text-problem">Not valid JSON yet: the last valid value is kept.</p>}
-      </div>
-    );
-  }
-  if (field.kind === "list") {
-    return (
-      <Field>
-        {label}
-        <Input
-          placeholder="Comma-separated"
-          value={Array.isArray(value) ? value.join(", ") : ""}
-          onChange={(event) =>
-            onChange(
-              event.currentTarget.value
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean),
-            )
-          }
-        />
-      </Field>
-    );
-  }
-  return (
-    <Field>
-      {label}
-      <Input
-        type={field.kind === "number" ? "number" : field.kind === "date" ? "date" : "text"}
-        list={field.kind === "person" ? "grenier-members" : undefined}
-        value={value === undefined || value === null ? "" : String(value)}
-        onChange={(event) => {
-          const text = event.currentTarget.value;
-          onChange(field.kind === "number" ? (text === "" ? undefined : Number(text)) : text || undefined);
-        }}
-      />
-      {field.kind === "person" && (
-        <datalist id="grenier-members">
-          {members.map((member) => (
-            <option key={member} value={member} />
-          ))}
-        </datalist>
-      )}
-    </Field>
-  );
+/** "Team / Decisions / 2026": a top folder's name, then the folder's path. */
+export function placeLabel(spaces: Space[], space: string, folder: string): string {
+  return [topName(spaces, space), ...(folder ? folder.split("/") : [])].join(" / ");
 }
 
-interface Pick {
-  kind: "mention" | "create";
-  word: string;
-  start: number;
+export function topName(spaces: Space[], id: string): string {
+  const space = spaces.find((entry) => entry.id === id);
+  if (!space) return id;
+  if (space.kind === "me") return "Me";
+  if (space.kind === "team") return "Team";
+  return space.name;
 }
 
-/** The body: Markdown, with @ to link a record and / at the start of a line to create one and link it. */
+/** The text: Markdown, with @ to link another page. */
 function Body({
+  editable,
   text,
   onChange,
   open,
-  space,
-  me,
-  types,
 }: {
+  editable: boolean;
   text: string;
   onChange: (body: string, link?: Link) => void;
   open: (id: string) => void;
-  space: string;
-  me: string;
-  types: TypeDef[];
 }) {
-  const [preview, setPreview] = useState(() => text.trim() !== "");
-  const [pick, setPick] = useState<Pick | null>(null);
+  const [writing, setWriting] = useState(() => text.trim() === "");
+  const preview = !editable || !writing;
+  const [mention, setMention] = useState<{ word: string; start: number } | null>(null);
   const [matches, setMatches] = useState<RecordRow[]>([]);
-  const [problem, setProblem] = useState<string | null>(null);
   const area = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (pick?.kind !== "mention" || pick.word.length < 2) {
+    if (!mention || mention.word.length < 2) {
       setMatches([]);
       return;
     }
     let current = true;
-    api<{ records: RecordRow[] }>(`/records?q=${encodeURIComponent(pick.word)}`)
+    api<{ records: RecordRow[] }>(`/records?q=${encodeURIComponent(mention.word)}`)
       .then((answer) => current && setMatches(answer.records.slice(0, 6)))
       .catch(() => current && setMatches([]));
     return () => {
       current = false;
     };
-  }, [pick]);
+  }, [mention]);
 
   const look = (value: string, caret: number) => {
-    const before = value.slice(0, caret);
-    const mention = /(^|\s)@([^\s@][^@\n]{0,40})?$/.exec(before);
-    const create = /(^|\n)\/(\w*)(?: ([^\n]*))?$/.exec(before);
-    if (create) {
-      setPick({
-        kind: "create",
-        word: create[2] ?? "",
-        start: before.length - create[0].length + (create[1] ?? "").length,
-      });
-    } else if (mention) {
-      setPick({ kind: "mention", word: mention[2] ?? "", start: before.length - (mention[2] ?? "").length - 1 });
-    } else {
-      setPick(null);
-    }
+    const found = /(^|\s)@([^\s@][^@\n]{0,40})?$/.exec(value.slice(0, caret));
+    setMention(found ? { word: found[2] ?? "", start: caret - (found[2] ?? "").length - 1 } : null);
   };
 
   const insert = (start: number, end: number, replacement: string, link: Link) => {
-    const next = `${text.slice(0, start)}${replacement}${text.slice(end)}`;
-    onChange(next, link);
-    setPick(null);
+    onChange(`${text.slice(0, start)}${replacement}${text.slice(end)}`, link);
+    setMention(null);
     requestAnimationFrame(() => {
       area.current?.focus();
       area.current?.setSelectionRange(start + replacement.length, start + replacement.length);
     });
   };
 
-  const create = async (typeName: string, title: string, start: number, end: number) => {
-    const type = types.find((entry) => entry.name === typeName);
-    if (!type || !title.trim()) return;
-    try {
-      const made = await api<{ id: string }>("/records", {
-        body: { type: typeName, title: title.trim(), space, fields: defaults(type, me) },
-      });
-      insert(start, end, `[${title.trim()}](record:${made.id})`, { kind: "record", ref: made.id });
-      setProblem(null);
-    } catch (error) {
-      setProblem((error as Error).message);
-    }
-  };
-
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Escape") setPick(null);
-    if (event.key !== "Enter" || pick?.kind !== "create") return;
-    const caret = event.currentTarget.selectionStart;
-    const line = /\/(\w+) ([^\n]+)$/.exec(text.slice(0, caret));
-    const typeName = QUICK.find((name) => name.toLowerCase() === line?.[1]?.toLowerCase());
-    if (!line || !typeName) return;
-    event.preventDefault();
-    void create(typeName, line[2] as string, caret - line[0].length, caret);
+    if (event.key === "Escape") setMention(null);
   };
 
   return (
     <section className="mb-6">
-      <div className="mb-1.5 flex items-center justify-between">
-        <h2 className="font-semibold">Body</h2>
+      <div className={`mb-1.5 flex justify-end ${editable ? "" : "hidden"}`}>
         <fieldset className="inline-flex overflow-hidden rounded-md border border-line-strong text-sm">
-          <legend className="sr-only">Body view</legend>
+          <legend className="sr-only">Text view</legend>
           {(["Write", "Preview"] as const).map((name) => (
             <button
               type="button"
               key={name}
               aria-pressed={preview === (name === "Preview")}
               className={`h-7 cursor-pointer px-2.5 ${preview === (name === "Preview") ? "bg-accent text-accent-fg" : "bg-panel hover:bg-hover"}`}
-              onClick={() => setPreview(name === "Preview")}
+              onClick={() => setWriting(name === "Write")}
             >
               {name}
             </button>
           ))}
         </fieldset>
       </div>
-      {problem && <Notice message={problem} />}
       {preview ? (
         <div className="min-h-40 rounded-xl border border-line bg-panel px-4 py-3">
           {text.trim() ? <Markdown text={text} open={open} /> : <p className="text-muted">Nothing written.</p>}
@@ -505,18 +328,18 @@ function Body({
         <div className="relative">
           <textarea
             ref={area}
-            className="min-h-64 w-full rounded-xl border border-line-strong bg-panel px-4 py-3 font-mono text-md leading-relaxed"
-            aria-label="Body, in Markdown"
-            placeholder="Markdown. @ links a record; / at the start of a line creates one, as in /task Update the docs."
+            className="min-h-96 w-full rounded-xl border border-line-strong bg-panel px-4 py-3 font-mono text-md leading-relaxed"
+            aria-label="Text, in Markdown"
+            placeholder="Markdown. @ links another page."
             value={text}
             onChange={(event) => {
               onChange(event.currentTarget.value);
               look(event.currentTarget.value, event.currentTarget.selectionStart);
             }}
             onKeyDown={keyDown}
-            onBlur={() => setTimeout(() => setPick(null), 150)}
+            onBlur={() => setTimeout(() => setMention(null), 150)}
           />
-          {pick?.kind === "mention" && matches.length > 0 && (
+          {mention && matches.length > 0 && (
             <ul className="absolute right-3 bottom-3 z-10 w-80 rounded-lg border border-line-strong bg-panel py-1 shadow-lg">
               {matches.map((match) => (
                 <li key={match.id}>
@@ -525,22 +348,22 @@ function Body({
                     className="w-full cursor-pointer px-3 py-1.5 text-left hover:bg-hover"
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      insert(pick.start, pick.start + pick.word.length + 1, `[${match.title}](record:${match.id})`, {
-                        kind: "record",
-                        ref: match.id,
-                      });
+                      insert(
+                        mention.start,
+                        mention.start + mention.word.length + 1,
+                        `[${match.title}](record:${match.id})`,
+                        {
+                          kind: "record",
+                          ref: match.id,
+                        },
+                      );
                     }}
                   >
-                    {match.title} <span className="text-sm text-muted">{match.type}</span>
+                    {match.title}
                   </button>
                 </li>
               ))}
             </ul>
-          )}
-          {pick?.kind === "create" && (
-            <p className="absolute right-3 bottom-3 rounded-lg border border-line-strong bg-panel px-3 py-1.5 text-sm shadow-lg">
-              {QUICK.map((name) => `/${name.toLowerCase()}`).join("  ")} then a title and Enter
-            </p>
           )}
         </div>
       )}
@@ -689,7 +512,6 @@ function History({ id, restore }: { id: string; restore: (draft: Partial<Draft>)
                   restore({
                     ...(typeof entry.snapshot.title === "string" ? { title: entry.snapshot.title } : {}),
                     ...(typeof entry.snapshot.body === "string" ? { body: entry.snapshot.body } : {}),
-                    ...(entry.snapshot.fields ? { fields: entry.snapshot.fields } : {}),
                   })
                 }
               >

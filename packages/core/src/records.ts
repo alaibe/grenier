@@ -197,8 +197,65 @@ export interface RecordShape {
   type: string;
   kind?: string | null;
   title: string;
+  folder?: string;
   body: string;
   fields: Record<string, unknown>;
+}
+
+const MAX_FOLDER_DEPTH = 8;
+
+/** Why a folder path is not one, or null: "Decisions/2026", names of 1 to 80 characters, at most 8 deep. */
+export function folderProblem(folder: string): string | null {
+  if (folder === "") return null;
+  if (folder.length > 300) return "a folder path holds at most 300 characters";
+  const names = folder.split("/");
+  if (names.length > MAX_FOLDER_DEPTH) return `folders nest at most ${MAX_FOLDER_DEPTH} deep`;
+  for (const name of names) {
+    if (name === "" || name !== name.trim()) return "a folder's name is not empty and has no space around it";
+    if (name === "." || name === "..") return `a folder cannot be named ${name}`;
+    if (name.length > 80) return "a folder's name holds at most 80 characters";
+    if (/\p{Cc}/u.test(name)) return "a folder's name holds no control characters";
+  }
+  return null;
+}
+
+interface MemberChange {
+  space: string;
+  type: string;
+  title: string;
+  folder?: string;
+  body: string;
+  fields: Record<string, unknown>;
+  retiredAt?: number | null;
+}
+
+/** The fields of a request the machine that runs it sets. */
+const RUN_FIELDS = new Set(["status", "result", "machine", "version"]);
+
+export const MEMBER_WRITES =
+  "only an admin writes there: a member writes in me, and their agents' answers in a repository's folder";
+
+/**
+ * Whether a member who is not an admin may make this change: anything in their own `me` (`mine`), a memory in a
+ * repository's folder (what their agents work out about its code), and the run fields of a request their machine ran.
+ */
+export function memberMay(
+  before: MemberChange | undefined,
+  after: MemberChange,
+  mine: string,
+  ranIt: boolean,
+): boolean {
+  if (after.space === mine && (!before || before.space === mine)) return true;
+  const answer = (record: { space: string; type: string }) =>
+    record.type === "Memory" && record.space.startsWith("repo:");
+  if (answer(after) && (!before || answer(before))) return true;
+  if (before?.type !== "Task" || after.type !== "Task" || !ranIt) return false;
+  const kept = ["space", "title", "folder", "body", "retiredAt"] as const;
+  if (kept.some((part) => (before[part] ?? null) !== (after[part] ?? null))) return false;
+  const names = new Set([...Object.keys(before.fields), ...Object.keys(after.fields)]);
+  return [...names].every(
+    (name) => RUN_FIELDS.has(name) || JSON.stringify(before.fields[name]) === JSON.stringify(after.fields[name]),
+  );
 }
 
 /** Why a record does not follow its type's rules, or null. Every write is checked. */
@@ -207,9 +264,11 @@ export function recordProblem(record: RecordShape, type: TypeDef | undefined): s
   const title = record.title.trim();
   if (title === "") return "a record needs a title";
   if (title.length > 300) return "a title holds at most 300 characters";
+  const folder = folderProblem(record.folder ?? "");
+  if (folder) return folder;
   if (!type.body && record.body.trim() !== "") return `a ${type.name} has no body`;
   if (record.body.length > type.maxBody) return `a ${type.name}'s body holds at most ${type.maxBody} characters`;
-  const secret = secretIn(`${title}\n${record.body}\n${JSON.stringify(record.fields)}`);
+  const secret = secretIn(`${title}\n${record.folder ?? ""}\n${record.body}\n${JSON.stringify(record.fields)}`);
   if (secret) return secret;
   if (type.limitCode && record.body.trim() !== "") {
     const problem = unshareable(record.body);
