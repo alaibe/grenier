@@ -15,13 +15,13 @@ brew install --cask alaibe/tap/grenier    # macOS: the app, its daemon and the g
 ```
 
 On Linux, the `.deb` and `.rpm` on the [download page](https://grenier.laibe.cc/download) install the app and
-`/usr/bin/grenier`; the Windows installer puts it on your PATH. From source, with Node 22 or later and pnpm:
+`/usr/bin/grenier`; the Windows installer puts it on your PATH. From source:
 
 ```bash
 pnpm install && pnpm build && npm install --global ./apps/cli
 ```
 
-## Run
+## Usage
 
 Open the app. On its MCP screen, add Grenier to Claude Code, Cursor or Codex: their agents recall and remember
 through it. On its Team screen, start a team in your own Cloudflare account, or join one from an invite link.
@@ -32,15 +32,21 @@ To count what an agent costs, run it through Grenier:
 grenier run -- claude
 ```
 
-## Develop
+## Development
 
-Node.js 22 (`.node-version`, the version the app bundles to run its daemon) and pnpm 10, Rust (`rust-toolchain.toml`)
-for the desktop app, and on Linux [Tauri's system libraries](https://v2.tauri.app/start/prerequisites/#linux)
-(WebKitGTK 4.1).
+Requirements:
+
+- Node.js 22 (`.node-version`, the version the app bundles to run its daemon) and pnpm 10
+- Rust (`rust-toolchain.toml`) for the desktop app
+- On Linux, [Tauri's system libraries](https://v2.tauri.app/start/prerequisites/#linux) (WebKitGTK 4.1)
 
 ```bash
 pnpm install
 cd apps/desktop && pnpm tauri dev    # builds the CLI and the daemon's sidecar first, then opens the app
 ```
 
-`AGENTS.md` lists the checks every change passes.
+`AGENTS.md` lists the checks CI runs.
+
+## License
+
+[MIT](LICENSE).
