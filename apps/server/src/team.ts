@@ -3,10 +3,11 @@ import { sha256 } from "@grenier/core/policy";
 import { builtinType, customType, joinCode, MEMBER_WRITES, memberMay, recordProblem } from "@grenier/core/records";
 import { nextDue } from "@grenier/core/routines";
 import { Hono } from "hono";
+import { SCHEMA_STEPS } from "./schema.ts";
 
 export interface Env {
   TEAM: DurableObjectNamespace<TeamStore>;
-  /** The SHA-256 of the token `grenier team deploy` made, which sets up the first admin, once. */
+  /** The SHA-256 of the token the deploy made, which sets up the first admin, once. */
   SETUP_HASH?: string;
 }
 
@@ -72,8 +73,8 @@ const RECORD_FIELDS = [
   "links",
   "sealed",
 ];
-/** What this store speaks, which a machine checks before it syncs: 2 added folders, 3 named top folders. */
-const PROTOCOL = 3;
+/** What this store speaks, which a machine checks before it syncs: 2 added folders, 3 named top folders, 4 one text per routine. */
+const PROTOCOL = 4;
 const INVITE_LIFE = 24 * 60 * 60 * 1000;
 const CONFIRM_WINDOW = 10 * 60 * 1000;
 const LEASE = 5 * 60 * 1000;
@@ -113,70 +114,7 @@ export class TeamStore extends DurableObject<Env> {
   #migrate(): void {
     this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
     const schema = Number(this.#one("SELECT value FROM meta WHERE key = 'schema'")?.value ?? 0);
-    if (schema < 1) this.#schemaOne();
-    if (schema < 2) {
-      this.ctx.storage.sql.exec(`
-        ALTER TABLE records ADD COLUMN folder TEXT NOT NULL DEFAULT '';
-        UPDATE meta SET value = '2' WHERE key = 'schema';
-      `);
-    }
-    if (schema < 3) {
-      this.ctx.storage.sql.exec(`
-        ALTER TABLE spaces RENAME TO tops;
-        ALTER TABLE records RENAME COLUMN space TO top;
-        DROP INDEX records_space;
-        CREATE INDEX records_top ON records (top, type);
-        UPDATE meta SET value = '3' WHERE key = 'schema';
-      `);
-    }
-  }
-
-  #schemaOne(): void {
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE members (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, role TEXT NOT NULL, created_at INTEGER NOT NULL, removed_at INTEGER);
-      CREATE TABLE devices (
-        id TEXT PRIMARY KEY, member_id TEXT NOT NULL, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
-        created_at INTEGER NOT NULL, revoked_at INTEGER, last_seen INTEGER,
-        state TEXT NOT NULL DEFAULT 'offline', room REAL NOT NULL DEFAULT 0, repos TEXT NOT NULL DEFAULT '[]',
-        agents TEXT NOT NULL DEFAULT '[]', state_at INTEGER
-      );
-      CREATE TABLE invites (
-        id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, member_name TEXT NOT NULL, role TEXT NOT NULL,
-        created_by TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER,
-        device_name TEXT, device_hash TEXT, nonce TEXT, asked_at INTEGER
-      );
-      CREATE TABLE spaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, repo_id TEXT, members TEXT);
-      CREATE TABLE records (
-        id TEXT PRIMARY KEY, space TEXT NOT NULL, type TEXT NOT NULL, kind TEXT, title TEXT NOT NULL, body TEXT NOT NULL,
-        fields TEXT NOT NULL, author TEXT NOT NULL, device TEXT, session_id TEXT, created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL, retired_at INTEGER, version INTEGER NOT NULL UNIQUE, anchors TEXT NOT NULL,
-        links TEXT NOT NULL, sealed TEXT
-      );
-      CREATE INDEX records_space ON records (space, type);
-      CREATE VIRTUAL TABLE records_fts USING fts5 (id UNINDEXED, title, body, tokenize = 'porter unicode61');
-      CREATE TABLE history (
-        record_id TEXT NOT NULL, version INTEGER NOT NULL, author TEXT NOT NULL, device TEXT, ts INTEGER NOT NULL,
-        snapshot TEXT NOT NULL, PRIMARY KEY (record_id, version)
-      );
-      CREATE TABLE applied (change_id TEXT PRIMARY KEY, version INTEGER NOT NULL, at INTEGER NOT NULL);
-      CREATE TABLE claims (task_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, leased_until INTEGER NOT NULL, offered_at INTEGER NOT NULL);
-      CREATE TABLE declines (task_id TEXT NOT NULL, device_id TEXT NOT NULL, PRIMARY KEY (task_id, device_id));
-      CREATE TABLE usage (
-        device_id TEXT NOT NULL, day TEXT NOT NULL, repo TEXT NOT NULL, requests INTEGER NOT NULL, input_tokens INTEGER NOT NULL,
-        cache_write_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
-        cost REAL NOT NULL, routine_minutes REAL NOT NULL DEFAULT 0, PRIMARY KEY (device_id, day, repo)
-      );
-      CREATE TABLE runs (
-        id TEXT PRIMARY KEY, routine_id TEXT NOT NULL, task_id TEXT, device_id TEXT NOT NULL, version INTEGER NOT NULL,
-        kind TEXT NOT NULL, status TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER, actions INTEGER NOT NULL,
-        cost REAL NOT NULL, landed REAL, score REAL, thumbs INTEGER
-      );
-      CREATE TABLE webhooks (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, routine_id TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL);
-      CREATE TABLE weblinks (code_hash TEXT PRIMARY KEY, member_id TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER);
-      CREATE TABLE schedules (routine_id TEXT PRIMARY KEY, next_at INTEGER NOT NULL);
-      INSERT INTO spaces (id, name, kind) VALUES ('team', 'team', 'team');
-      INSERT INTO meta (key, value) VALUES ('schema', '1'), ('version', '0');
-    `);
+    for (const step of SCHEMA_STEPS.slice(schema)) this.ctx.storage.sql.exec(step);
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -627,11 +565,11 @@ export class TeamStore extends DurableObject<Env> {
 
     app.onError((error) => problem(500, error.message));
 
-    // Setting up the first admin, with the token `grenier team deploy` made: once, while the team has no member.
+    // Setting up the first admin, with the token the deploy made: once, while the team has no member.
     app.post("/api/setup", async (c) => {
       const token = /^Bearer (\S+)$/.exec(c.req.header("authorization") ?? "")?.[1];
       if (!token || !this.env.SETUP_HASH || (await sha256(token)) !== this.env.SETUP_HASH) {
-        return problem(401, "setting up needs the token grenier team deploy made");
+        return problem(401, "setting up needs the token the deploy made");
       }
       if (this.#one("SELECT id FROM members LIMIT 1")) return problem(409, "this team is set up already");
       const body = await c.req
@@ -698,7 +636,7 @@ export class TeamStore extends DurableObject<Env> {
         await sha256(String(code ?? "")),
         Date.now(),
       );
-      if (!link) return problem(404, "this sign-in link was used or expired: make another with grenier team web");
+      if (!link) return problem(404, "this sign-in link was used or expired: make another on the app's Team screen");
       const token = `gt_${randomId(32)}`;
       this.#sql("UPDATE weblinks SET used_at = ? WHERE code_hash = ?", Date.now(), link.code_hash as string);
       this.#sql(
@@ -1105,38 +1043,23 @@ export class TeamStore extends DurableObject<Env> {
       if (typeof run.id !== "string" || typeof run.routineId !== "string")
         return problem(400, "a run needs id and routineId");
       this.#sql(
-        `INSERT INTO runs (id, routine_id, task_id, device_id, version, kind, status, started_at, ended_at, actions, cost, landed, score, thumbs)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO runs (id, routine_id, task_id, device_id, status, started_at, ended_at, actions, cost)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET status = excluded.status, ended_at = excluded.ended_at, actions = excluded.actions,
-           cost = excluded.cost, landed = excluded.landed, score = excluded.score`,
+           cost = excluded.cost`,
         run.id,
         run.routineId,
         typeof run.taskId === "string" ? run.taskId : null,
         c.get("device").id,
-        Number(run.version ?? 0),
-        run.kind === "eval" ? "eval" : "run",
         String(run.status ?? "running"),
         Number(run.startedAt ?? Date.now()),
         typeof run.endedAt === "number" ? run.endedAt : null,
         Number(run.actions ?? 0),
         Number(run.cost ?? 0),
-        typeof run.landed === "number" ? run.landed : null,
-        typeof run.score === "number" ? run.score : null,
-        null,
       );
       if (typeof run.taskId === "string" && run.status !== "running") {
         this.#sql("DELETE FROM claims WHERE task_id = ?", run.taskId);
       }
-      return c.json({ ok: true });
-    });
-
-    app.post("/api/runs/:id/thumbs", adminOnly, async (c) => {
-      const { up } = await c.req.json<{ up?: unknown }>().catch(() => ({}) as { up?: unknown });
-      this.#sql(
-        "UPDATE runs SET thumbs = ? WHERE id = ?",
-        up === true ? 1 : up === false ? -1 : null,
-        c.req.param("id"),
-      );
       return c.json({ ok: true });
     });
 

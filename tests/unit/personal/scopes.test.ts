@@ -151,16 +151,6 @@ describe("scopes, against every read tool", () => {
 });
 
 describe("what a read returns", () => {
-  it("writes an audit row with the client, the tool, its arguments and every record returned", async () => {
-    const client = await connect(reader(["team"]));
-    await client.callTool({ name: "recall", arguments: { query: "budget review Marie" } });
-    const entries = await store.audit.list();
-    expect(entries).toMatchObject([
-      { tool: "recall", clientId: "client-team", args: { query: "budget review Marie" } },
-    ]);
-    expect(entries[0]?.recordIds.sort()).toEqual([ids.team, ids.repo].sort());
-  });
-
   it("marks every record's text as untrusted data", async () => {
     const client = await connect(reader(["*"]));
     const result = await client.callTool({ name: "recall", arguments: { query: "budget review Marie" } });

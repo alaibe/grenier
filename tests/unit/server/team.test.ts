@@ -299,7 +299,6 @@ describe("what members write", () => {
     await call("/api/runs", bob, { body: { id: "run1", routineId: "r", taskId: "task", status: "running" } });
     expect((await push(bob, running, 1)).applied).toHaveLength(1);
     expect(await refused({ id: "task", title: "Something else" }, 2)).toContain("only an admin writes there");
-    expect((await call("/api/runs/run1/thumbs", bob, { body: { up: true } })).status).toBe(403);
   });
 });
 
@@ -310,7 +309,8 @@ describe("requests", () => {
       top: "team",
       type: "Routine",
       title: "Update dependencies",
-      fields: { versions: [{ version: 1, prompt: "Update", status: "production" }], trigger: "request", repo: "app" },
+      body: "Update",
+      fields: { trigger: "request", repo: "app" },
     });
     await push(token, {
       id: "task",
@@ -342,7 +342,8 @@ describe("requests", () => {
       top: "team",
       type: "Routine",
       title: "Nightly digest",
-      fields: { versions: [{ version: 1, prompt: "Digest", status: "production" }], trigger: "schedule", schedule },
+      body: "Digest",
+      fields: { trigger: "schedule", schedule },
     });
     expect((await push(ADA, routine("mon 09:00"))).applied).toHaveLength(1);
     expect((await push(ADA, routine("hourly"), 1)).applied).toHaveLength(1);
@@ -384,11 +385,8 @@ describe("requests", () => {
       top: "team",
       type: "Routine",
       title: "My meetings",
-      fields: {
-        versions: [{ version: 1, prompt: "Gather", status: "production" }],
-        trigger: "request",
-        collector: "yes",
-      },
+      body: "Gather",
+      fields: { trigger: "request", collector: "yes" },
     });
     await push(ADA, {
       id: "gather",

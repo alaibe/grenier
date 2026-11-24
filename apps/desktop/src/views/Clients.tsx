@@ -16,6 +16,40 @@ import {
 } from "../ui.tsx";
 
 const load = () => api<{ clients: ClientView[]; scopes: string[] }>("/clients");
+const loadApps = () =>
+  api<{ apps: { app: string; label: string; connected: boolean }[] }>("/apps").then((answer) => answer.apps);
+
+/** One click adds Grenier's MCP server to an app here, able to read every folder; narrow it in the list below. */
+function Connect({ added }: { added: () => void }) {
+  const apps = useLoad(loadApps);
+  const action = useAction(() => {
+    apps.reload();
+    added();
+  });
+  return (
+    <div className="mb-5">
+      <Notice message={apps.error ?? action.message} />
+      <div className="flex flex-wrap gap-2">
+        {(apps.data ?? []).map((entry) => (
+          <Button
+            key={entry.app}
+            quiet={entry.connected}
+            disabled={action.busy !== null}
+            title={entry.connected ? "Added already: adding it again gives it a new key" : undefined}
+            onClick={() =>
+              void action.run(`app:${entry.app}`, async () => {
+                await api(`/apps/${entry.app}`, { body: { scopes: ["*"] } });
+                return { text: `Added to ${entry.label}: restart it to load Grenier.` };
+              })
+            }
+          >
+            {entry.connected ? `${entry.label} ✓` : `Add to ${entry.label}`}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function Clients(_: ViewProps) {
   const { data, error, reload } = useLoad(load);
@@ -59,19 +93,20 @@ export function Clients(_: ViewProps) {
       title="Apps on this computer"
       intro={
         <>
-          Claude Code, Cursor and other apps here read Grenier over MCP, each with its own key.{" "}
-          <code>grenier mcp install claude-code</code> adds one for you. Each reads its repository's folder, plus the
-          top folders you tick: Me, Team, or one for some members. Only you see this list.
+          Claude Code, Cursor and other apps here read Grenier over MCP, each with its own key. Add Grenier to one with
+          its button. Each reads its repository's folder, plus the top folders it is given: Me, Team, or one for some
+          members. Only you see this list.
         </>
       }
       action={
         !adding && (
           <Button quiet onClick={() => setAdding(true)}>
-            New app
+            Another app
           </Button>
         )
       }
     >
+      <Connect added={reload} />
       <Notice message={error ?? action.message} />
 
       {created && (
@@ -145,8 +180,7 @@ export function Clients(_: ViewProps) {
       {!data && !error && <Loading what="clients" />}
       {data && data.clients.length === 0 && !adding && !created && (
         <Empty>
-          <p>No app reads the store yet. Install Grenier in one:</p>
-          <code>grenier mcp install claude-code</code>
+          <p>No app reads Grenier yet: add it to one above.</p>
         </Empty>
       )}
       {data && data.clients.length > 0 && (
@@ -209,8 +243,8 @@ export function Clients(_: ViewProps) {
       )}
       {data && data.clients.length > 0 && (
         <p className="mt-2 text-sm font-normal text-muted">
-          To change what an app may read, run <code>grenier mcp install</code> for it again with the new{" "}
-          <code>--scope</code>: its old token is revoked.
+          An app added with its button reads every folder. To give it fewer, revoke it and make it a key below with only
+          the folders it may read.
         </p>
       )}
     </Part>

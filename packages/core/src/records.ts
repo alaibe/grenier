@@ -25,7 +25,6 @@ export interface TypeDef {
 export const MEMORY_KINDS = ["answer", "summary", "convention", "fact"] as const;
 export const TASK_STATUSES = ["to-do", "doing", "done"] as const;
 export const ROUTINE_MODES = ["read-only", "shadow", "limited", "on"] as const;
-export const VERSION_STATUSES = ["testing", "production", "retired"] as const;
 
 const LONG = 200_000;
 
@@ -110,33 +109,28 @@ export const BUILTIN_TYPES: readonly TypeDef[] = [
   {
     name: "Skill",
     description: "A skill for the team's agents: SKILL.md and its files, installed on the machines that approve it.",
-    fields: [
-      { name: "files", kind: "json", required: true },
-      { name: "recommended", kind: "select", options: ["yes", "no"] },
-    ],
+    fields: [{ name: "files", kind: "json", required: true }],
     body: false,
     maxBody: 0,
   },
   {
     name: "McpServer",
-    description: "An MCP server's configuration (command or URL, pinned version), never its credentials.",
+    description:
+      "An MCP server's configuration (command or URL, pinned version), and the names of the keys each person enters, never their values.",
     fields: [
       { name: "config", kind: "json", required: true },
       { name: "credentials", kind: "list" },
-      { name: "recommended", kind: "select", options: ["yes", "no"] },
     ],
     body: true,
     maxBody: 20_000,
   },
   {
     name: "Routine",
-    description: "The team's factory for one kind of task: versioned prompts, a repo, allowed tools, evals.",
+    description: "One kind of task the team's machines run: its prompt as the page's text, a repo, allowed tools.",
     fields: [
-      { name: "versions", kind: "json", required: true },
       { name: "repo", kind: "text" },
       { name: "tools", kind: "list" },
-      { name: "evals", kind: "json" },
-      { name: "trigger", kind: "select", options: ["request", "github", "schedule"], required: true },
+      { name: "trigger", kind: "select", options: ["request", "schedule"], required: true },
       { name: "schedule", kind: "text" },
       { name: "collector", kind: "select", options: ["yes", "no"] },
       { name: "owner", kind: "person" },
@@ -291,20 +285,6 @@ export function recordProblem(record: RecordShape, type: TypeDef | undefined): s
   }
   if (type.name === "Memory" && record.kind !== record.fields.kind) return "a memory's kind is its kind field";
   return null;
-}
-
-export interface RoutineVersion {
-  version: number;
-  prompt: string;
-  status: (typeof VERSION_STATUSES)[number];
-}
-
-/** A test task of a routine's eval set, and how its result is judged. */
-export interface EvalCase {
-  input: string;
-  /** For a code judge: text the result must contain. For a model judge: what a good result does. */
-  expect: string;
-  judge: "code" | "model" | "person";
 }
 
 export function repoTop(repoId: string): string {

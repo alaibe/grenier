@@ -33,7 +33,7 @@ export function personalKey(paths: GrenierPaths): string | null {
   return existsSync(file) ? readFileSync(file, "utf8").trim() : null;
 }
 
-/** The personal key, made the first time it is needed. Copy it to the person's other machines: `grenier key`. */
+/** The personal key, made the first time it is needed; Settings shows it, to put on the person's other machines. */
 export function ensurePersonalKey(paths: GrenierPaths): string {
   const existing = personalKey(paths);
   if (existing) return existing;

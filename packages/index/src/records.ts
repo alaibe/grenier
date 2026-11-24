@@ -661,24 +661,11 @@ function nonce(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** The audit row is written first (no row, no read), and every record leaves redacted and marked untrusted. */
+/** Every record leaves redacted and marked untrusted. */
 export async function deliver<T extends { records?: Found[]; results?: Found[]; linked?: Found[] }>(
   deps: StoreDeps,
-  reader: Reader | null,
-  tool: string,
-  args: Record<string, unknown>,
   result: T,
 ): Promise<T & { notice: string }> {
-  const all = [...(result.results ?? []), ...(result.records ?? []), ...(result.linked ?? [])];
-  if (reader) {
-    await deps.store.audit.add({
-      ts: (deps.now ?? Date.now)(),
-      clientId: reader.id,
-      tool,
-      args,
-      recordIds: all.map((record) => record.id),
-    });
-  }
   const marker = nonce();
   const names = new Map((await deps.store.tops.list()).map((top) => [top.id, topName(top)]));
   // Agents see where a record is as one path, "Team/Decisions", the way they name a place to write.

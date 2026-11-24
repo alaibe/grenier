@@ -59,7 +59,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     approvals,
     runs,
     clients,
-    audit,
   } = schema;
 
   const ftsQuery = (terms: readonly string[]) =>
@@ -332,12 +331,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
         db
           .select()
           .from(outbox)
-          .where(
-            and(
-              isNull(outbox.refused),
-              withoutMe ? sql`json_extract(${outbox.change}, '$.record.top') IS NOT 'me'` : undefined,
-            ),
-          )
+          .where(withoutMe ? sql`json_extract(${outbox.change}, '$.record.top') IS NOT 'me'` : undefined)
           .orderBy(asc(outbox.seq))
           .limit(limit)
           .all(),
@@ -347,9 +341,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           db.delete(outbox)
             .where(inArray(outbox.id, [...ids]))
             .run();
-      },
-      refuse: async (id, reason) => {
-        db.update(outbox).set({ refused: reason }).where(eq(outbox.id, id)).run();
       },
     },
 
@@ -419,25 +410,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .set({ revokedAt: at, name: `${name}~${at}` })
           .where(and(eq(clients.name, name), isNull(clients.revokedAt)))
           .run().changes > 0,
-    },
-
-    audit: {
-      add: async (entry) => {
-        db.insert(audit).values(entry).run();
-      },
-      list: async (filter = {}) =>
-        db
-          .select()
-          .from(audit)
-          .where(
-            and(
-              filter.clientId === undefined ? undefined : eq(audit.clientId, filter.clientId),
-              filter.since === undefined ? undefined : gte(audit.ts, filter.since),
-            ),
-          )
-          .orderBy(desc(audit.ts), desc(audit.id))
-          .limit(filter.limit ?? 1000)
-          .all(),
     },
   };
 }

@@ -1,5 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, posix, relative } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, posix } from "node:path";
 import { builtinType, recordProblem, secretIn, sha256 } from "@grenier/core";
 import { newId, type StoreDeps, write } from "@grenier/index";
 import type { Approval, FullRecord, Store } from "@grenier/store";
@@ -41,31 +41,6 @@ export function skillFromFiles(files: Record<string, string>, folderName: string
   return { name, description: skillField(manifest, "description") ?? "", files };
 }
 
-/** A skill's folder as a record holds it: SKILL.md and the text files beside it. */
-export function readSkill(dir: string): SkillFiles {
-  const manifest = join(dir, "SKILL.md");
-  if (!existsSync(manifest)) throw new CommandError(`${dir} has no SKILL.md`);
-  const files: Record<string, string> = {};
-  let bytes = 0;
-  const walk = (folder: string) => {
-    for (const entry of readdirSync(folder, { withFileTypes: true })) {
-      if (entry.name.startsWith(".")) continue;
-      const path = join(folder, entry.name);
-      if (entry.isDirectory()) {
-        walk(path);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      const text = readFileSync(path, "utf8");
-      bytes += Buffer.byteLength(text);
-      files[relative(dir, path).split(/[\\/]/).join("/")] = text;
-      if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) throw new CommandError(TOO_BIG);
-    }
-  };
-  walk(dir);
-  return skillFromFiles(files, dir.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
-}
-
 /** What an approval pins: the hash of exactly what gets installed. */
 export async function sharedHash(record: Pick<FullRecord, "type" | "fields">): Promise<string> {
   const value =
@@ -92,23 +67,74 @@ export function claudeConfig(home: string): string {
   return join(home, ".claude.json");
 }
 
-/** A server's entry in Claude Code's config: credentials stay names, read from the person's environment. */
-export function serverEntry(record: Pick<FullRecord, "fields">): Record<string, unknown> {
+const credentialsOf = (record: Pick<FullRecord, "fields">) =>
+  Array.isArray(record.fields.credentials) ? (record.fields.credentials as string[]) : [];
+
+/** A remote server's headers as shared: each value a template, as "Bearer {api_key}", whose names are credentials. */
+function headerTemplates(config: Record<string, unknown>, credentials: string[]): Record<string, string> {
+  const headers = (config.headers ?? {}) as Record<string, unknown>;
+  const templates = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, String(value)]));
+  // A credential no template names is sent as a header of its own name.
+  for (const name of credentials) {
+    if (!Object.values(templates).some((template) => template.includes(`{${name}}`))) templates[name] = `{${name}}`;
+  }
+  return templates;
+}
+
+const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The keys a person entered, read back from their server's entry in Claude Code's config. */
+function keysIn(
+  record: Pick<FullRecord, "fields">,
+  entry: Record<string, unknown> | undefined,
+): Record<string, string> {
+  if (!entry) return {};
   const config = (record.fields.config ?? {}) as Record<string, unknown>;
-  const credentials = Array.isArray(record.fields.credentials) ? (record.fields.credentials as string[]) : [];
-  const fromEnvironment = Object.fromEntries(credentials.map((name) => [name, `\${${name}}`]));
+  const keys: Record<string, string> = {};
+  if (typeof config.url !== "string") {
+    for (const [name, value] of Object.entries((entry.env ?? {}) as Record<string, unknown>))
+      keys[name] = String(value);
+    return keys;
+  }
+  const headers = (entry.headers ?? {}) as Record<string, unknown>;
+  for (const [header, template] of Object.entries(headerTemplates(config, credentialsOf(record)))) {
+    const names = [...template.matchAll(/\{(\w+)\}/g)].map((match) => match[1] as string);
+    const pattern = new RegExp(`^${literal(template).replace(/\\\{\w+\\\}/g, "(.*)")}$`);
+    const found = pattern.exec(String(headers[header] ?? ""));
+    if (!found) continue;
+    for (const [index, name] of names.entries()) keys[name] = found[index + 1] as string;
+  }
+  return keys;
+}
+
+/** A server's entry in Claude Code's config, with the keys this person entered: they go nowhere else. */
+export function serverEntry(record: Pick<FullRecord, "fields">, keys: Record<string, string>): Record<string, unknown> {
+  const config = (record.fields.config ?? {}) as Record<string, unknown>;
+  const credentials = credentialsOf(record);
+  const missing = credentials.filter((name) => !keys[name]);
+  if (missing.length > 0) throw new CommandError(`it needs your ${missing.join(", ")}`);
   if (typeof config.url === "string") {
+    const headers = Object.fromEntries(
+      Object.entries(headerTemplates(config, credentials)).map(([name, template]) => [
+        name,
+        template.replace(/\{(\w+)\}/g, (_, key: string) => keys[key] ?? ""),
+      ]),
+    );
     return {
       type: config.type === "sse" ? "sse" : "http",
       url: config.url,
-      ...(credentials.length > 0 ? { headers: fromEnvironment } : {}),
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
     };
   }
+  const env = {
+    ...((config.env ?? {}) as Record<string, string>),
+    ...Object.fromEntries(credentials.map((name) => [name, keys[name] as string])),
+  };
   return {
     type: "stdio",
     command: String(config.command ?? ""),
     args: Array.isArray(config.args) ? config.args.map(String) : [],
-    ...(credentials.length > 0 ? { env: fromEnvironment } : {}),
+    ...(Object.keys(env).length > 0 ? { env } : {}),
   };
 }
 
@@ -142,12 +168,15 @@ function writeSkill(folder: string, files: Record<string, string>): void {
   }
 }
 
-/** Installs a shared skill or server and pins its hash, so a later change waits for approval again. */
+/**
+ * Installs a shared skill or server and pins its hash, so a later change waits for approval again. A server's keys
+ * are those just entered, else the ones its entry holds already.
+ */
 export async function install(
   store: Store,
   home: string,
   record: FullRecord,
-  options: { auto?: boolean; hash?: string } = {},
+  options: { hash?: string; keys?: Record<string, string> } = {},
 ): Promise<Approval> {
   const kind = KIND[record.type as Shared];
   if (!kind) throw new CommandError(`${record.title} is a ${record.type}, not a skill or an MCP server`);
@@ -168,7 +197,8 @@ export async function install(
     if (servers[name] && !before) {
       throw new CommandError(`Claude Code has a server named ${name} already, not one Grenier installed`);
     }
-    servers[name] = serverEntry(record);
+    const kept = keysIn(record, servers[name] as Record<string, unknown> | undefined);
+    servers[name] = serverEntry(record, { ...kept, ...(options.keys ?? {}) });
     config.mcpServers = servers;
     writeAtomically(installedPath, `${JSON.stringify(config, null, 2)}\n`);
   }
@@ -179,7 +209,6 @@ export async function install(
     approvedAt: Date.now(),
     settings: {
       ...(before?.settings ?? {}),
-      auto: options.auto ?? false,
       name: record.type === "Skill" ? slug(record.title) : `grenier-${slug(record.title)}`,
     },
     installedPath,
@@ -232,7 +261,6 @@ export interface SharedState {
   title: string;
   description: string;
   author: string;
-  recommended: boolean;
   /** Installed as it is now, installed with a newer version waiting for approval, or not installed here. */
   state: "installed" | "update" | "available";
   credentials: string[];
@@ -258,7 +286,6 @@ export async function sharedList(store: Store): Promise<SharedState[]> {
               )?.[1] ?? "")
             : (record.body.split("\n")[0] ?? ""),
         author: record.author,
-        recommended: record.fields.recommended === "yes",
         state: !approval ? "available" : approval.hash === hash ? "installed" : "update",
         credentials: Array.isArray(record.fields.credentials) ? (record.fields.credentials as string[]) : [],
         canRollBack: Boolean(approval?.previousHash),
@@ -268,29 +295,52 @@ export async function sharedList(store: Store): Promise<SharedState[]> {
   return out;
 }
 
-/** Brings recommended skills and servers up to date and removes retired ones it installed; returns what it did. */
-export async function autoInstall(store: Store, home: string): Promise<string[]> {
-  if ((await store.state.get("auto_install")) !== "on") return [];
+/** Removes the skills and servers installed here that the team retired: no list shows them any more. */
+export async function removeRetired(store: Store): Promise<string[]> {
   const done: string[] = [];
-  for (const shared of await sharedList(store)) {
-    if (!shared.recommended || shared.state === "installed") continue;
-    const record = (await store.records.get(shared.id)) as FullRecord;
-    try {
-      await install(store, home, record, { auto: true });
-      done.push(`${shared.state === "update" ? "updated" : "installed"} ${shared.title}`);
-    } catch (error) {
-      done.push(`could not install ${shared.title}: ${(error as Error).message}`);
-    }
-  }
   for (const approval of await store.approvals.list()) {
     if (approval.kind !== "skill" && approval.kind !== "mcp") continue;
     const record = await store.records.get(approval.recordId);
-    if (approval.settings.auto === true && (!record || record.retiredAt !== null)) {
-      await uninstall(store, { id: approval.recordId, type: approval.kind === "skill" ? "Skill" : "McpServer" });
-      done.push(`removed ${record?.title ?? approval.recordId}, retired`);
-    }
+    if (record && record.retiredAt === null) continue;
+    await uninstall(store, { id: approval.recordId, type: approval.kind === "skill" ? "Skill" : "McpServer" });
+    done.push(`removed ${record?.title ?? approval.recordId}, which the team retired`);
   }
   return done;
+}
+
+/**
+ * A server as an admin adds it from the app: a URL with header templates, or a command with its arguments and fixed
+ * environment, plus the names of the keys each person enters. Nothing in it may already be a key.
+ */
+export function serverToShare(input: { config?: unknown; credentials?: unknown }): {
+  config: Record<string, unknown>;
+  credentials: string[];
+} {
+  const given = (input.config ?? {}) as Record<string, unknown>;
+  const credentials = Array.isArray(input.credentials) ? input.credentials.map(String) : [];
+  if (credentials.some((name) => !/^[\w-]{1,80}$/.test(name))) {
+    throw new CommandError("a key's name takes letters, digits, _ and -");
+  }
+  const strings = (value: unknown) =>
+    Object.fromEntries(
+      Object.entries((value ?? {}) as Record<string, unknown>).map(([name, text]) => [name, String(text)]),
+    );
+  let config: Record<string, unknown>;
+  if (typeof given.url === "string" && given.url.trim()) {
+    const { config: checked } = shareableServer({ type: given.type, url: given.url.trim() });
+    const headers = strings(given.headers);
+    config = { ...checked, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
+  } else if (typeof given.command === "string" && given.command.trim()) {
+    const args = Array.isArray(given.args) ? given.args.map(String) : [];
+    const { config: checked } = shareableServer({ command: given.command.trim(), args });
+    const env = strings(given.env);
+    config = { ...checked, ...(Object.keys(env).length > 0 ? { env } : {}) };
+  } else {
+    throw new CommandError("a server has a URL, or a command to run");
+  }
+  if (secretIn(JSON.stringify(config)))
+    throw new CommandError("its configuration holds what looks like a key or a token");
+  return { config, credentials };
 }
 
 /** Flags and values that look like they carry a credential, which a shared server's arguments may not. */
@@ -370,8 +420,4 @@ export async function share(
   };
   await write(deps, next, existing);
   return { id: next.id, updated: Boolean(existing) };
-}
-
-export function isFolder(path: string): boolean {
-  return existsSync(path) && statSync(path).isDirectory();
 }

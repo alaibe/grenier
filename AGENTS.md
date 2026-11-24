@@ -6,7 +6,8 @@ Before you finish: `pnpm format && pnpm lint && pnpm typecheck && pnpm test && p
 
 - The daemon binds to `127.0.0.1` only, and its endpoints need a client token, except the proxy path `grenier run` uses.
 - API keys and auth headers are forwarded, never stored, logged or sent to the team store.
-- Nothing leaves the machine by default: the team store is opt-in. The one exception is the desktop app's usage statistics (`usage.rs`), which send a screen's url from the fixed list and the display's size, nothing else.
+- The keys a person types to install a shared MCP server go only into that server's entry in their own Claude Code config (`serverEntry` in `apps/cli/src/installs.ts`): never into the store, an approval, the team store or a log.
+- Nothing leaves the machine by default: the team store is opt-in. The one exception is the desktop app's usage statistics (`usage.rs`), which send a screen's url from the fixed list and the display's size, nothing else. An admin's search of skills.sh or the MCP Registry sends only the words typed (`apps/cli/src/catalog.ts`).
 - The team store never holds file contents, prompts or keys: every record passes `recordProblem` on both sides, and `me` records are sealed before they leave.
 - An agent's record leaves the machine only once its person approved it through MCP elicitation (`remember` in `packages/index/src/records.ts`).
 - A member who is not an admin writes only in their Me folder, their agents' memories in a repository's folder, and the run fields of a request their machine ran: `memberMay` in `packages/core/src/records.ts`, checked by the team store and before every local write.

@@ -2,7 +2,6 @@ export { type Migration, migrations } from "./migrations.ts";
 export type {
   Anchor,
   Approval,
-  AuditEntry,
   Client,
   Event,
   HistoryEntry,
@@ -20,7 +19,6 @@ export type {
 export * as schema from "./schema.ts";
 export type {
   ApprovalStore,
-  AuditStore,
   ClientStore,
   EventStore,
   FullRecord,

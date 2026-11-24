@@ -6,7 +6,6 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
     "./git": "./src/git.ts"
   },
   "dependencies": {}

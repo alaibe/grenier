@@ -1,4 +1,4 @@
-// Bundles the Worker into dist/server.js, which `grenier team deploy` uploads.
+// Bundles the Worker into dist/server.js, which the app's deploy uploads.
 import { build } from "esbuild";
 
 await build({

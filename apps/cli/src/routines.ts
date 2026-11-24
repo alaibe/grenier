@@ -1,21 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute } from "node:path";
 import {
   type Config,
   ConfigError,
+  hasPrompt,
+  nextDue,
   parseConfig,
-  pickVersion,
   ROUTINE_MODES,
   type RoutineMode,
-  type RoutineVersion,
   routineHash,
-  versionsOf,
 } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import { newId, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import type { Reply, Route } from "./host.ts";
 import { CommandError, writeAtomically } from "./io.ts";
+import { LIBRARIAN } from "./librarian.ts";
 import type { Runner } from "./runner.ts";
 import { withTomlValue } from "./team.ts";
 
@@ -58,8 +57,8 @@ export interface RoutineView {
   agent: string;
   collector: boolean;
   tools: string[];
-  versions: RoutineVersion[];
-  evals: number;
+  /** What a run does: the routine's text. */
+  prompt: string;
   /** How this machine's person approved it: its mode, and whether it changed since. */
   approval: { mode: RoutineMode; limit: number; current: boolean } | null;
 }
@@ -82,8 +81,7 @@ export async function routineViews(store: Store): Promise<RoutineView[]> {
       agent: String(routine.fields.agent ?? "claude"),
       collector: routine.fields.collector === "yes",
       tools: Array.isArray(routine.fields.tools) ? routine.fields.tools.map(String) : [],
-      versions: versionsOf(routine),
-      evals: Array.isArray(routine.fields.evals) ? routine.fields.evals.length : 0,
+      prompt: routine.body,
       approval: approval
         ? {
             mode: (approval.settings.mode as RoutineMode) ?? "read-only",
@@ -99,6 +97,8 @@ export async function routineViews(store: Store): Promise<RoutineView[]> {
 /** Approves a routine as it is now, on this machine, in a mode. */
 export async function approve(store: Store, routine: FullRecord, mode: RoutineMode, limit = 10): Promise<void> {
   if (!ROUTINE_MODES.includes(mode)) throw new CommandError(`a mode is one of ${ROUTINE_MODES.join(", ")}`);
+  if (!hasPrompt(routine))
+    throw new CommandError("the routine says nothing to do yet: an admin gives it its text first");
   const before = await store.approvals.get(routine.id, "routine");
   await store.approvals.put({
     recordId: routine.id,
@@ -111,84 +111,73 @@ export async function approve(store: Store, routine: FullRecord, mode: RoutineMo
   });
 }
 
-/** Scores per version, from the eval runs the team store kept: the mean of the scored ones. */
-export function scores(runs: { version: number; kind: string; score: number | null }[]): Map<number, number> {
-  const sums = new Map<number, { total: number; count: number }>();
-  for (const run of runs) {
-    if (run.kind !== "eval" || run.score === null) continue;
-    const sum = sums.get(run.version) ?? { total: 0, count: 0 };
-    sums.set(run.version, { total: sum.total + run.score, count: sum.count + 1 });
-  }
-  return new Map([...sums].map(([version, sum]) => [version, sum.total / sum.count]));
-}
-
-/** Puts a version in production only once it scored at least as well on the evals, or when none is in production. */
-export async function promote(
-  deps: StoreDeps,
-  routine: FullRecord,
-  version: number,
-  runs: { version: number; kind: string; score: number | null }[],
-): Promise<RoutineVersion[]> {
-  const versions = versionsOf(routine);
-  const next = versions.find((entry) => entry.version === version);
-  if (!next) throw new CommandError(`${routine.title} has no version ${version}`);
-  const current = versions.find((entry) => entry.status === "production");
-  if (current && current.version !== version) {
-    const scored = scores(runs);
-    const mine = scored.get(version);
-    if (mine === undefined) throw new CommandError(`run version ${version}'s evals first`);
-    const theirs = scored.get(current.version) ?? 0;
-    if (mine < theirs) {
-      throw new CommandError(
-        `version ${version} scores ${mine.toFixed(2)}, below version ${current.version}'s ${theirs.toFixed(2)}`,
-      );
-    }
-  }
-  const updated = versions.map((entry) =>
-    entry.version === version
-      ? { ...entry, status: "production" as const }
-      : entry.status === "production"
-        ? { ...entry, status: "retired" as const }
-        : entry,
+/** Adds the built-in routine that looks through the store each day and suggests fixes, once. */
+export async function addLibrarian(deps: StoreDeps): Promise<{ id: string; added: boolean }> {
+  const tops = (await deps.store.tops.list()).map((top) => top.id);
+  const existing = (await deps.store.records.list({ tops, type: "Routine" })).find(
+    (record) => record.fields.builtin === LIBRARIAN,
   );
-  const { seq: _seq, hits: _hits, ...rest } = routine;
-  await write(deps, { ...rest, fields: { ...rest.fields, versions: updated }, updatedAt: Date.now() }, routine);
-  return updated;
+  if (existing) return { id: existing.id, added: false };
+  const added = await addRoutine(deps, {
+    title: "Librarian",
+    prompt:
+      "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned requests, and suggests fixes.",
+    fields: { trigger: "schedule", schedule: "daily 05:00", builtin: LIBRARIAN },
+    repo: null,
+    top: "team",
+  });
+  return { id: added.id, added: true };
 }
 
-/** A routine from a Markdown file: its front matter sets the fields, its text is the prompt. */
-export function parseRoutine(text: string): { title: string; prompt: string; fields: Record<string, unknown> } {
-  const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text.replace(/\r\n?/g, "\n"));
-  if (!match) throw new CommandError("a routine file starts with front matter between --- lines, then its prompt");
-  const front = new Map<string, string>();
-  for (const line of (match[1] as string).split("\n")) {
-    const pair = /^(\w+):\s*(.*)$/.exec(line.trim());
-    if (pair) front.set(pair[1] as string, (pair[2] as string).replace(/^["']|["']$/g, ""));
+/** A routine as the app's form gives it: what it does, when, with which tools and agent, in which repository. */
+export function routineFromForm(input: Record<string, unknown>): {
+  title: string;
+  prompt: string;
+  fields: Record<string, unknown>;
+  repo: string | null;
+} {
+  const title = String(input.title ?? "").trim();
+  const prompt = String(input.prompt ?? "").trim();
+  if (!title || !prompt) throw new CommandError("a routine needs a name and what it does");
+  const trigger = input.trigger === "schedule" ? "schedule" : "request";
+  const schedule = String(input.schedule ?? "").trim();
+  if (trigger === "schedule" && nextDue(schedule, Date.now()) === null) {
+    throw new CommandError('a schedule reads "hourly", "daily 05:00", "weekdays 09:00" or "mon 09:00"');
   }
-  const title = front.get("title");
-  if (!title) throw new CommandError("a routine needs a title in its front matter");
-  const prompt = (match[2] as string).trim();
-  if (!prompt) throw new CommandError("a routine needs a prompt after its front matter");
-  const list = (value: string | undefined) =>
-    (value ?? "")
-      .replace(/^\[|\]$/g, "")
-      .split(",")
-      .map((item) => item.trim().replace(/^["']|["']$/g, ""))
-      .filter(Boolean);
+  const tools = (Array.isArray(input.tools) ? input.tools : String(input.tools ?? "").split(","))
+    .map((tool) => String(tool).trim())
+    .filter(Boolean);
+  const repo = typeof input.repo === "string" && input.repo ? input.repo : null;
   return {
     title,
     prompt,
+    repo,
     fields: {
-      trigger: front.get("trigger") ?? "request",
-      ...(front.get("schedule") ? { schedule: front.get("schedule") } : {}),
-      ...(front.get("tools") ? { tools: list(front.get("tools")) } : {}),
-      ...(front.get("agent") ? { agent: front.get("agent") } : {}),
-      ...(front.get("collector") ? { collector: front.get("collector") === "yes" ? "yes" : "no" } : {}),
+      trigger,
+      ...(trigger === "schedule" ? { schedule } : {}),
+      ...(tools.length > 0 ? { tools } : {}),
+      ...(input.agent === "codex" ? { agent: "codex" } : {}),
+      ...(input.collector === true ? { collector: "yes" } : {}),
     },
   };
 }
 
-/** Writes a new routine, or a new testing version of the one with the same title. */
+/** The fields a routine keeps, from the form: what the form leaves out goes, but a built-in stays built in. */
+function routineFields(
+  deps: StoreDeps,
+  input: { fields: Record<string, unknown>; repo: string | null },
+  before?: FullRecord,
+): Record<string, unknown> {
+  const owner = before?.fields.collector === "yes" ? before.fields.owner : deps.me.member;
+  return {
+    ...input.fields,
+    ...(input.repo ? { repo: input.repo } : {}),
+    ...(input.fields.collector === "yes" ? { owner } : {}),
+    ...(before?.fields.builtin ? { builtin: before.fields.builtin } : {}),
+  };
+}
+
+/** Writes a new routine; its text is what each run does. */
 export async function addRoutine(
   deps: StoreDeps,
   input: {
@@ -199,33 +188,14 @@ export async function addRoutine(
     top: string;
     folder?: string;
   },
-): Promise<{ id: string; version: number }> {
+): Promise<{ id: string }> {
   const tops = (await deps.store.tops.list()).map((top) => top.id);
-  const existing = (await deps.store.records.list({ tops, type: "Routine" })).find(
+  const taken = (await deps.store.records.list({ tops, type: "Routine" })).some(
     (record) => record.title.toLowerCase() === input.title.toLowerCase(),
   );
-  const now = Date.now();
-  if (existing) {
-    const versions = versionsOf(existing);
-    const version = Math.max(0, ...versions.map((entry) => entry.version)) + 1;
-    const { seq: _seq, hits: _hits, ...rest } = existing;
-    await write(
-      deps,
-      {
-        ...rest,
-        fields: {
-          ...rest.fields,
-          ...input.fields,
-          ...(input.repo ? { repo: input.repo } : {}),
-          versions: [...versions, { version, prompt: input.prompt, status: "testing" }],
-        },
-        updatedAt: now,
-      },
-      existing,
-    );
-    return { id: existing.id, version };
-  }
+  if (taken) throw new CommandError(`there is a routine named ${input.title} already: edit it`);
   const id = newId();
+  const now = Date.now();
   await write(deps, {
     id,
     top: input.top,
@@ -233,13 +203,8 @@ export async function addRoutine(
     kind: null,
     title: input.title,
     folder: input.folder ?? "",
-    body: "",
-    fields: {
-      ...(input.fields.collector === "yes" ? { owner: deps.me.member } : {}),
-      ...input.fields,
-      ...(input.repo ? { repo: input.repo } : {}),
-      versions: [{ version: 1, prompt: input.prompt, status: "production" }],
-    },
+    body: input.prompt,
+    fields: routineFields(deps, input),
     author: deps.me.member,
     device: deps.me.device,
     sessionId: null,
@@ -250,7 +215,27 @@ export async function addRoutine(
     anchors: [],
     links: [],
   });
-  return { id, version: 1 };
+  return { id };
+}
+
+/** Changes a routine in place: a run going on keeps what it started with, and the next one takes the change. */
+export async function editRoutine(
+  deps: StoreDeps,
+  routine: FullRecord,
+  input: { title: string; prompt: string; fields: Record<string, unknown>; repo: string | null },
+): Promise<void> {
+  const { seq: _seq, hits: _hits, ...rest } = routine;
+  await write(
+    deps,
+    {
+      ...rest,
+      title: input.title,
+      body: input.prompt,
+      fields: routineFields(deps, input, routine),
+      updatedAt: Date.now(),
+    },
+    routine,
+  );
 }
 
 /** The admin API's pages for this machine's rules and the team's routines on it. */
@@ -265,22 +250,6 @@ export function routineRoutes(deps: {
   config: () => Config;
 }): Route {
   const { store, runner } = deps;
-  const teamRuns = async (routine?: string) => {
-    const team = deps.team();
-    if (!team) return [];
-    return (
-      await teamApi<{
-        runs: {
-          id: string;
-          version: number;
-          kind: string;
-          score: number | null;
-          task_id: string | null;
-          routine_id: string;
-        }[];
-      }>(team, `/api/runs${routine ? `?routine=${encodeURIComponent(routine)}` : ""}`).catch(() => ({ runs: [] }))
-    ).runs;
-  };
   const started = (work: Promise<unknown>) => {
     work.catch(() => undefined);
     return ok({ started: true }, 202);
@@ -311,44 +280,35 @@ export function routineRoutes(deps: {
     if (path === "/routines" && method === "GET") return ok({ routines: await routineViews(store) });
     if (path === "/runs" && method === "GET") return ok({ runs: await store.runs.list({ limit: 50 }) });
 
-    const thumbs = /^\/runs\/([^/]+)\/thumbs$/.exec(path);
-    if (thumbs && method === "POST") {
-      const team = deps.team();
-      if (!team) return no(409, "this machine is in no team");
-      const id = decodeURIComponent(thumbs[1] as string);
-      const up = input.up === true;
-      await teamApi(team, `/api/runs/${encodeURIComponent(id)}/thumbs`, { body: { up } });
-      const run = (await teamRuns()).find((entry) => entry.id === id);
-      const task = run?.task_id ? await store.records.get(run.task_id) : undefined;
-      const routine = run ? await store.records.get(run.routine_id) : undefined;
-      if (task && routine) {
-        const result = String(task.fields.result ?? "").slice(0, 600);
-        const evals = Array.isArray(routine.fields.evals) ? routine.fields.evals : [];
-        const { seq: _seq, hits: _hits, ...rest } = routine;
-        await write(
-          await deps.storeDeps(),
-          {
-            ...rest,
-            fields: {
-              ...rest.fields,
-              evals: [
-                ...evals,
-                {
-                  input: `${task.title}\n\n${task.body}`.trim(),
-                  expect: up ? `A result as good as this one: ${result}` : `Not like this result: ${result}`,
-                  judge: "person",
-                },
-              ],
-            },
-            updatedAt: Date.now(),
-          },
-          routine,
-        );
+    if (path === "/routines" && method === "POST") {
+      try {
+        const routine = routineFromForm(input);
+        const added = await addRoutine(await deps.storeDeps(), { ...routine, top: "team" });
+        return ok(added);
+      } catch (error) {
+        return no(409, (error as Error).message);
       }
-      return ok({ thumbs: up, addedToEvals: Boolean(task && routine) });
+    }
+    if (path === "/routines/librarian" && method === "POST") {
+      try {
+        return ok(await addLibrarian(await deps.storeDeps()));
+      } catch (error) {
+        return no(409, (error as Error).message);
+      }
+    }
+    const edit = /^\/routines\/([^/]+)$/.exec(path);
+    if (edit && method === "PUT") {
+      const routine = await store.records.get(decodeURIComponent(edit[1] as string));
+      if (routine?.type !== "Routine" || routine.retiredAt !== null) return no(404, "no such routine");
+      try {
+        await editRoutine(await deps.storeDeps(), routine, routineFromForm(input));
+        return ok({ id: routine.id });
+      } catch (error) {
+        return no(409, (error as Error).message);
+      }
     }
 
-    const match = /^\/routines\/([^/]+)\/(approve|run|eval|promote)$/.exec(path);
+    const match = /^\/routines\/([^/]+)\/(approve|run)$/.exec(path);
     if (!match) return null;
     const routine = await store.records.get(decodeURIComponent(match[1] as string));
     if (routine?.type !== "Routine" || routine.retiredAt !== null) return no(404, "no such routine");
@@ -357,7 +317,6 @@ export function routineRoutes(deps: {
       approval && approval.hash === (await routineHash(routine))
         ? ((approval.settings.mode as RoutineMode) ?? "read-only")
         : "read-only";
-    const versionOf = () => pickVersion(routine, typeof input.version === "number" ? input.version : undefined);
     try {
       switch (`${method} ${match[2]}`) {
         case "POST approve":
@@ -368,47 +327,11 @@ export function routineRoutes(deps: {
           await store.approvals.remove(routine.id, "routine");
           return ok({ removed: routine.id });
         case "POST run": {
-          const version = versionOf();
-          if (!version) return no(409, "the routine has no such version");
-          if (runner.inRun) return no(409, "a run is going on this machine already");
+          if (!hasPrompt(routine)) return no(409, "the routine says nothing to do yet");
+          if (runner.running) return no(409, "a run is going on this machine already");
           const prompt =
             typeof input.task === "string" && input.task.trim() ? input.task.trim() : "Run now, as your prompt says.";
-          const checkout =
-            typeof input.checkout === "string" && isAbsolute(input.checkout) ? input.checkout : undefined;
-          return started(
-            runner.run({
-              routine,
-              version,
-              prompt,
-              trigger: checkout ? "github" : "manual",
-              mode,
-              ...(checkout ? { checkout } : {}),
-            }),
-          );
-        }
-        case "POST eval": {
-          const version = versionOf();
-          if (!version) return no(409, "the routine has no such version");
-          if (runner.inRun) return no(409, "a run is going on this machine already");
-          return started(
-            runner
-              .evaluate(routine, version, mode)
-              .then((result) =>
-                store.state.set(
-                  `eval:${routine.id}:${version.version}`,
-                  JSON.stringify({ score: result.score, at: Date.now() }),
-                ),
-              ),
-          );
-        }
-        case "POST promote": {
-          const versions = await promote(
-            await deps.storeDeps(),
-            routine,
-            Number(input.version),
-            await teamRuns(routine.id),
-          );
-          return ok({ versions });
+          return started(runner.run({ routine, prompt, trigger: "manual", mode }));
         }
       }
     } catch (error) {

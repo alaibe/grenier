@@ -3,8 +3,17 @@ import { type Config, joinCode, repoTop, sha256 } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import { type StoreDeps, type TeamClient, TeamError, teamApi } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
-import { fetchSkill, searchSkills } from "./catalog.ts";
-import { autoInstall, install, rollback, type Shared, share, sharedList, uninstall } from "./installs.ts";
+import { fetchSkill, searchServers, searchSkills } from "./catalog.ts";
+import {
+  install,
+  rollback,
+  type Shared,
+  serverToShare,
+  share,
+  sharedList,
+  skillFromFiles,
+  uninstall,
+} from "./installs.ts";
 import { deviceName, ensureBaseTops, ensurePersonalKey } from "./runtime.ts";
 import { newTeamToken, parseInvite, saveTeam } from "./team.ts";
 
@@ -125,6 +134,57 @@ export function installs(
         return no(502, (error as Error).message);
       }
     }
+    if (path.startsWith("/installs/registry?") && method === "GET") {
+      const words = new URLSearchParams(path.slice(path.indexOf("?"))).get("q") ?? "";
+      try {
+        return ok({ servers: await searchServers(words, catalog.fetch) });
+      } catch (error) {
+        return no(502, (error as Error).message);
+      }
+    }
+    if (path === "/installs/server" && method === "POST") {
+      const input = (body ?? {}) as { title?: unknown; description?: unknown; config?: unknown; credentials?: unknown };
+      const title = String(input.title ?? "").trim();
+      if (!/^[\w.-]{1,60}$/.test(title)) return no(400, "a server's name takes letters, digits, . _ and -");
+      try {
+        const fields = serverToShare(input);
+        const shared = await share(await catalog.deps(), {
+          type: "McpServer",
+          title,
+          body: String(input.description ?? "").trim(),
+          fields,
+        });
+        return ok({ ...shared, title });
+      } catch (error) {
+        return no(409, (error as Error).message);
+      }
+    }
+    if (path === "/installs/skill" && method === "POST") {
+      const input = (body ?? {}) as { name?: unknown; description?: unknown; instructions?: unknown };
+      const name = String(input.name ?? "").trim();
+      const description = String(input.description ?? "")
+        .trim()
+        .replace(/\s+/g, " ");
+      const instructions = String(input.instructions ?? "").trim();
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name))
+        return no(400, "a skill's name takes lowercase letters, digits and -");
+      if (!description || !instructions) return no(400, "a skill needs a description and its instructions");
+      try {
+        const skill = skillFromFiles(
+          { "SKILL.md": `---\nname: ${name}\ndescription: ${description}\n---\n${instructions}\n` },
+          name,
+        );
+        const shared = await share(await catalog.deps(), {
+          type: "Skill",
+          title: skill.name,
+          body: "",
+          fields: { files: skill.files },
+        });
+        return ok({ ...shared, title: skill.name });
+      } catch (error) {
+        return no(409, (error as Error).message);
+      }
+    }
     if (path === "/installs/share" && method === "POST") {
       const { source, name } = (body ?? {}) as { source?: unknown; name?: unknown };
       if (typeof source !== "string" || typeof name !== "string") return no(400, "share takes a source and a name");
@@ -141,14 +201,7 @@ export function installs(
         return no(409, (error as Error).message);
       }
     }
-    if (path === "/installs" && method === "GET") {
-      return ok({ shared: await sharedList(store), auto: (await store.state.get("auto_install")) === "on" });
-    }
-    if (path === "/installs/auto" && method === "PUT") {
-      const on = (body as { on?: unknown } | undefined)?.on === true;
-      await store.state.set("auto_install", on ? "on" : "off");
-      return ok({ auto: on, done: on ? await autoInstall(store, home) : [] });
-    }
+    if (path === "/installs" && method === "GET") return ok({ shared: await sharedList(store) });
     const match = /^\/installs\/([^/?]+)(\/rollback)?$/.exec(path);
     if (!match) return null;
     const record = await store.records.get(decodeURIComponent(match[1] as string));
@@ -157,7 +210,14 @@ export function installs(
     }
     try {
       if (match[2] && method === "POST") return ok(await rollback(store, home, record as FullRecord));
-      if (method === "POST") return ok(await install(store, home, record as FullRecord));
+      if (method === "POST") {
+        const given = (body as { keys?: unknown } | undefined)?.keys;
+        const keys =
+          given && typeof given === "object"
+            ? Object.fromEntries(Object.entries(given).map(([name, value]) => [name, String(value)]))
+            : {};
+        return ok(await install(store, home, record as FullRecord, { keys }));
+      }
       if (method === "DELETE")
         return ok({ removed: await uninstall(store, { id: record.id, type: record.type as Shared }) });
     } catch (error) {

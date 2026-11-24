@@ -114,7 +114,8 @@ describe("the MCP server", () => {
       arguments: {
         type: "Routine",
         title: "Update dependencies",
-        fields: { versions: [{ version: 1, prompt: "Update.", status: "production" }], trigger: "request" },
+        body: "Update.",
+        fields: { trigger: "request" },
         top: "team",
       },
     });

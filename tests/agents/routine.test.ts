@@ -1,14 +1,19 @@
 // Run by hand with `pnpm test:agents`: the proxy must cut a read-only run off at the stand-in model's edit.
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { repoId } from "@grenier/connectors/git";
+import { ensureRepoTop } from "@grenier/index";
+import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { addRoutine, routineFromForm } from "../../apps/cli/src/routines.ts";
 import { freePort, messageStream } from "../support/anthropic.ts";
+import { startDaemon } from "../support/daemon.ts";
+import { storeDeps } from "../support/repo.ts";
 
 const BINARY = fileURLToPath(new URL("../../apps/cli/dist/grenier.js", import.meta.url));
 const claude = (() => {
@@ -22,6 +27,7 @@ const claude = (() => {
 let dir: string;
 let repo: string;
 let upstream: Server;
+let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
 let port: number;
 const offered: string[][] = [];
 
@@ -51,16 +57,6 @@ async function admin<T>(path: string, body?: unknown): Promise<T> {
   });
   expect(response.status, path).toBeLessThan(300);
   return (await response.json()) as T;
-}
-
-async function grenier(...args: string[]) {
-  try {
-    const { stdout, stderr } = await promisify(execFile)(BINARY, args, { cwd: repo, env: env(), timeout: 120_000 });
-    return { code: 0, stdout, stderr };
-  } catch (error) {
-    const failed = error as { code: number; stdout: string; stderr: string };
-    return { code: failed.code, stdout: failed.stdout, stderr: failed.stderr };
-  }
 }
 
 describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
@@ -119,7 +115,7 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
     port = await freePort();
-    await grenier("status");
+    mkdirSync(join(dir, ".grenier"), { recursive: true });
     writeFileSync(
       join(dir, ".grenier", "config.toml"),
       [
@@ -128,20 +124,23 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
         `[machine]\nroutines = true\nidle_minutes = 0\nplugged_in = false\ncpu_max = 1\nmemory_max = 1`,
       ].join("\n\n"),
     );
-    expect((await grenier("start")).code).toBe(0);
+    daemon = await startDaemon(BINARY, env(), dir);
   });
 
   afterAll(async () => {
-    await grenier("stop");
+    await daemon?.stop();
     await new Promise((resolve) => upstream?.close(resolve));
     rmSync(dir, { recursive: true, force: true });
   });
 
   it("offers the agent read tools only, and cuts the run off at an edit", async () => {
-    writeFileSync(join(dir, "tidy.md"), "---\ntitle: Tidy\ntrigger: request\ntools: Edit\n---\nTidy app.ts.\n");
-    const added = await grenier("routines", "add", join(dir, "tidy.md"), "--repo", repo, "--folder", "Me");
-    const id = /\(([0-9a-f]+)\)/.exec(added.stdout)?.[1] as string;
-    expect(id, added.stdout + added.stderr).toBeTruthy();
+    // Written as the app's New routine form writes it, in Me since this machine has no team.
+    const store = openSqliteStore(join(dir, ".grenier", "grenier.db"));
+    const repoIdentity = (await repoId(repo)) as string;
+    await ensureRepoTop(store, { root: repo, id: repoIdentity });
+    const form = routineFromForm({ title: "Tidy", prompt: "Tidy app.ts.", tools: "Edit", repo: repoIdentity });
+    const { id } = await addRoutine(await storeDeps(store), { ...form, top: "me" });
+    await store.close();
     await admin(`/routines/${id}/approve`, { mode: "read-only" });
 
     const started = Date.now();

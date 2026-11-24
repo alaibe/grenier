@@ -143,8 +143,8 @@ async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
   return changes;
 }
 
-/** What this Grenier needs the team store to speak: 2 added folders, 3 named top folders. */
-export const TEAM_PROTOCOL = 3;
+/** What this Grenier needs the team store to speak: 2 added folders, 3 named top folders, 4 one text per routine. */
+export const TEAM_PROTOCOL = 4;
 
 /** Pushes this machine's changes, then pulls the store's since the last round; offline, it throws and loses nothing. */
 export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
@@ -156,7 +156,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   await store.state.set("team_protocol", String(me.protocol ?? 1));
   if ((me.protocol ?? 1) < TEAM_PROTOCOL) {
     throw new TeamError(
-      "the team store is older than this Grenier: deploy it again (grenier team deploy), and sync waits until then",
+      "the team store is older than this Grenier: update it on the app's Team screen, and sync waits until then",
       426,
       "the team store is older than this Grenier",
     );
@@ -179,14 +179,14 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
       const local = await store.records.get(applied.recordId);
       if (local && local.version < applied.version) await store.records.setVersion(applied.recordId, applied.version);
     }
-    await store.outbox.remove(answer.applied.map((applied) => applied.id));
+    // This machine checks the same rules before every write: what the team store still refuses is dropped.
+    await store.outbox.remove([...answer.applied, ...answer.refused].map((change) => change.id));
     for (const refused of answer.refused) {
-      await store.outbox.refuse(refused.id, refused.reason);
       const entry = entries.find((candidate) => candidate.id === refused.id);
       result.refused.push({ recordId: entry?.recordId ?? refused.id, reason: refused.reason });
     }
     result.pushed += answer.applied.length;
-    if (answer.applied.length === 0) break;
+    if (answer.applied.length + answer.refused.length === 0) break;
   }
 
   let cursor = Number((await store.state.get("team_cursor")) ?? 0);

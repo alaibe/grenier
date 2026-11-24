@@ -61,7 +61,7 @@ async function signIn() {
     token = body.token;
     localStorage.setItem("grenier-token", token);
   }
-  if (!token) return show(el("p", { text: "Sign in with a link from your machine: grenier team web" }));
+  if (!token) return show(el("p", { text: "Sign in with the Web link on the Team screen of your Grenier app" }));
   try { me = await api("/api/me"); } catch (error) { localStorage.removeItem("grenier-token"); return show(el("p", { text: error.message })); }
   const views = { Store: store, Requests: requests, Routines: routines, Team: team, ...(me.role === "admin" ? { Usage: usage } : {}) };
   nav.replaceChildren(...Object.entries(views).map(([name, view]) => el("button", { text: name, onclick: (event) => { for (const b of nav.children) b.removeAttribute("aria-current"); event.target.setAttribute("aria-current", "page"); view(); } })));
@@ -119,7 +119,7 @@ async function routines() {
   const [{ records }, { runs }] = await Promise.all([api("/api/records?type=Routine"), api("/api/runs")]);
   show(...records.map((r) => el("div", { class: "card" }, el("h3", { text: r.title }),
     el("div", { class: "muted", text: (r.fields.trigger || "request") + (r.fields.repo ? " · " + r.fields.repo : "") }),
-    el("table", {}, el("tbody", {}, ...runs.filter((run) => run.routine_id === r.id).slice(0, 10).map((run) => el("tr", {}, el("td", { text: run.machine }), el("td", { text: run.status }), el("td", { text: "v" + run.version }), el("td", { class: "n", text: "$" + Number(run.cost).toFixed(2) }), el("td", { text: new Date(run.started_at).toLocaleString() })))))))
+    el("table", {}, el("tbody", {}, ...runs.filter((run) => run.routine_id === r.id).slice(0, 10).map((run) => el("tr", {}, el("td", { text: run.machine }), el("td", { text: run.status }), el("td", { class: "n", text: "$" + Number(run.cost).toFixed(2) }), el("td", { text: new Date(run.started_at).toLocaleString() })))))))
     , ...(records.length ? [] : [el("p", { class: "muted", text: "No routine yet." })]));
 }
 async function team() {

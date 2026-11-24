@@ -1,7 +1,6 @@
 import type {
   Anchor,
   Approval,
-  AuditEntry,
   Client,
   Event,
   HistoryEntry,
@@ -31,7 +30,6 @@ export interface Store {
   approvals: ApprovalStore;
   runs: RunStore;
   clients: ClientStore;
-  audit: AuditStore;
 }
 
 export interface SessionStore {
@@ -126,13 +124,11 @@ export interface HistoryStore {
 }
 
 export interface OutboxStore {
-  add(entry: Omit<OutboxEntry, "seq" | "refused">): Promise<void>;
-  /** The oldest first, without those the team store refused, and without `me` ones when `withoutMe`. */
+  add(entry: Omit<OutboxEntry, "seq">): Promise<void>;
+  /** The oldest first, without `me` ones when `withoutMe`. */
   pending(limit: number, withoutMe?: boolean): Promise<OutboxEntry[]>;
-  /** Every entry still here, refused ones included. */
   list(): Promise<OutboxEntry[]>;
   remove(ids: readonly string[]): Promise<void>;
-  refuse(id: string, reason: string): Promise<void>;
 }
 
 export interface ApprovalStore {
@@ -156,15 +152,4 @@ export interface ClientStore {
   list(): Promise<Client[]>;
   /** False when no such active client; the revoked one is renamed `<name>~<time>` so its name can be reused. */
   revoke(name: string, at: number): Promise<boolean>;
-}
-
-export interface AuditStore {
-  add(entry: {
-    ts: number;
-    clientId: string;
-    tool: string;
-    args: Record<string, unknown>;
-    recordIds: string[];
-  }): Promise<void>;
-  list(filter?: { clientId?: string; since?: number; limit?: number }): Promise<AuditEntry[]>;
 }

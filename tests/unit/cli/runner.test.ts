@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Config, defaultConfig, pickVersion } from "@grenier/core";
+import { type Config, defaultConfig } from "@grenier/core";
 import { ensureRepoTop, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
@@ -230,8 +230,7 @@ describe("a machine that takes the team's routine runs", () => {
 
     seen.length = 0;
     const record = (await store.records.get(routine.id)) as FullRecord;
-    const version = pickVersion(record) as NonNullable<ReturnType<typeof pickVersion>>;
-    await runner.run({ routine: record, version, trigger: "manual", mode: "limited" });
+    await runner.run({ routine: record, trigger: "manual", mode: "limited" });
     expect(seen).toEqual([false, false, false]);
   });
 
@@ -244,8 +243,7 @@ describe("a machine that takes the team's routine runs", () => {
       top: "team",
     });
     const record = (await store.records.get(routine.id)) as FullRecord;
-    const version = pickVersion(record) as NonNullable<ReturnType<typeof pickVersion>>;
-    await newRunner().run({ routine: record, version, trigger: "manual", mode: "read-only" });
+    await newRunner().run({ routine: record, trigger: "manual", mode: "read-only" });
     expect((await store.runs.list({ routineId: routine.id }))[0]?.status).toBe("failed");
   });
 

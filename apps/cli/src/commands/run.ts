@@ -3,7 +3,6 @@ import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
 import { repoId, repoRoot } from "@grenier/connectors/git";
 import { ASK_FIRST } from "@grenier/gateway";
-import { version } from "../../package.json";
 import { startDaemon } from "../daemon.ts";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
 
@@ -51,11 +50,6 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
 
   const { paths, config } = environment(io);
   const daemon = await dependencies.startDaemon(io);
-  if (daemon.version && daemon.version !== version) {
-    io.err(
-      `grenier: the daemon runs ${daemon.version}, this command is ${version}; to update it: grenier stop && grenier start`,
-    );
-  }
 
   const id = newSessionId();
   const root = await repoRoot(io.cwd);

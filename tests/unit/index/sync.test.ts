@@ -173,7 +173,7 @@ describe("sync between machines", () => {
       }) as typeof fetch,
     };
     await expect(syncOnce({ store: laptop, team: older, embedder: null, personalKey: KEY })).rejects.toThrow(
-      "deploy it again",
+      "update it on the app's Team screen",
     );
     expect(await laptop.outbox.list()).toHaveLength(1);
     expect(await laptop.state.get("team_protocol")).toBe("1");
@@ -199,7 +199,7 @@ describe("sync between machines", () => {
     expect(await stored.text()).not.toContain("dentist");
   });
 
-  it("keeps a change the team store refuses here, with why, and sends the others", async () => {
+  it("drops a change the team store refuses, says why, and sends the others", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
     await laptop.tops.put({ id: "top:gone", name: "gone", kind: "custom", repoId: null, root: null });
     await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
@@ -208,6 +208,6 @@ describe("sync between machines", () => {
     const result = await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
     expect(result.pushed).toBe(1);
     expect(result.refused[0]?.reason).toContain("no top folder top:gone");
-    expect((await laptop.outbox.list())[0]?.refused).toContain("no top");
+    expect(await laptop.outbox.list()).toEqual([]);
   });
 });

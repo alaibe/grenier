@@ -140,7 +140,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           ...(place ? { top: place.top, folder: place.folder } : {}),
           ...(input.limit ? { limit: input.limit } : {}),
         });
-        return deliver(store, client, "recall", { query: input.query }, result);
+        return deliver(store, result);
       }),
   );
 
@@ -176,7 +176,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           ...(input.linked_to ? { linkedTo: input.linked_to } : {}),
           ...(input.limit ? { limit: input.limit } : {}),
         });
-        return deliver(store, client, "query", { ...input }, result);
+        return deliver(store, result);
       }),
   );
 

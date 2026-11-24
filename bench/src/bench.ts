@@ -104,16 +104,43 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
     }),
   );
 
-  type Row = { key: string } & RunUsage;
-  // What the app's Dashboard reads: the daemon's sessions of the last 7 days.
-  const sessionRows = async (): Promise<Row[]> => {
+  /** The daemon's admin API, as the app calls it. */
+  const admin = async <T>(path: string, method = "GET"): Promise<T> => {
     const token = readFileSync(join(home, "admin-token"), "utf8").trim();
-    const response = await fetch(`http://127.0.0.1:${options.port}/admin/overview`, {
+    const response = await fetch(`http://127.0.0.1:${options.port}/admin${path}`, {
+      method,
       headers: { authorization: `Bearer ${token}` },
     });
-    if (!response.ok) throw new Error(`the daemon answered ${response.status}`);
-    return ((await response.json()) as { sessions: Row[] }).sessions;
+    if (!response.ok) throw new Error(`the daemon answered ${response.status} for ${path}`);
+    return (await response.json()) as T;
   };
+  type Row = { key: string } & RunUsage;
+  // What the app's Cost screen reads: the daemon's sessions of the last 7 days.
+  const sessionRows = async (): Promise<Row[]> => (await admin<{ sessions: Row[] }>("/overview")).sessions;
+  // A repository's records from an earlier bench would make its cold runs warm: they are retired first.
+  const forget = async (dir: string) => {
+    const roots = (await exec("git", ["-C", dir, "rev-list", "--max-parents=0", "HEAD"])).stdout
+      .split("\n")
+      .filter(Boolean)
+      .sort();
+    const top = encodeURIComponent(`repo:${roots[0]}`);
+    for (;;) {
+      const { records } = await admin<{ records: { id: string }[] }>(`/records?top=${top}`);
+      if (records.length === 0) return;
+      for (const record of records) await admin(`/records/${encodeURIComponent(record.id)}`, "DELETE");
+    }
+  };
+  const daemon = {
+    kill() {
+      try {
+        process.kill((JSON.parse(readFileSync(join(home, "daemon.json"), "utf8")) as { pid: number }).pid, "SIGTERM");
+      } catch {
+        // Not running.
+      }
+    },
+  };
+  // A run that does nothing starts the daemon, as an agent's first run would.
+  await grenier(["run", "--", node, "-e", ""], options.workDir);
   const ours = new Set<string>();
   let capped = false;
 
@@ -128,7 +155,7 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
       }
       await exec("git", ["-C", dir, "checkout", "--quiet", "--force", repo.commit]);
       await exec("git", ["-C", dir, "clean", "--quiet", "-fdx"]);
-      await grenier(["store", "clear", "--repo", dir], dir);
+      await forget(dir);
 
       // Each question runs cold then warm before the next, so a cap that is reached still leaves whole pairs.
       const runs: { question: string; cold: Run; warm: Run }[] = [];
@@ -182,7 +209,7 @@ export async function runBenchmark(options: BenchOptions): Promise<QuestionResul
       }
     }
   } finally {
-    await grenier(["stop"], options.workDir).catch(() => {});
+    daemon.kill();
   }
   return results;
 }

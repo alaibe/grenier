@@ -105,40 +105,7 @@ export function parseSince(value: string, now: number): number {
   throw new Error(`--since takes a duration such as 7d, 12h or 30m, or a date such as 2026-11-01, not "${value}"`);
 }
 
-export function totalOf(rows: readonly ReportRow[]): ReportRow {
-  return rows.reduce<ReportRow>(
-    (sum, row) => ({
-      key: "total",
-      requests: sum.requests + row.requests,
-      inputTokens: sum.inputTokens + row.inputTokens,
-      cacheWriteTokens: sum.cacheWriteTokens + row.cacheWriteTokens,
-      cacheReadTokens: sum.cacheReadTokens + row.cacheReadTokens,
-      outputTokens: sum.outputTokens + row.outputTokens,
-      cost: sum.cost + row.cost,
-      unpriced: sum.unpriced + row.unpriced,
-      saved: sum.saved + row.saved,
-    }),
-    {
-      key: "total",
-      requests: 0,
-      inputTokens: 0,
-      cacheWriteTokens: 0,
-      cacheReadTokens: 0,
-      outputTokens: 0,
-      cost: 0,
-      unpriced: 0,
-      saved: 0,
-    },
-  );
-}
-
 const spentAndCached = (row: ReportRow) => `$${row.cost.toFixed(2)} spent, $${row.saved.toFixed(2)} cached`;
-
-/** `session` is null for an agent not started by `grenier run`. */
-export function formatStatusLine(today: ReportRow, session: ReportRow | null): string {
-  const first = session ? `session ${spentAndCached(session)}` : "not started with grenier run";
-  return `grenier · ${first} · today ${spentAndCached(today)}`;
-}
 
 export function mostSpentFirst(rows: readonly ReportRow[]): ReportRow[] {
   return [...rows].sort((a, b) => b.cost - a.cost || a.key.localeCompare(b.key));

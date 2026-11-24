@@ -1,4 +1,4 @@
-// Local development only: `grenier team deploy` writes a real deployment's own configuration.
+// Local development only: a real deployment goes through Cloudflare's API from the app (apps/cli/src/deploy.ts).
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "grenier-team",

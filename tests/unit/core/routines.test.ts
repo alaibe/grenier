@@ -1,21 +1,11 @@
-import {
-  allowedTools,
-  isAction,
-  judgeByCode,
-  nextDue,
-  pickVersion,
-  READ_TOOLS,
-  readsByName,
-  routineHash,
-} from "@grenier/core";
+import { allowedTools, isAction, nextDue, READ_TOOLS, readsByName, routineHash } from "@grenier/core";
 import { describe, expect, it } from "vitest";
 
-const routine = (fields: Record<string, unknown>) => ({ title: "Update dependencies", fields });
-const versions = [
-  { version: 1, prompt: "Update.", status: "retired" },
-  { version: 2, prompt: "Update, then test.", status: "production" },
-  { version: 3, prompt: "Update, test, explain.", status: "testing" },
-];
+const routine = (fields: Record<string, unknown>, body = "Update, then test.") => ({
+  title: "Update dependencies",
+  body,
+  fields,
+});
 
 describe("what a routine's run may call", () => {
   it("reads only, until its machine lets it act", () => {
@@ -42,27 +32,13 @@ describe("what a routine's run may call", () => {
   });
 });
 
-describe("a routine's versions", () => {
-  it("runs the latest version in production, or the one asked for unless retired", () => {
-    expect(pickVersion(routine({ versions }))?.version).toBe(2);
-    expect(pickVersion(routine({ versions }), 3)?.version).toBe(3);
-    expect(pickVersion(routine({ versions }), 1)).toBeNull();
-    expect(pickVersion(routine({ versions: [] }))).toBeNull();
-  });
-
-  it("needs approving again when a prompt, a tool or the repo changes, not when its status does", async () => {
-    const approved = await routineHash(routine({ versions, tools: ["Edit"], repo: "r1" }));
-    const promoted = versions.map((entry) => ({ ...entry, status: "production" }));
-    expect(await routineHash(routine({ versions: promoted, tools: ["Edit"], repo: "r1" }))).toBe(approved);
-    expect(await routineHash(routine({ versions, tools: ["Edit", "Bash"], repo: "r1" }))).not.toBe(approved);
-    expect(await routineHash(routine({ versions, tools: ["Edit"], repo: "r2" }))).not.toBe(approved);
-    const edited = versions.map((entry) => (entry.version === 2 ? { ...entry, prompt: "Update everything." } : entry));
-    expect(await routineHash(routine({ versions: edited, tools: ["Edit"], repo: "r1" }))).not.toBe(approved);
-  });
-
-  it("scores a result by code when it holds what the case expects", () => {
-    expect(judgeByCode("Bumped hono to 4.12.", "hono to 4.12")).toBe(1);
-    expect(judgeByCode("Nothing to do.", "hono")).toBe(0);
+describe("approving a routine", () => {
+  it("is needed again when its text, a tool or the repo changes, not when its schedule does", async () => {
+    const approved = await routineHash(routine({ tools: ["Edit"], repo: "r1", trigger: "request" }));
+    expect(await routineHash(routine({ tools: ["Edit"], repo: "r1", trigger: "schedule" }))).toBe(approved);
+    expect(await routineHash(routine({ tools: ["Edit", "Bash"], repo: "r1" }))).not.toBe(approved);
+    expect(await routineHash(routine({ tools: ["Edit"], repo: "r2" }))).not.toBe(approved);
+    expect(await routineHash(routine({ tools: ["Edit"], repo: "r1" }, "Update everything."))).not.toBe(approved);
   });
 });
 

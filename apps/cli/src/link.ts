@@ -64,7 +64,7 @@ export class TeamLink {
         personalKey: personalKey(this.paths),
       });
       for (const refused of result.refused) {
-        this.log(`grenier: the team store refused a change to ${refused.recordId}: ${refused.reason}`);
+        this.log(`grenier: the team store refused a change to ${refused.recordId}, dropped: ${refused.reason}`);
       }
       if (this.#lastError) this.log("grenier: team sync works again");
       this.#lastError = "";

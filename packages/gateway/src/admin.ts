@@ -144,6 +144,7 @@ export function createAdmin(options: AdminOptions): Hono {
       waiting: team ? new Set((await store.outbox.list()).map((entry) => entry.recordId)).size : 0,
       team: team ? { url: team.url, lastSync: Number((await store.state.get("last_sync")) ?? 0) || null } : null,
       role: team ? ((await store.state.get("team_role")) ?? null) : null,
+      outdated: team ? Number((await store.state.get("team_protocol")) ?? TEAM_PROTOCOL) < TEAM_PROTOCOL : false,
       paused: (await store.sessions.paused()).length,
     });
   });
@@ -353,7 +354,7 @@ export function createAdmin(options: AdminOptions): Hono {
 
   app.all("/team/*", async (c) => {
     const team = host.team();
-    if (!team) return problem(409, "this machine is in no team: grenier team deploy, or open an invite link");
+    if (!team) return problem(409, "this machine is in no team: start or join one on the app's Team screen");
     const path = c.req.path.replace(/^.*?\/team\//, "/api/");
     const body = c.req.method === "GET" || c.req.method === "DELETE" ? undefined : await c.req.json().catch(() => ({}));
     const search = new URL(c.req.url).search;

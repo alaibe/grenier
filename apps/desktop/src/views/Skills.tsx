@@ -1,7 +1,7 @@
 import { type FormEvent, type ReactNode, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
-import { Button, Empty, Input, Loading, Notice, Page, Part, Table, useAction, useLoad } from "../ui.tsx";
+import { Button, Empty, Field, Input, Loading, Notice, Page, Part, Table, useAction, useLoad } from "../ui.tsx";
 
 interface SharedState {
   id: string;
@@ -9,13 +9,12 @@ interface SharedState {
   title: string;
   description: string;
   author: string;
-  recommended: boolean;
   state: "installed" | "update" | "available";
   credentials: string[];
   canRollBack: boolean;
 }
 
-const load = () => api<{ shared: SharedState[]; auto: boolean }>("/installs");
+const load = () => api<{ shared: SharedState[] }>("/installs");
 
 interface FoundSkill {
   id: string;
@@ -105,24 +104,32 @@ function FindSkills({ shared }: { shared: () => void }) {
 }
 
 /** The skills or MCP servers the team shares, and what this machine has of each. */
-function Shared({
-  type,
-  none,
-  go,
-  member,
-}: {
-  type: SharedState["type"];
-  none: ReactNode;
-  go: ViewProps["go"];
-  member: boolean;
-}) {
+function Shared({ type, none, go }: { type: SharedState["type"]; none: ReactNode; go: ViewProps["go"] }) {
   const { data, error, reload } = useLoad(load);
+  const [asking, setAsking] = useState<string | null>(null);
   const action = useAction(reload);
   const call = (key: string, path: string, method: string, done?: string) =>
     void action.run(key, async () => {
       await api(path, { method });
       return done ? { text: done } : undefined;
     });
+  const install = (entry: SharedState, keys?: Record<string, string>) =>
+    void action.run(`install:${entry.id}`, async () => {
+      try {
+        await api(`/installs/${entry.id}`, { body: keys ? { keys } : {} });
+      } catch (error) {
+        // A new key the update needs, or one never entered: ask for it here.
+        if (entry.credentials.length > 0 && /needs your/.test((error as Error).message)) setAsking(entry.id);
+        throw error;
+      }
+      setAsking(null);
+      return { text: `Installed ${entry.title}. Restart Claude Code to load it.` };
+    });
+  const submitKeys = (entry: SharedState) => (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    install(entry, Object.fromEntries(entry.credentials.map((name) => [name, String(form.get(name) ?? "")])));
+  };
   const rows = data?.shared.filter((entry) => entry.type === type) ?? [];
   return (
     <section className="mb-7">
@@ -152,59 +159,50 @@ function Shared({
                   >
                     {entry.title}
                   </button>
-                  {entry.recommended && (
-                    <span className="ml-2 rounded-[5px] border border-accent px-1.5 text-xs leading-5 text-accent">
-                      recommended
-                    </span>
-                  )}
                   {entry.description && <span className="block text-sm text-muted">{entry.description}</span>}
                   {entry.credentials.length > 0 && (
                     <span className="block text-sm text-muted">
-                      Reads {entry.credentials.join(", ")} from your environment.
+                      Needs your {entry.credentials.join(", ")}: you enter it when you install, and it goes only into
+                      your Claude Code config.
                     </span>
+                  )}
+                  {asking === entry.id && (
+                    <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={submitKeys(entry)}>
+                      {entry.credentials.map((name) => (
+                        <label key={name} className="flex flex-col gap-1 text-sm font-medium">
+                          {name}
+                          <input
+                            name={name}
+                            type="password"
+                            required
+                            autoComplete="off"
+                            className="h-8 w-56 rounded-md border border-line-strong bg-panel px-2.5"
+                          />
+                        </label>
+                      ))}
+                      <Button type="submit" disabled={action.busy !== null}>
+                        Install
+                      </Button>
+                      <Button quiet onClick={() => setAsking(null)}>
+                        Cancel
+                      </Button>
+                    </form>
                   )}
                 </td>
                 <td>{entry.author}</td>
                 <td>{STATE[entry.state]}</td>
                 <td>
                   <div className="flex justify-end gap-1.5">
-                    {entry.state !== "installed" && (
+                    {entry.state !== "installed" && asking !== entry.id && (
                       <Button
                         disabled={action.busy !== null}
                         onClick={() =>
-                          call(
-                            `install:${entry.id}`,
-                            `/installs/${entry.id}`,
-                            "POST",
-                            `Installed ${entry.title}. Restart Claude Code to load it.`,
-                          )
+                          entry.state === "available" && entry.credentials.length > 0
+                            ? setAsking(entry.id)
+                            : install(entry)
                         }
                       >
                         {entry.state === "update" ? "Approve the update" : "Install"}
-                      </Button>
-                    )}
-                    {!member && (
-                      <Button
-                        quiet
-                        disabled={action.busy !== null}
-                        title="A recommended one installs and updates by itself on the machines that allow it"
-                        onClick={() =>
-                          void action.run(`recommend:${entry.id}`, async () => {
-                            const record = await api<{ fields: Record<string, unknown>; version: number }>(
-                              `/records/${entry.id}`,
-                            );
-                            await api(`/records/${entry.id}`, {
-                              method: "PUT",
-                              body: {
-                                fields: { ...record.fields, recommended: entry.recommended ? "no" : "yes" },
-                                baseVersion: record.version,
-                              },
-                            });
-                            return undefined;
-                          })
-                        }
-                      >
-                        {entry.recommended ? "Stop recommending" : "Recommend"}
                       </Button>
                     )}
                     {entry.canRollBack && (
@@ -236,40 +234,281 @@ function Shared({
   );
 }
 
-/** Whether what an admin recommends installs and updates here without asking: skills and MCP servers alike. */
-function AutoInstall({ changed }: { changed: () => void }) {
-  const { data, reload } = useLoad(load);
-  const action = useAction(() => {
-    reload();
-    changed();
-  });
-  if (!data) return null;
+const textarea =
+  "min-h-32 w-full rounded-md border border-line-strong bg-panel px-2.5 py-2 font-mono text-md leading-relaxed";
+
+/** A form behind a button, as admins add a skill or a server: it closes once what it made is shared. */
+function Adding({ label, children }: { label: string; children: (done: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <Button quiet onClick={() => setOpen(true)}>
+        {label}
+      </Button>
+    );
+  }
   return (
     <section className="mb-7 rounded-xl border border-line bg-panel px-5 py-4">
-      <Notice message={action.message} />
-      <label className="flex cursor-pointer items-start gap-3">
-        <input
-          type="checkbox"
-          className="mt-1 accent-accent"
-          checked={data.auto}
-          disabled={action.busy !== null}
-          onChange={(event) => {
-            const on = event.currentTarget.checked;
-            void action.run("auto", async () => {
-              await api("/installs/auto", { method: "PUT", body: { on } });
-              return undefined;
-            });
-          }}
-        />
-        <span>
-          <span className="font-medium">Install recommended ones by themselves</span>
-          <span className="mt-0.5 block text-md text-muted">
-            The skills and MCP servers an admin recommends install and update on this machine without asking. Each
-            update can be rolled back.
-          </span>
-        </span>
-      </label>
+      {children(() => setOpen(false))}
     </section>
+  );
+}
+
+/** A skill written in the app: its SKILL.md, from a name, a one-line description and the instructions. */
+function NewSkill({ added }: { added: () => void }) {
+  const action = useAction(added);
+  return (
+    <Adding label="New skill">
+      {(done) => (
+        <form
+          className="grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            void action
+              .run("skill", async () => {
+                await api("/installs/skill", {
+                  body: {
+                    name: String(form.get("name") ?? ""),
+                    description: String(form.get("description") ?? ""),
+                    instructions: String(form.get("instructions") ?? ""),
+                  },
+                });
+                return { text: "Shared with the team. Each person installs it, or not." };
+              })
+              .then((ok) => ok && done());
+          }}
+        >
+          <Notice message={action.message} />
+          <Field>
+            Name, in lowercase with dashes
+            <Input name="name" placeholder="release-notes" required pattern="[a-z0-9][a-z0-9\-]*" />
+          </Field>
+          <Field>
+            When an agent should use it, in one line
+            <Input
+              name="description"
+              placeholder="Writes release notes from the pull requests merged since the last tag."
+              required
+            />
+          </Field>
+          <Field>
+            Instructions, in Markdown
+            <textarea name="instructions" className={textarea} required />
+          </Field>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={action.busy !== null}>
+              Share with the team
+            </Button>
+            <Button quiet onClick={done}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+    </Adding>
+  );
+}
+
+interface FoundServer {
+  name: string;
+  title: string;
+  description: string;
+  version: string;
+  config: Record<string, unknown>;
+  credentials: string[];
+  website: string | null;
+}
+
+const lines = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+/** "Authorization: Bearer {api_key}" lines into headers, and the {names} in them into the keys each person enters. */
+function templates(text: string): { values: Record<string, string>; names: string[] } {
+  const values: Record<string, string> = {};
+  for (const line of lines(text)) {
+    const at = line.indexOf(line.includes(":") ? ":" : "=");
+    if (at > 0) values[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+  }
+  const names = Object.values(values).flatMap((value) => [...value.matchAll(/\{(\w+)\}/g)].map((m) => m[1] as string));
+  return { values, names: [...new Set(names)] };
+}
+
+/** An MCP server added for the team: found in the MCP Registry, or written by hand. */
+function AddServer({ added }: { added: () => void }) {
+  const action = useAction(added);
+  const [words, setWords] = useState("");
+  const [found, setFound] = useState<FoundServer[] | null>(null);
+  const [by, setBy] = useState<"registry" | "hand">("registry");
+  const share = (body: Record<string, unknown>, done: () => void) =>
+    void action
+      .run(`share:${String(body.title)}`, async () => {
+        await api("/installs/server", { body });
+        return { text: `Shared ${String(body.title)}. Each person installs it, with their own keys.` };
+      })
+      .then((ok) => ok && done());
+  return (
+    <Adding label="Add a server">
+      {(done) => (
+        <div className="grid gap-3">
+          <Notice message={action.message} />
+          <fieldset className="inline-flex w-fit overflow-hidden rounded-md border border-line-strong text-sm">
+            <legend className="sr-only">How to add it</legend>
+            {(
+              [
+                ["registry", "From the MCP Registry"],
+                ["hand", "By hand"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={by === value}
+                className={`h-7 cursor-pointer px-2.5 ${by === value ? "bg-accent text-accent-fg" : "bg-panel hover:bg-hover"}`}
+                onClick={() => setBy(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
+          {by === "registry" ? (
+            <>
+              <form
+                className="flex gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void action.run("search", async () => {
+                    setFound(
+                      (await api<{ servers: FoundServer[] }>(`/installs/registry?q=${encodeURIComponent(words)}`))
+                        .servers,
+                    );
+                    return undefined;
+                  });
+                }}
+              >
+                <Input
+                  type="search"
+                  placeholder="Search registry.modelcontextprotocol.io: only these words are sent"
+                  value={words}
+                  onChange={(event) => setWords(event.currentTarget.value)}
+                />
+                <Button type="submit" disabled={action.busy !== null || !words.trim()}>
+                  Search
+                </Button>
+              </form>
+              {found?.length === 0 && <p className="text-sm text-muted">Nothing Grenier can add as it is.</p>}
+              {found && found.length > 0 && (
+                <ul className="divide-y divide-line">
+                  {found.map((server) => (
+                    <li key={server.name} className="flex items-start justify-between gap-3 py-2">
+                      <span className="min-w-0">
+                        <span className="font-medium">{server.title}</span>{" "}
+                        <span className="text-sm text-muted">
+                          {server.name} {server.version}
+                        </span>
+                        {server.description && <span className="block text-sm text-muted">{server.description}</span>}
+                        {server.credentials.length > 0 && (
+                          <span className="block text-sm text-muted">
+                            Each person enters {server.credentials.join(", ")}.
+                          </span>
+                        )}
+                        {server.config.command === "docker" && (
+                          <span className="block text-sm text-muted">
+                            Runs in Docker: each person needs it installed.
+                          </span>
+                        )}
+                      </span>
+                      <Button
+                        disabled={action.busy !== null}
+                        onClick={() =>
+                          share(
+                            {
+                              title: server.name.split("/").at(-1) ?? server.title,
+                              description: server.description,
+                              config: server.config,
+                              credentials: server.credentials,
+                            },
+                            done,
+                          )
+                        }
+                      >
+                        Add
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : (
+            <form
+              className="grid gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                const url = String(form.get("url") ?? "").trim();
+                const pairs = templates(String(form.get("pairs") ?? ""));
+                const command = lines(String(form.get("command") ?? "").replace(/ +/g, "\n"));
+                const plain = lines(String(form.get("keys") ?? "").replace(/,/g, "\n"));
+                share(
+                  {
+                    title: String(form.get("title") ?? ""),
+                    description: String(form.get("description") ?? ""),
+                    config: url
+                      ? { url, headers: pairs.values }
+                      : { command: command[0] ?? "", args: command.slice(1), env: pairs.values },
+                    credentials: [...new Set([...pairs.names, ...plain])],
+                  },
+                  done,
+                );
+              }}
+            >
+              <Field>
+                Name
+                <Input name="title" placeholder="sentry" required />
+              </Field>
+              <Field>
+                What it gives agents, in one line
+                <Input name="description" placeholder="Sentry's issues and events, read-only." />
+              </Field>
+              <Field>
+                Its URL, for a remote server
+                <Input name="url" type="url" placeholder="https://mcp.sentry.dev/mcp" />
+              </Field>
+              <Field>
+                Or the command that runs it, with a pinned version
+                <Input name="command" placeholder="npx -y @sentry/mcp-server@1.2.0" />
+              </Field>
+              <Field>
+                Headers (URL) or environment (command), one per line: {"{name}"} is a key each person enters
+                <textarea name="pairs" className={textarea} placeholder={"Authorization: Bearer {sentry_token}"} />
+              </Field>
+              <Field>
+                Other keys each person enters, as environment variables
+                <Input name="keys" placeholder="SENTRY_TOKEN, SENTRY_ORG" />
+              </Field>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={action.busy !== null}>
+                  Share with the team
+                </Button>
+                <Button quiet onClick={done}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          )}
+          {by === "registry" && (
+            <div>
+              <Button quiet onClick={done}>
+                Close
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </Adding>
   );
 }
 
@@ -279,25 +518,17 @@ export function Skills({ go, member }: ViewProps) {
   return (
     <Page
       title="Skills"
-      intro="What the team shares for its agents. Installing one approves it as it is now: a later change waits for your approval, unless an admin recommends it and you let recommended ones update by themselves."
+      intro="What the team shares for its agents. An admin adds a skill; you install it or not. Installing one approves it as it is now: a later change waits for your approval again."
     >
-      <AutoInstall changed={again} />
       <Shared
         key={round}
         type="Skill"
         go={go}
-        member={member}
         none={
-          member ? (
-            <p>No skill shared yet.</p>
-          ) : (
-            <>
-              <p>No skill shared yet. Share one of yours, or find one below:</p>
-              <code>grenier skills share &lt;folder&gt;</code>
-            </>
-          )
+          <p>{member ? "No skill shared yet." : "No skill shared yet. Write one, or find one on skills.sh below."}</p>
         }
       />
+      {!member && <NewSkill added={again} />}
       {!member && <FindSkills shared={again} />}
     </Page>
   );
@@ -305,24 +536,23 @@ export function Skills({ go, member }: ViewProps) {
 
 /** For the MCP screen: the servers the team shares, without their credentials. */
 export function Servers({ go, member }: Pick<ViewProps, "go" | "member">) {
+  const [round, setRound] = useState(0);
   return (
     <Part
       title="MCP servers"
-      intro="Tools for Claude Code, such as Sentry or Linear, that an admin shared from their own setup, without its keys. Install one to add it to your Claude Code, then set its keys in your environment. A change to it waits for your approval again."
+      intro="Tools for Claude Code, such as Sentry or Linear, that an admin adds for the team, without anyone's keys. Install one to add it to your Claude Code, with your own keys. A change to it waits for your approval again."
     >
+      {!member && (
+        <div className="mb-4">
+          <AddServer added={() => setRound((n) => n + 1)} />
+        </div>
+      )}
       <Shared
+        key={round}
         type="McpServer"
         go={go}
-        member={member}
         none={
-          member ? (
-            <p>No server shared yet.</p>
-          ) : (
-            <>
-              <p>No server shared yet. Share one from your Claude Code config by its name:</p>
-              <code>grenier mcp share &lt;name&gt;</code>
-            </>
-          )
+          <p>{member ? "No server shared yet." : "No server shared yet. Add one from the MCP Registry, or by hand."}</p>
         }
       />
     </Part>

@@ -5,7 +5,7 @@ import type { StoreDeps } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { fetchSkill, searchSkills } from "../../../apps/cli/src/catalog.ts";
+import { fetchSkill, searchServers, searchSkills } from "../../../apps/cli/src/catalog.ts";
 import { installs } from "../../../apps/cli/src/host.ts";
 import { storeDeps } from "../../support/repo.ts";
 
@@ -114,6 +114,179 @@ describe("sharing a found skill", () => {
     expect(record?.fields.files).toEqual({ "SKILL.md": REPO["skills/notes/SKILL.md"], "template.md": "## Changes\n" });
     expect((await route("GET", "/installs", undefined))?.body).toMatchObject({
       shared: [{ title: "release-notes", state: "available" }],
+    });
+  });
+});
+
+describe("searching the MCP Registry", () => {
+  const entry = (server: Record<string, unknown>) => ({ server: { version: "1.0.0", ...server }, _meta: {} });
+  const registry = (servers: unknown[]) => {
+    const asked: string[] = [];
+    const fetchImpl = (async (input: string | URL) => {
+      asked.push(String(input));
+      return Response.json({ servers });
+    }) as typeof fetch;
+    return { asked, fetchImpl };
+  };
+
+  it("sends only the words, and keeps the servers it can share as they are, pinned, with the keys each person enters", async () => {
+    const { asked, fetchImpl } = registry([
+      entry({
+        name: "app.linear/linear",
+        title: "Linear",
+        description: "Issues.",
+        remotes: [
+          {
+            type: "streamable-http",
+            url: "https://mcp.linear.app/mcp",
+            headers: [{ name: "Authorization", value: "Bearer {api_key}", isSecret: true }],
+          },
+        ],
+      }),
+      entry({
+        name: "io.github.acme/sentry",
+        version: "2.1.0",
+        packages: [
+          {
+            registryType: "npm",
+            identifier: "@sentry/mcp",
+            version: "2.1.0",
+            transport: { type: "stdio" },
+            environmentVariables: [
+              { name: "SENTRY_TOKEN", isSecret: true },
+              { name: "SENTRY_HOST", isRequired: true, default: "sentry.io" },
+            ],
+          },
+        ],
+      }),
+      entry({
+        name: "io.github.acme/files",
+        packages: [
+          {
+            registryType: "npm",
+            identifier: "files-mcp",
+            version: "1.0.0",
+            transport: { type: "stdio" },
+            packageArguments: [{ type: "positional", isRequired: true, valueHint: "dir" }],
+          },
+        ],
+      }),
+      entry({
+        name: "io.github.acme/postgres",
+        packages: [
+          {
+            registryType: "oci",
+            identifier: "ghcr.io/acme/postgres:0.1.3",
+            transport: { type: "stdio" },
+            runtimeArguments: [{ type: "named", name: "-v", value: "/:/host" }],
+            environmentVariables: [{ name: "DATABASE_URL", isRequired: true, isSecret: true }],
+          },
+        ],
+      }),
+      entry({
+        name: "io.github.acme/both",
+        packages: [
+          { registryType: "oci", identifier: "acme/both", version: "2.0.0", transport: { type: "stdio" } },
+          { registryType: "npm", identifier: "both-mcp", version: "2.0.0", transport: { type: "stdio" } },
+        ],
+      }),
+      entry({
+        name: "io.github.acme/unpinned",
+        packages: [{ registryType: "oci", identifier: "ghcr.io/acme/x:latest", transport: { type: "stdio" } }],
+      }),
+    ]);
+    const found = await searchServers("  issues ", fetchImpl);
+    expect(asked).toEqual([
+      "https://registry.modelcontextprotocol.io/v0/servers?search=issues&version=latest&limit=30",
+    ]);
+    expect(found.map(({ name, config, credentials }) => ({ name, config, credentials }))).toEqual([
+      {
+        name: "app.linear/linear",
+        config: { type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer {api_key}" } },
+        credentials: ["api_key"],
+      },
+      {
+        name: "io.github.acme/sentry",
+        config: { command: "npx", args: ["-y", "@sentry/mcp@2.1.0"], env: { SENTRY_HOST: "sentry.io" } },
+        credentials: ["SENTRY_TOKEN"],
+      },
+      {
+        name: "io.github.acme/postgres",
+        config: {
+          command: "docker",
+          args: ["run", "-i", "--rm", "-e", "DATABASE_URL", "ghcr.io/acme/postgres:0.1.3"],
+        },
+        credentials: ["DATABASE_URL"],
+      },
+      {
+        name: "io.github.acme/both",
+        config: { command: "npx", args: ["-y", "both-mcp@2.0.0"] },
+        credentials: [],
+      },
+    ]);
+  });
+});
+
+describe("adding to the team from the app", () => {
+  let store: Store;
+  let deps: StoreDeps;
+  let home: string;
+
+  beforeEach(async () => {
+    store = openSqliteStore(":memory:");
+    deps = await storeDeps(store);
+    home = mkdtempSync(join(tmpdir(), "grenier-catalog-"));
+    await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  });
+
+  afterEach(async () => {
+    await store.close();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("writes a skill from its name, description and instructions", async () => {
+    const route = installs(store, home, { deps: async () => deps });
+    const add = (body: Record<string, unknown>) => route("POST", "/installs/skill", body);
+    expect((await add({ name: "Release Notes", description: "x", instructions: "y" }))?.status).toBe(400);
+    expect(
+      await add({ name: "release-notes", description: "Writes notes.", instructions: "Read the log." }),
+    ).toMatchObject({
+      status: 200,
+      body: { title: "release-notes" },
+    });
+    const [skill] = await store.records.list({ tops: ["team"], type: "Skill" });
+    expect(skill?.fields.files).toEqual({
+      "SKILL.md": "---\nname: release-notes\ndescription: Writes notes.\n---\nRead the log.\n",
+    });
+  });
+
+  it("adds a server by hand, refusing one that already holds a key", async () => {
+    const route = installs(store, home, { deps: async () => deps });
+    const add = (body: Record<string, unknown>) => route("POST", "/installs/server", body);
+    expect((await add({ title: "leaky", config: { command: "srv", args: ["--token", "abc"] } }))?.status).toBe(409);
+    expect(
+      (
+        await add({
+          title: "leaky",
+          config: {
+            url: "https://x.test/mcp",
+            headers: { Authorization: "Bearer sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" },
+          },
+        })
+      )?.status,
+    ).toBe(409);
+    expect(
+      await add({
+        title: "linear",
+        description: "Issues.",
+        config: { url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer {api_key}" } },
+        credentials: ["api_key"],
+      }),
+    ).toMatchObject({ status: 200 });
+    const [server] = await store.records.list({ tops: ["team"], type: "McpServer" });
+    expect(server?.fields).toEqual({
+      config: { type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer {api_key}" } },
+      credentials: ["api_key"],
     });
   });
 });

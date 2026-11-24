@@ -50,7 +50,6 @@ describe("openSqliteStore", () => {
       expect.arrayContaining([
         "anchors",
         "approvals",
-        "audit",
         "clients",
         "events",
         "history",

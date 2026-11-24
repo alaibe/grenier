@@ -166,15 +166,13 @@ describe("tops, the outbox, history and approvals", () => {
     expect(await store.tops.get("top:x")).toBeUndefined();
   });
 
-  it("gives pending changes oldest first, without refused ones", async () => {
+  it("gives pending changes oldest first, and leaves `me` ones out when asked", async () => {
     await store.outbox.add({ id: "c1", recordId: "r1", change: {}, baseVersion: 0, createdAt: 1 });
     await store.outbox.add({ id: "c2", recordId: "r2", change: {}, baseVersion: 0, createdAt: 2 });
-    await store.outbox.refuse("c1", "no");
-    expect((await store.outbox.pending(10)).map((entry) => entry.id)).toEqual(["c2"]);
     const mine = { recordId: "r3", change: { record: { top: "me" } }, baseVersion: 0, createdAt: 3 };
     await store.outbox.add({ id: "c3", ...mine });
-    expect((await store.outbox.pending(10)).map((entry) => entry.id)).toEqual(["c2", "c3"]);
-    expect((await store.outbox.pending(10, true)).map((entry) => entry.id)).toEqual(["c2"]);
+    expect((await store.outbox.pending(10)).map((entry) => entry.id)).toEqual(["c1", "c2", "c3"]);
+    expect((await store.outbox.pending(10, true)).map((entry) => entry.id)).toEqual(["c1", "c2"]);
     await store.outbox.remove(["c2", "c3"]);
     expect((await store.outbox.list()).map((entry) => entry.id)).toEqual(["c1"]);
   });

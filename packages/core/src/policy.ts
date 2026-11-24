@@ -44,7 +44,6 @@ export class LoopDetector {
 
 export const MAX_SHARED_TEXT = 4000;
 export const MAX_CODE_LINES = 10;
-export const MAX_QUESTION = 2000;
 
 /** Null when an answer or summary is fine to share, else why: it may quote a short snippet, never a file. */
 export function unshareable(text: string): string | null {

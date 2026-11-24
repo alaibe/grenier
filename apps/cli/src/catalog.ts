@@ -1,4 +1,5 @@
 import { posix } from "node:path";
+import { secretIn } from "@grenier/core";
 import { MAX_SKILL_BYTES, MAX_SKILL_FILES, type SkillFiles, skillField, skillFromFiles } from "./installs.ts";
 import { CommandError } from "./io.ts";
 
@@ -79,4 +80,136 @@ export async function fetchSkill(source: string, name: string, fetchImpl: typeof
     return skillFromFiles(files, posix.basename(folder));
   }
   throw new CommandError(`${source} holds no skill named ${name}`);
+}
+
+const REGISTRY = "https://registry.modelcontextprotocol.io/v0/servers";
+
+/** A server the MCP Registry lists, as the team would share it: pinned, with the names of the keys each person enters. */
+export interface FoundServer {
+  name: string;
+  title: string;
+  description: string;
+  version: string;
+  config: Record<string, unknown>;
+  credentials: string[];
+  website: string | null;
+}
+
+interface RegistryInput {
+  name?: unknown;
+  value?: unknown;
+  default?: unknown;
+  isRequired?: unknown;
+  isSecret?: unknown;
+  type?: unknown;
+}
+
+const named = (value: unknown): value is string => typeof value === "string" && /^[\w-]{1,80}$/.test(value);
+const variable = (name: string) => name.replace(/-/g, "_");
+
+/** A remote entry: its URL and the headers, as templates naming what each person enters. */
+function remoteConfig(remote: Record<string, unknown>): Pick<FoundServer, "config" | "credentials"> | null {
+  const type = remote.type === "sse" ? "sse" : remote.type === "streamable-http" ? "http" : null;
+  if (!type || typeof remote.url !== "string" || !/^https:\/\/[^{}\s]+$/.test(remote.url)) return null;
+  const headers: Record<string, string> = {};
+  const credentials: string[] = [];
+  for (const header of (Array.isArray(remote.headers) ? remote.headers : []) as RegistryInput[]) {
+    if (!named(header.name)) return null;
+    const template = typeof header.value === "string" ? header.value : `{${variable(header.name)}}`;
+    const names = [...template.matchAll(/\{(\w+)\}/g)].map((match) => match[1] as string);
+    if (names.length === 0 && header.isRequired === true) return null;
+    headers[header.name] = template;
+    credentials.push(...names);
+  }
+  return {
+    config: { type, url: remote.url, ...(Object.keys(headers).length > 0 ? { headers } : {}) },
+    credentials: [...new Set(credentials)],
+  };
+}
+
+/** A Docker image pinned by its tag or digest, which the Registry puts in the identifier or gives apart as the version. */
+function pinnedImage(identifier: string, version: unknown): string | null {
+  const image = /[:@][^/]+$/.test(identifier)
+    ? identifier
+    : typeof version === "string"
+      ? `${identifier}:${version}`
+      : null;
+  if (!image || image.length > 300 || image.endsWith(":latest")) return null;
+  return /^[a-z0-9][\w.-]*(:\d+)?(\/[\w.-]+)*(:[\w.+-]{1,128}|@sha256:[0-9a-f]{64})$/.test(image) ? image : null;
+}
+
+/** An npm, PyPI or Docker package run over stdio, pinned to its version; null when it needs what only a person can say. */
+function packageConfig(pkg: Record<string, unknown>): Pick<FoundServer, "config" | "credentials"> | null {
+  const transport = (pkg.transport ?? {}) as { type?: unknown };
+  if (transport.type !== "stdio" || typeof pkg.identifier !== "string") return null;
+  const image = pkg.registryType === "oci" ? pinnedImage(pkg.identifier, pkg.version) : null;
+  const version = String(pkg.version ?? "");
+  if (!image && (!/^[@\w./-]{1,200}$/.test(pkg.identifier) || !/^[\w.+-]{1,50}$/.test(version))) return null;
+  const args: string[] = [];
+  for (const arg of (Array.isArray(pkg.packageArguments) ? pkg.packageArguments : []) as RegistryInput[]) {
+    const value = typeof arg.value === "string" ? arg.value : typeof arg.default === "string" ? arg.default : null;
+    if (value === null) {
+      if (arg.isRequired === true) return null;
+      continue;
+    }
+    if (arg.type === "named" && typeof arg.name === "string") args.push(arg.name, value);
+    else args.push(value);
+  }
+  const env: Record<string, string> = {};
+  const credentials: string[] = [];
+  for (const entry of (Array.isArray(pkg.environmentVariables) ? pkg.environmentVariables : []) as RegistryInput[]) {
+    if (!named(entry.name)) return null;
+    if (entry.isSecret === true || (entry.isRequired === true && typeof entry.default !== "string")) {
+      credentials.push(entry.name);
+    } else if (entry.isRequired === true && typeof entry.default === "string") env[entry.name] = entry.default;
+  }
+  // The image's own runtime arguments are left out: they could mount this machine's files into it.
+  const forwarded = [...Object.keys(env), ...credentials].flatMap((name) => ["-e", name]);
+  const run = image
+    ? { command: "docker", args: ["run", "-i", "--rm", ...forwarded, image, ...args] }
+    : pkg.registryType === "npm"
+      ? { command: "npx", args: ["-y", `${pkg.identifier}@${version}`, ...args] }
+      : pkg.registryType === "pypi"
+        ? { command: "uvx", args: [`${pkg.identifier}==${version}`, ...args] }
+        : null;
+  if (!run) return null;
+  return { config: { ...run, ...(Object.keys(env).length > 0 ? { env } : {}) }, credentials };
+}
+
+/** Servers the MCP Registry lists for the words, their latest version, that Grenier can share as they are. */
+export async function searchServers(words: string, fetchImpl: typeof fetch = fetch): Promise<FoundServer[]> {
+  const query = words.trim().slice(0, 200);
+  if (!query) return [];
+  const response = await fetchImpl(
+    `${REGISTRY}?${new URLSearchParams({ search: query, version: "latest", limit: "30" })}`,
+    {
+      headers: { accept: "application/json" },
+    },
+  );
+  if (!response.ok) throw new CommandError(`the MCP Registry answered ${response.status}`);
+  const answer = (await response.json().catch(() => ({}))) as { servers?: unknown };
+  const found: FoundServer[] = [];
+  for (const item of Array.isArray(answer.servers) ? answer.servers : []) {
+    const server = ((item ?? {}) as { server?: Record<string, unknown> }).server ?? {};
+    if (!named(String(server.name ?? "").replace(/[./]/g, "-")) || typeof server.version !== "string") continue;
+    const remotes = (Array.isArray(server.remotes) ? server.remotes : []) as Record<string, unknown>[];
+    const packages = (Array.isArray(server.packages) ? server.packages : []) as Record<string, unknown>[];
+    // Docker comes last: a person is likelier to have Node or uv than Docker running.
+    const ordered = [
+      ...packages.filter((pkg) => pkg.registryType !== "oci"),
+      ...packages.filter((pkg) => pkg.registryType === "oci"),
+    ];
+    const shape = [...remotes.map(remoteConfig), ...ordered.map(packageConfig)].find((entry) => entry !== null);
+    if (!shape) continue;
+    if (secretIn(JSON.stringify(shape.config))) continue;
+    found.push({
+      name: String(server.name),
+      title: typeof server.title === "string" ? server.title : (String(server.name).split("/").at(-1) ?? ""),
+      description: typeof server.description === "string" ? server.description.slice(0, 300) : "",
+      version: server.version,
+      ...shape,
+      website: typeof server.websiteUrl === "string" ? server.websiteUrl : null,
+    });
+  }
+  return found.slice(0, MAX_RESULTS);
 }

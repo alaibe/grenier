@@ -53,7 +53,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   if (response.status === 401) {
     connection = undefined;
     throw new ApiError(
-      "The daemon refused this app's admin token: another daemon, with another GRENIER_HOME, may be on its port. Run grenier doctor.",
+      "The daemon refused this app's admin token: another daemon, with another GRENIER_HOME, may be on its port.",
     );
   }
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
@@ -109,6 +109,8 @@ export interface Overview {
   team: { url: string; lastSync: number | null } | null;
   /** In a team, this machine's person's role: a member writes in me only, and their agents' answers. */
   role: "admin" | "member" | null;
+  /** The team store is older than this Grenier: sync waits until it is deployed again. */
+  outdated: boolean;
   /** Sessions the loop guard paused, waiting to be resumed. */
   paused: number;
 }
@@ -239,16 +241,11 @@ export interface Run {
   routine_id: string;
   task_id: string | null;
   machine: string;
-  version: number;
-  kind: "run" | "eval";
   status: string;
   started_at: number;
   ended_at: number | null;
   actions: number;
   cost: number;
-  landed: number | null;
-  score: number | null;
-  thumbs: number | null;
 }
 
 export interface Joining {

@@ -23,8 +23,11 @@ pnpm install && pnpm build && npm install --global ./apps/cli
 
 ## Run
 
+Open the app. On its MCP screen, add Grenier to Claude Code, Cursor or Codex: their agents recall and remember
+through it. On its Team screen, start a team in your own Cloudflare account, or join one from an invite link.
+
+To count what an agent costs, run it through Grenier:
+
 ```bash
-grenier mcp install claude-code     # recall and remember, for your agents
-grenier run -- claude               # an agent through the proxy
-grenier team deploy                 # optional: the team store, in your Cloudflare account
+grenier run -- claude
 ```

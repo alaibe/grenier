@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
 import { run } from "../../../apps/cli/src/cli.ts";
 import { agentArgs, asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
-import { daemonState, infoFile, stopDaemon } from "../../../apps/cli/src/daemon.ts";
+import { daemonState, infoFile } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
 let dir: string;
@@ -55,119 +55,48 @@ function db() {
 }
 
 describe("grenier --version and help", () => {
-  it("prints the version", async () => {
+  it("prints the version and the two commands", async () => {
     expect(await grenier("--version")).toEqual({ code: 0, out: version, err: "" });
     expect((await grenier("-v")).out).toBe(version);
+    const help = (await grenier("--help")).out;
+    expect(help).toContain("run -- <command>");
+    expect(help).toContain("mcp serve");
+    expect(help).not.toContain("daemon");
   });
 
-  it("exits with 2 on an unknown command, option or argument", async () => {
-    for (const argv of [["frobnicate"], ["--frobnicate"], ["status", "extra"], ["audit", "--since", "soon"]]) {
+  it("exits with 2 on an unknown command or argument", async () => {
+    for (const argv of [
+      ["frobnicate"],
+      ["--frobnicate"],
+      ["today", "extra"],
+      ["mcp", "install", "claude-code"],
+      ["status"],
+    ]) {
       const result = await grenier(...argv);
       expect(result.code).toBe(2);
       expect(result.err).toMatch(/^grenier: /);
+      expect(result.err).toContain("Usage: grenier <command>");
     }
-    expect((await grenier("frobnicate")).err).toContain("Usage: grenier <command>");
-  });
-
-  it("reports a path that is not a repository, without a stack trace", async () => {
-    const result = await grenier("ask", "--repo", dir, "Where is the proxy?");
-    expect(result).toMatchObject({ code: 1, err: `grenier: not inside a git repository: ${dir}` });
-  });
-
-  it("shows one command's help, however it is asked", async () => {
-    for (const argv of [
-      ["help", "mcp"],
-      ["mcp", "--help"],
-      ["mcp", "install", "-h"],
-      ["mcp", "help"],
-    ]) {
-      const result = await grenier(...argv);
-      expect(result.code).toBe(0);
-      expect(result.out).toMatch(/^ {2}mcp install /);
-      expect(result.out).toContain("mcp share <name>");
-      expect(result.out).not.toContain("team deploy");
-      expect(result.out).toMatch(/Every command: grenier --help$/);
-    }
-    expect((await grenier("help", "stop")).out).toMatch(/^ {2}start, stop /);
-    expect((await grenier("help")).out).toMatch(/^Usage: grenier <command>/);
-    const unknown = await grenier("help", "frobnicate");
-    expect(unknown.code).toBe(2);
-    expect(unknown.err).toContain('unknown command "frobnicate"');
   });
 });
 
-describe("grenier status", () => {
-  it("creates the home directory and the database on first run", async () => {
-    const result = await grenier("status");
-    expect(result.code).toBe(0);
+describe("the menu bar's grenier today", () => {
+  it("creates the home directory and the database on first run, and refuses a config it cannot read", async () => {
+    expect(await grenier("today")).toEqual({ code: 0, out: "Nothing spent yet", err: "" });
     expect(statSync(home).mode & 0o777).toBe(0o700);
     expect(existsSync(join(home, "grenier.db"))).toBe(true);
-    expect(existsSync(join(home, "config.toml"))).toBe(false);
-    expect(result.out.split("\n")).toEqual([
-      `grenier ${version}`,
-      `config    ${join(home, "config.toml")} (not found, using defaults)`,
-      `database  ${join(home, "grenier.db")} (schema 5)`,
-      "proxy     127.0.0.1:7788 → https://api.anthropic.com",
-      "daemon    stopped",
-    ]);
-  });
-
-  it("fails with the config error and exit code 1 on an invalid config", async () => {
-    await grenier("status");
     writeFileSync(join(home, "config.toml"), "[proxy]\nport = 0\n");
-    expect(await grenier("status")).toEqual({
+    expect(await grenier("today")).toEqual({
       code: 1,
       out: "",
       err: `grenier: Invalid config in ${join(home, "config.toml")}:\n  proxy.port: Too small: expected number to be >=1`,
     });
-  });
-});
-
-describe("the daemon's identity", () => {
-  it("is stopped without a record, or with one naming a dead pid or garbage", async () => {
-    await grenier("status");
-    expect(await daemonState(home)).toEqual({ state: "stopped" });
-    writeFileSync(infoFile(home), JSON.stringify({ pid: 2147483646, port: 7799, version: "0.0.0" }));
-    expect(await daemonState(home)).toEqual({ state: "stopped" });
-    writeFileSync(infoFile(home), "not json");
-    expect(await daemonState(home)).toEqual({ state: "stopped" });
-  });
-
-  it("never signals another program that reused the daemon's pid, and removes the stale record", async () => {
-    await grenier("status");
-    const stranger = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
-    try {
-      const pid = stranger.pid as number;
-      writeFileSync(infoFile(home), JSON.stringify({ pid, port: 7799, version: "0.0.0" }));
-      expect(await daemonState(home)).toEqual({ state: "stale", pid });
-      expect(await stopDaemon(io())).toEqual({ pid: null, stale: pid });
-      expect(stranger.exitCode).toBeNull();
-      expect(() => process.kill(pid, 0)).not.toThrow();
-      expect(existsSync(infoFile(home))).toBe(false);
-
-      writeFileSync(infoFile(home), JSON.stringify({ pid, port: 7799, version: "0.0.0" }));
-      const out: string[] = [];
-      await run(["status"], io(out));
-      expect(out.join("\n")).toContain(`daemon    stopped (its record names pid ${pid}, now another program's)`);
-    } finally {
-      stranger.kill();
-    }
-  });
-});
-
-describe("an unknown config section", () => {
-  it("is refused, so a typo does not pass silently", async () => {
-    await grenier("status");
     writeFileSync(join(home, "config.toml"), "[budgets]\ndaily = 10\n");
-    const result = await grenier("status");
-    expect(result.code).toBe(1);
-    expect(result.err).toContain('Unrecognized key: "budgets"');
+    expect((await grenier("today")).err).toContain('Unrecognized key: "budgets"');
   });
-});
 
-describe("grenier statusline", () => {
-  beforeEach(async () => {
-    await grenier("status");
+  it("shows today's spend per project", async () => {
+    await grenier("today");
     const store = db();
     const yesterday = Date.now() - 2 * 86_400_000;
     await store.sessions.create({ id: "s1", startedAt: yesterday });
@@ -176,32 +105,20 @@ describe("grenier statusline", () => {
     await store.usage.add({ sessionId: "s1", ts: Date.now(), model: "claude-opus-5-5", cost: 0.5 });
     await store.usage.add({ sessionId: "s2", ts: Date.now(), model: "claude-opus-5-5", cost: 0.25 });
     await store.close();
-  });
-
-  async function statusline(env: NodeJS.ProcessEnv, ...argv: string[]) {
-    const out: string[] = [];
-    const base = io(out);
-    const code = await run(["statusline", ...argv], { ...base, env: { ...base.env, ...env } });
-    return { code, out: out.join("\n") };
-  }
-
-  it("shows the session grenier run started, then today", async () => {
-    expect(await statusline({ GRENIER_SESSION: "s1" })).toEqual({
-      code: 0,
-      out: "grenier · session $4.50 spent, $0.00 cached · today $0.75 spent, $0.00 cached",
-    });
-  });
-
-  it("finds the session in the base URL when GRENIER_SESSION is not set", async () => {
-    expect((await statusline({ ANTHROPIC_BASE_URL: "http://127.0.0.1:7788/s/s2" })).out).toBe(
-      "grenier · session $0.25 spent, $0.00 cached · today $0.75 spent, $0.00 cached",
-    );
-  });
-
-  it("shows today per project with --today, whatever the session", async () => {
-    expect((await statusline({ GRENIER_SESSION: "s1" }, "--today")).out).toBe(
+    expect((await grenier("today")).out).toBe(
       "(not started with grenier run): $0.50 spent, $0.00 cached\napp: $0.25 spent, $0.00 cached",
     );
+  });
+});
+
+describe("the daemon's identity", () => {
+  it("is stopped without a record, or with one naming a dead pid or garbage", async () => {
+    await grenier("today");
+    expect(await daemonState(home)).toEqual({ state: "stopped" });
+    writeFileSync(infoFile(home), JSON.stringify({ pid: 2147483646, port: 7799, version: "0.0.0" }));
+    expect(await daemonState(home)).toEqual({ state: "stopped" });
+    writeFileSync(infoFile(home), "not json");
+    expect(await daemonState(home)).toEqual({ state: "stopped" });
   });
 });
 
@@ -270,17 +187,5 @@ describe("grenier run", () => {
     for (const own of ["--append-system-prompt", "--system-prompt-file=prompt.md", "--append-system-prompt-file"]) {
       expect(asksFirst("claude", [own, "x"], true)).toBe(false);
     }
-  });
-});
-
-describe("grenier key", () => {
-  it("makes the personal key once, and takes the same key from another machine", async () => {
-    const first = await grenier("key");
-    expect(first.out).toMatch(/^gv1_[\w-]{43}\n/);
-    const key = first.out.split("\n")[0] as string;
-    expect((await grenier("key")).out.split("\n")[0]).toBe(key);
-    expect((await grenier("key", "set", key)).code).toBe(0);
-    expect((await grenier("key", "set", "gv1_not-a-key")).code).toBe(1);
-    expect((await grenier("key", "set", `gv1_${"A".repeat(43)}`)).err).toContain("another personal key");
   });
 });

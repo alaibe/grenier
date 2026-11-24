@@ -1,11 +1,10 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -19,10 +18,6 @@ let port: number;
 
 function structured(result: unknown): Record<string, unknown> {
   return (result as { structuredContent: Record<string, unknown> }).structuredContent;
-}
-
-async function grenier(...args: string[]) {
-  return promisify(execFile)(BINARY, args, { cwd: repo, env: { PATH: process.env.PATH, GRENIER_HOME: home } });
 }
 
 beforeAll(async () => {
@@ -50,12 +45,11 @@ beforeAll(async () => {
   port = (free.address() as AddressInfo).port;
   await new Promise((resolve) => free.close(resolve));
 
-  await grenier("status");
+  mkdirSync(home, { recursive: true });
   writeFileSync(join(home, "config.toml"), `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n`);
 });
 
 afterAll(async () => {
-  await grenier("stop").catch(() => {});
   rmSync(dir, { recursive: true, force: true });
 });
 

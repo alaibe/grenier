@@ -33,19 +33,15 @@ describe("the built binary", () => {
     expect(grenier("--version").trim()).toBe(version);
   });
 
-  it("runs status on a fresh machine, creating the database", () => {
-    const out = grenier("status");
-    expect(out).toContain("(schema 5)");
-    expect(out).toContain("daemon    stopped");
+  it("answers the menu bar on a fresh machine, creating the database", () => {
+    expect(grenier("today").trim()).toBe("Nothing spent yet");
     expect(existsSync(join(dir, ".grenier", "grenier.db"))).toBe(true);
   });
 
   it("creates the database from several processes at once, as the app and its daemon do on a first launch", async () => {
     for (let round = 0; round < 20; round++) {
       const env = { PATH: process.env.PATH, GRENIER_HOME: join(dir, `concurrent-${round}`) };
-      const runs = await Promise.allSettled(
-        Array.from({ length: 4 }, () => execFileAsync(BINARY, ["status"], { env })),
-      );
+      const runs = await Promise.allSettled(Array.from({ length: 4 }, () => execFileAsync(BINARY, ["today"], { env })));
       expect(runs.flatMap((run) => (run.status === "rejected" ? [String(run.reason)] : []))).toEqual([]);
     }
   });

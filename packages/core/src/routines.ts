@@ -1,5 +1,5 @@
 import { sha256 } from "./policy.ts";
-import type { EvalCase, ROUTINE_MODES, RoutineVersion } from "./records.ts";
+import type { ROUTINE_MODES } from "./records.ts";
 
 export type RoutineMode = (typeof ROUTINE_MODES)[number];
 
@@ -39,31 +39,17 @@ export function isAction(tool: string): boolean {
 }
 
 export interface RoutineShape {
+  body: string;
   fields: Record<string, unknown>;
-}
-
-export function versionsOf(routine: RoutineShape): RoutineVersion[] {
-  return Array.isArray(routine.fields.versions) ? (routine.fields.versions as RoutineVersion[]) : [];
-}
-
-export function evalsOf(routine: RoutineShape): EvalCase[] {
-  return Array.isArray(routine.fields.evals) ? (routine.fields.evals as EvalCase[]) : [];
 }
 
 export function toolsOf(routine: RoutineShape): string[] {
   return Array.isArray(routine.fields.tools) ? routine.fields.tools.map(String) : [];
 }
 
-/** The version a run uses: the one asked for unless it is retired, else the latest in production. */
-export function pickVersion(routine: RoutineShape, asked?: number): RoutineVersion | null {
-  const versions = versionsOf(routine);
-  if (asked !== undefined) {
-    const named = versions.find((version) => version.version === asked);
-    return named && named.status !== "retired" ? named : null;
-  }
-  return (
-    [...versions].filter((version) => version.status === "production").sort((a, b) => b.version - a.version)[0] ?? null
-  );
+/** Whether the routine says what to do: the page's text is its prompt, which a run cannot do without. */
+export function hasPrompt(routine: RoutineShape): boolean {
+  return routine.body.trim() !== "";
 }
 
 /** What a machine's person approves: any change to these fields waits for their approval again. */
@@ -71,7 +57,7 @@ export async function routineHash(routine: RoutineShape): Promise<string> {
   const { fields } = routine;
   return sha256(
     JSON.stringify({
-      versions: versionsOf(routine).map((version) => [version.version, version.prompt]),
+      prompt: routine.body,
       tools: toolsOf(routine),
       repo: fields.repo ?? "",
       agent: fields.agent ?? "claude",
@@ -102,9 +88,4 @@ export function nextDue(schedule: string, after: number): number | null {
     return at;
   }
   return null;
-}
-
-/** How a code judge scores a result: 1 when it holds what the case expects, 0 otherwise. */
-export function judgeByCode(result: string, expected: string): number {
-  return result.toLowerCase().includes(expected.trim().toLowerCase()) ? 1 : 0;
 }

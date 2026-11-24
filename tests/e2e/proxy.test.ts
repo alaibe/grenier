@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { startDaemon } from "../support/daemon.ts";
 
 const BINARY = fileURLToPath(new URL("../../apps/cli/dist/grenier.js", import.meta.url));
 const STREAM = readFileSync(new URL("../fixtures/anthropic/stream-tool-use.sse", import.meta.url));
@@ -14,6 +15,7 @@ const STREAM = readFileSync(new URL("../fixtures/anthropic/stream-tool-use.sse",
 let dir: string;
 let upstream: Server;
 let proxyPort: number;
+let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
 const received: { url: string; apiKey: string | undefined }[] = [];
 
 async function freePort(): Promise<number> {
@@ -53,7 +55,7 @@ beforeAll(async () => {
   const upstreamPort = (upstream.address() as AddressInfo).port;
   proxyPort = await freePort();
 
-  await grenier("status");
+  mkdirSync(join(dir, ".grenier"), { recursive: true });
   writeFileSync(
     join(dir, ".grenier", "config.toml"),
     `[proxy]\nport = ${proxyPort}\nupstream_anthropic = "http://127.0.0.1:${upstreamPort}"\n`,
@@ -70,11 +72,11 @@ beforeAll(async () => {
     writeFileSync(process.argv[2] + ".status", String(response.status) + " " + (response.headers.get("x-should-retry") ?? ""));
     `,
   );
-  expect((await grenier("start")).stdout).toMatch(/^Daemon started \(pid \d+\)\.$/m);
+  daemon = await startDaemon(BINARY, { PATH: process.env.PATH, GRENIER_HOME: join(dir, ".grenier") }, dir);
 });
 
 afterAll(async () => {
-  await grenier("stop");
+  await daemon?.stop();
   await new Promise((resolve) => upstream.close(resolve));
   rmSync(dir, { recursive: true, force: true });
 });

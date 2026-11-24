@@ -6,12 +6,9 @@ import { promisify } from "node:util";
 import {
   allowedTools,
   type Config,
-  evalsOf,
+  hasPrompt,
   isAction,
-  judgeByCode,
-  pickVersion,
   type RoutineMode,
-  type RoutineVersion,
   repoTop,
   routineHash,
   toolsOf,
@@ -20,16 +17,6 @@ import type { RunGuard } from "@grenier/gateway";
 import { newId, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
 import type { FullRecord, Session, Store } from "@grenier/store";
 import { newSessionId } from "./commands/run.ts";
-import {
-  ensureRunner,
-  gitHub,
-  githubRepo,
-  jitConfig,
-  runJob,
-  runnerPlatform,
-  waitingJob,
-  writeHook,
-} from "./github.ts";
 import { LIBRARIAN, librarian } from "./librarian.ts";
 import { type Availability, availability, type Probes, systemProbes } from "./machine.ts";
 
@@ -45,15 +32,6 @@ export type Spawner = (
   options: { cwd: string; env: NodeJS.ProcessEnv; signal?: AbortSignal },
 ) => Promise<AgentResult>;
 
-/** What the runner needs to take GitHub jobs: the person's token, and how to start this program again. */
-export interface GitHubDeps {
-  /** Grenier's folder, where the runner binary is kept. */
-  home: string;
-  self: readonly string[];
-  token: () => Promise<string | null>;
-  fetch?: typeof fetch;
-}
-
 export interface RunnerDeps {
   store: Store;
   config: () => Config;
@@ -68,7 +46,6 @@ export interface RunnerDeps {
   notify?: (title: string, message: string) => void;
   probes?: Probes;
   spawner?: Spawner;
-  github?: GitHubDeps;
   now?: () => number;
 }
 
@@ -157,8 +134,6 @@ export class Runner {
   #last: Availability | null = null;
   #timer: ReturnType<typeof setInterval> | undefined;
   #lastClaim = 0;
-  #lastGitHub = 0;
-  #githubJob = false;
   readonly probes: Probes;
   readonly spawner: Spawner;
   readonly now: () => number;
@@ -180,11 +155,6 @@ export class Runner {
   }
 
   get running(): boolean {
-    return this.#current !== null || this.#githubJob;
-  }
-
-  /** Whether a routine's run is going; a GitHub job's runner alone leaves room for the run it asks for. */
-  get inRun(): boolean {
     return this.#current !== null;
   }
 
@@ -211,52 +181,6 @@ export class Runner {
     }
     if (now.state !== "available" || this.running) return;
     if (force || changed || this.now() - this.#lastClaim >= CLAIM_EVERY) await this.claim();
-    if (!this.running && this.deps.github && this.now() - this.#lastGitHub >= CLAIM_EVERY) await this.#gitHubJob();
-  }
-
-  /** Takes one queued GitHub job on a just-in-time runner for that job only, never for a public repository. */
-  async #gitHubJob(): Promise<void> {
-    const github = this.deps.github as GitHubDeps;
-    this.#lastGitHub = this.now();
-    const workflows = new Set((await this.deps.store.approvals.list("workflow")).map((approval) => approval.recordId));
-    if (workflows.size === 0) return;
-    const platform = runnerPlatform(process.platform, process.arch);
-    const token = platform ? await github.token() : null;
-    if (!platform || !token) return;
-    const api = gitHub(token, github.fetch);
-    for (const id of workflows) {
-      const routine = await this.deps.store.records.get(id);
-      const repoId = typeof routine?.fields.repo === "string" ? routine.fields.repo : "";
-      const root = repoId ? (await this.deps.store.tops.get(repoTop(repoId)))?.root : null;
-      if (!routine || routine.retiredAt !== null || !root) continue;
-      const approval = await this.deps.store.approvals.get(id, "routine");
-      if (!approval || approval.hash !== (await routineHash(routine))) continue;
-      try {
-        const remote = githubRepo(await git(root, ["remote", "get-url", "origin"]));
-        if (!remote || !(await waitingJob(api, remote.owner, remote.repo))) continue;
-        const dir = await ensureRunner(github.home, platform, github.fetch);
-        const { hook, bin } = writeHook(dir, github.self);
-        const name = `grenier-${(await this.deps.storeDeps()).me.device}-${newId().slice(0, 6)}`;
-        const config = await jitConfig(api, remote.owner, remote.repo, name);
-        this.#githubJob = true;
-        await this.tick();
-        this.deps.log(`grenier: took a GitHub job of ${routine.title} in ${remote.owner}/${remote.repo}`);
-        void runJob(
-          dir,
-          config,
-          { ...process.env, ACTIONS_RUNNER_HOOK_JOB_STARTED: hook, GRENIER_BIN: bin },
-          this.deps.log,
-        )
-          .then((code) => this.deps.log(`grenier: the GitHub job of ${routine.title} ended (${code})`))
-          .finally(() => {
-            this.#githubJob = false;
-            void this.tick();
-          });
-        return;
-      } catch (error) {
-        this.deps.log(`grenier: could not take a GitHub job of ${routine.title}: ${(error as Error).message}`);
-      }
-    }
   }
 
   async #repos(): Promise<string[]> {
@@ -298,12 +222,9 @@ export class Runner {
     if (routine.fields.builtin === LIBRARIAN && (await this.deps.store.state.get("team_role")) === "member") {
       return decline("the librarian writes suggestions for the team: an admin's machine runs it");
     }
-    const asked = typeof task.fields.version === "number" ? task.fields.version : undefined;
-    const version = pickVersion(routine, asked);
-    if (!version) return decline(asked ? `it has no version ${asked} to run` : "it has no version in production");
+    if (!hasPrompt(routine)) return decline("it says nothing to do yet");
     await this.run({
       routine,
-      version,
       task,
       trigger: "request",
       mode: (approval.settings.mode as RoutineMode) ?? "read-only",
@@ -344,20 +265,17 @@ export class Runner {
     };
   }
 
-  /** One run of a routine's version: for a task, by hand, or for an eval case. */
+  /** One run of a routine, as its text says now: for a task, or by hand. */
   async run(input: {
     routine: FullRecord;
-    version: RoutineVersion;
     task?: FullRecord;
-    /** For an eval: the case's input, in place of a task. */
+    /** By hand: what to do this time, in place of a task. */
     prompt?: string;
-    /** A checkout to run in, as a GitHub job's; otherwise a clean one is made from the repository here. */
-    checkout?: string;
-    trigger: "request" | "manual" | "eval" | "github";
+    trigger: "request" | "manual";
     mode: RoutineMode;
   }): Promise<RunOutcome> {
     if (this.#current) throw new Error("a run is going on this machine already");
-    const { routine, version, task, mode } = input;
+    const { routine, task, mode } = input;
     const store = this.deps.store;
     const config = this.deps.config();
     const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : config.machine.agent;
@@ -374,8 +292,6 @@ export class Runner {
               id: runId,
               routineId: routine.id,
               ...(task ? { taskId: task.id } : {}),
-              version: version.version,
-              kind: input.trigger === "eval" ? "eval" : "run",
               startedAt,
               ...fields,
             },
@@ -387,7 +303,6 @@ export class Runner {
       id: runId,
       routineId: routine.id,
       taskId: task?.id ?? null,
-      version: version.version,
       sessionId,
       trigger: input.trigger,
       status: "running",
@@ -396,7 +311,7 @@ export class Runner {
       actions: 0,
       result: null,
     });
-    if (repoId && !root && !input.checkout) {
+    if (repoId && !root) {
       return this.#finish(
         runId,
         { status: "failed", result: "the routine's repository is not on this machine", cost: 0, actions: 0 },
@@ -405,8 +320,7 @@ export class Runner {
       );
     }
     const folder = mkdtempSync(join(tmpdir(), "grenier-run-"));
-    const fresh = Boolean(root && !input.checkout);
-    const checkout = input.checkout ?? (root ? join(folder, basename(root)) : folder);
+    const checkout = root ? join(folder, basename(root)) : folder;
     const midnight = new Date(startedAt).setHours(0, 0, 0, 0);
     const usedToday = (await store.runs.list({ routineId: routine.id, since: midnight })).reduce(
       (total, run) => total + run.actions,
@@ -426,12 +340,12 @@ export class Runner {
     };
     let renew: ReturnType<typeof setInterval> | undefined;
     try {
-      if (fresh && root) await git(root, ["worktree", "add", "--detach", checkout, "HEAD"]);
+      if (root) await git(root, ["worktree", "add", "--detach", checkout, "HEAD"]);
       await store.sessions.create({
         id: sessionId,
         client: agent,
         cwd: checkout,
-        repoRoot: root || input.checkout ? checkout : null,
+        repoRoot: root ? checkout : null,
         repoId,
         startedAt,
         runId,
@@ -462,7 +376,7 @@ export class Runner {
         );
       }
       const prompt = [
-        version.prompt,
+        routine.body,
         input.prompt ?? (task ? `## The task\n\n${task.title}\n\n${task.body}`.trim() : ""),
         mode === "shadow"
           ? "Change nothing. End with the exact actions you would take, one per line, each with the tool and its input."
@@ -537,7 +451,7 @@ export class Runner {
       if (renew) clearInterval(renew);
       this.#current = null;
       await store.sessions.end(sessionId, this.now()).catch(() => undefined);
-      if (fresh && root) await git(root, ["worktree", "remove", "--force", checkout]).catch(() => undefined);
+      if (root) await git(root, ["worktree", "remove", "--force", checkout]).catch(() => undefined);
       rmSync(folder, { recursive: true, force: true });
       void this.tick();
     }
@@ -590,53 +504,6 @@ export class Runner {
       }
     }
     return { id: runId, ...outcome, result };
-  }
-
-  /** Scores a version on each eval case: by code here, by a model through a second short run, or by a person. */
-  async evaluate(
-    routine: FullRecord,
-    version: RoutineVersion,
-    mode: RoutineMode,
-  ): Promise<{ score: number | null; runs: RunOutcome[] }> {
-    const cases = evalsOf(routine);
-    if (cases.length === 0) throw new Error(`${routine.title} has no eval set yet`);
-    const runs: RunOutcome[] = [];
-    const scores: number[] = [];
-    for (const test of cases) {
-      const outcome = await this.run({ routine, version, prompt: test.input, trigger: "eval", mode });
-      let score: number | null = null;
-      if (outcome.status === "done" && test.judge === "code") score = judgeByCode(outcome.result, test.expect);
-      if (outcome.status === "done" && test.judge === "model") score = await this.#judge(outcome.result, test.expect);
-      if (outcome.status !== "done") score = 0;
-      if (score !== null) scores.push(score);
-      const team = this.deps.team();
-      if (team && score !== null) {
-        await teamApi(team, "/api/runs", {
-          body: {
-            id: outcome.id,
-            routineId: routine.id,
-            version: version.version,
-            kind: "eval",
-            status: outcome.status,
-            endedAt: this.now(),
-            actions: outcome.actions,
-            cost: outcome.cost,
-            score,
-          },
-        }).catch(() => undefined);
-      }
-      runs.push(outcome);
-    }
-    return { score: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null, runs };
-  }
-
-  async #judge(result: string, expected: string): Promise<number> {
-    const prompt = `Does this result do what is asked? Answer with one word, yes or no.\n\nAsked: ${expected}\n\nResult:\n${result.slice(0, 8000)}`;
-    const answer = await this.spawner("claude", ["-p", prompt, "--output-format", "json", "--allowedTools", ""], {
-      cwd: tmpdir(),
-      env: { ...process.env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${this.deps.port}` },
-    });
-    return /\byes\b/i.test(resultText(answer.text)) ? 1 : 0;
   }
 }
 

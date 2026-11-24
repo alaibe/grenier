@@ -3,16 +3,18 @@ import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createGateway } from "@grenier/gateway";
 import type { TeamClient } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { serve } from "@hono/node-server";
 import { version } from "../package.json";
+import { machineRoutes } from "./connect.ts";
+import { deployTeamStore } from "./deploy.ts";
 import { embedderLoader, gitFiles, repoResolver } from "./exploration.ts";
-import { ghToken } from "./github.ts";
 import { anchorDiffs, installs, joining, routes } from "./host.ts";
-import { autoInstall } from "./installs.ts";
+import { removeRetired } from "./installs.ts";
 import { CommandError, environment, type Io, writeAtomically } from "./io.ts";
 import { TeamLink } from "./link.ts";
 import { desktopNotifier } from "./notify.ts";
@@ -145,36 +147,58 @@ export async function runDaemon(io: Io): Promise<number> {
     },
     log: io.err,
     notify,
-    github: { home: paths.home, self: io.self, token: ghToken },
   });
   const linkTo = (client: TeamClient) => {
     const made = new TeamLink(client, store, config, paths, embedder, io.err);
     made.listeners.push((result) => {
-      autoInstall(store, home)
+      removeRetired(store)
         .then((done) => {
           for (const line of done) io.err(`grenier: ${line}`);
         })
-        .catch((error: Error) => io.err(`grenier: could not install the recommended skills: ${error.message}`));
+        .catch((error: Error) => io.err(`grenier: could not remove a retired skill or server: ${error.message}`));
       if (result.pulled > 0) void runner.tick(true);
     });
     return made;
   };
   link = team ? linkTo(team) : null;
+  const started = (joined: TeamClient) => {
+    team = joined;
+    link?.stop();
+    link = linkTo(joined);
+    link.start();
+    runner.start();
+  };
   const extra = routes(
-    joining({
-      paths,
-      config,
-      store,
-      joined: (joined) => {
-        team = joined;
-        link?.stop();
-        link = linkTo(joined);
-        link.start();
-        runner.start();
-      },
-    }),
+    joining({ paths, config, store, joined: started }),
+    async (method, path, body) => {
+      if (path !== "/deploy" || method !== "POST") return null;
+      const input = (body ?? {}) as { token?: unknown; name?: unknown; member?: unknown };
+      try {
+        const deployed = await deployTeamStore(
+          { paths, config, store, serverDir: fileURLToPath(new URL("./server/", import.meta.url)) },
+          {
+            token: String(input.token ?? ""),
+            name: String(input.name ?? "grenier-team"),
+            member: String(input.member ?? ""),
+          },
+        );
+        if (deployed.team) started(deployed.team);
+        return { status: 200, body: { url: deployed.url, created: deployed.team !== null } };
+      } catch (error) {
+        return { status: 409, body: { error: (error as Error).message } };
+      }
+    },
     anchorDiffs(store),
     installs(store, home, { deps: () => storeDeps(store, config, embedder) }),
+    machineRoutes(store, paths, { home, platform: process.platform, env: io.env, self: io.self }),
+    async (method, path) => {
+      if (path !== "/sync" || method !== "POST") return null;
+      if (!link) return { status: 409, body: { error: "this machine is in no team" } };
+      const result = await link.sync();
+      return result
+        ? { status: 200, body: result }
+        : { status: 502, body: { error: "the sync failed: the daemon's log says why" } };
+    },
     routineRoutes({
       store,
       paths,
@@ -272,7 +296,9 @@ export async function runDaemon(io: Io): Promise<number> {
 export async function startDaemon(io: Io): Promise<{ pid: number; port: number; version: string; started: boolean }> {
   const { paths } = environment(io);
   const current = await daemonState(paths.home);
-  if (current.state === "running") return { ...current, started: false };
+  if (current.state === "running" && current.version === version) return { ...current, started: false };
+  // One of another version, left running by an update, gives way: nothing else stops it now.
+  if (current.state === "running") await stopDaemon(io);
 
   const log = openSync(logFile(paths.home), "a", 0o600);
   const [command = process.execPath, ...args] = io.self;

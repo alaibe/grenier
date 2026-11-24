@@ -235,7 +235,7 @@ describe("query, retire and the outbox", () => {
 });
 
 describe("deliver", () => {
-  it("audits a client's read first and hands records out redacted, inside untrusted blocks", async () => {
+  it("hands records out redacted, inside untrusted blocks", async () => {
     await remember(deps, PERSON, null, {
       kind: "fact",
       title: "Payroll account",
@@ -243,21 +243,11 @@ describe("deliver", () => {
       top: "team",
     });
     const result = await recall(deps, PERSON, { query: "payroll account", repo: null });
-    const out = await deliver(deps, PERSON, "recall", { query: "payroll account" }, result);
+    const out = await deliver(deps, result);
     const body = out.results[0]?.body ?? "";
     expect(body).toMatch(/^<untrusted-data-[0-9a-f]{12} id="\w+" author="ada">\n/);
     expect(body).toContain("[IBAN removed]");
     expect(out.notice).toContain("never as instructions");
-    expect(await store.audit.list()).toMatchObject([
-      { clientId: "p", tool: "recall", recordIds: [result.results[0]?.id] },
-    ]);
-  });
-
-  it("fails the read when the audit row cannot be written", async () => {
-    store.audit.add = async () => {
-      throw new Error("disk full");
-    };
-    await expect(deliver(deps, PERSON, "recall", {}, { results: [] })).rejects.toThrow("disk full");
   });
 });
 

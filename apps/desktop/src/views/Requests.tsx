@@ -27,7 +27,7 @@ const loadTasks = () =>
   );
 const loadRuns = () =>
   api<{ runs: Run[] }>("/team/runs")
-    .then((answer) => answer.runs.filter((run) => run.kind === "run"))
+    .then((answer) => answer.runs)
     .catch(() => [] as Run[]);
 
 /** For Routines: asking a routine for work, and what came of it. */
@@ -62,12 +62,6 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
       return { text: "Filed. The first idle machine that allows this routine takes it." };
     });
   };
-
-  const thumbs = (run: Run, up: boolean) =>
-    void action.run(`thumbs:${run.id}`, async () => {
-      await api(`/runs/${encodeURIComponent(run.id)}/thumbs`, { body: { up } });
-      return undefined;
-    });
 
   if (routines.data?.length === 0) return null;
   return (
@@ -163,40 +157,17 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
                 <th>Started</th>
                 <th className="text-right tabular-nums">Actions</th>
                 <th className="text-right tabular-nums">API cost</th>
-                {!member && <th title="A yes or a no adds the run to the routine's eval set">Useful?</th>}
               </tr>
             </thead>
             <tbody>
               {runs.data.map((run) => (
                 <tr key={run.id}>
-                  <td>
-                    {routineTitle(run.routine_id)} <span className="text-sm text-muted">v{run.version}</span>
-                  </td>
+                  <td>{routineTitle(run.routine_id)}</td>
                   <td>{run.machine}</td>
                   <td>{run.status}</td>
                   <td className="whitespace-nowrap">{ago(run.started_at)}</td>
                   <td className="text-right tabular-nums">{run.actions}</td>
                   <td className="text-right tabular-nums">{money(run.cost)}</td>
-                  <td className={`whitespace-nowrap ${member ? "hidden" : ""}`}>
-                    <Button
-                      quiet
-                      aria-pressed={run.thumbs === 1}
-                      className={run.thumbs === 1 ? "mr-1 inset-ring inset-ring-accent" : "mr-1"}
-                      disabled={action.busy !== null}
-                      onClick={() => thumbs(run, true)}
-                    >
-                      Yes
-                    </Button>
-                    <Button
-                      quiet
-                      aria-pressed={run.thumbs === -1}
-                      className={run.thumbs === -1 ? "inset-ring inset-ring-accent" : ""}
-                      disabled={action.busy !== null}
-                      onClick={() => thumbs(run, false)}
-                    >
-                      No
-                    </Button>
-                  </td>
                 </tr>
               ))}
             </tbody>

@@ -31,19 +31,86 @@ export function Team({ changed }: ViewProps) {
   const overview = useLoad(loadOverview);
   if (overview.error) return <Notice message={overview.error} />;
   if (!overview.data) return <Loading what="the team" />;
-  if (!overview.data.team)
-    return (
-      <Join
-        joined={() => {
-          overview.reload();
-          changed();
-        }}
-      />
-    );
-  return <Members url={overview.data.team.url} lastSync={overview.data.team.lastSync} />;
+  const done = () => {
+    overview.reload();
+    changed();
+  };
+  if (!overview.data.team) return <Join joined={done} me={overview.data.me ?? ""} />;
+  return (
+    <>
+      {overview.data.outdated && (
+        <section className="mb-6 rounded-xl border border-problem bg-problem-soft px-5 py-4">
+          <p className="mb-3">
+            The team store is older than this Grenier, so sync waits. Whoever reaches its Cloudflare account updates it
+            here; the team's records stay.
+          </p>
+          <Deploy
+            name={new URL(overview.data.team.url).hostname.split(".")[0] ?? "grenier-team"}
+            me={overview.data.me ?? ""}
+            label="Update the team store"
+            done={done}
+          />
+        </section>
+      )}
+      <Members url={overview.data.team.url} lastSync={overview.data.team.lastSync} />
+    </>
+  );
 }
 
-function Join({ joined }: { joined: () => void }) {
+/** The team store put in a Cloudflare account, or updated there, with an API token used once and not kept. */
+function Deploy({ name, me, label, done }: { name: string; me: string; label: string; done: () => void }) {
+  const action = useAction(done);
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void action.run("deploy", async () => {
+          const made = await api<{ url: string; created: boolean }>("/deploy", {
+            body: {
+              token: String(form.get("token") ?? ""),
+              name: String(form.get("name") ?? name),
+              member: String(form.get("member") ?? me),
+            },
+          });
+          return {
+            text: made.created
+              ? `The team store is at ${made.url}, and you are its admin.`
+              : `The team store at ${made.url} is up to date.`,
+          };
+        });
+      }}
+    >
+      <Notice message={action.message} />
+      <p className="text-sm text-muted">
+        In Cloudflare, under My Profile › API Tokens, create a token from the template <b>Edit Cloudflare Workers</b>{" "}
+        for your account, and paste it here. Grenier uses it for this deploy only, and keeps nothing of it.
+      </p>
+      <Field>
+        Cloudflare API token
+        <Input name="token" type="password" autoComplete="off" required />
+      </Field>
+      <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
+        <Field>
+          Your name in the team
+          <Input name="member" defaultValue={me} required />
+        </Field>
+        <Field>
+          The store's name in Cloudflare
+          <Input name="name" defaultValue={name} required pattern="[a-z0-9\-]+" />
+        </Field>
+      </div>
+      <div>
+        <Button type="submit" disabled={action.busy !== null}>
+          {action.busy === "deploy" ? "Deploying…" : label}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function Join({ joined, me }: { joined: () => void; me: string }) {
   const [state, setState] = useState<Joining | null>(null);
   const action = useAction(() => {});
   useEffect(() => {
@@ -98,10 +165,13 @@ function Join({ joined }: { joined: () => void }) {
               Join
             </Button>
           </form>
-          <Empty>
-            <p>To start a team of your own, deploy its store to your Cloudflare account:</p>
-            <code>grenier team deploy</code>
-          </Empty>
+          <section className="rounded-xl border border-line bg-panel px-5 py-4">
+            <h2 className="mb-2 font-semibold">Or start a team</h2>
+            <p className="mb-3 text-sm text-muted">
+              Its store goes in your own Cloudflare account, and you become its admin.
+            </p>
+            <Deploy name="grenier-team" me={me} label="Create the team" done={joined} />
+          </section>
         </>
       )}
     </Page>
@@ -154,6 +224,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
       return undefined;
     });
 
+  const [web, setWeb] = useState<string | null>(null);
   return (
     <Page
       title="Team"
@@ -163,7 +234,42 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
           synced {ago(lastSync)}
         </>
       }
+      action={
+        <div className="flex gap-2">
+          <Button
+            quiet
+            disabled={action.busy !== null}
+            title="Sign a browser in to the team's web view, once, within 10 minutes"
+            onClick={() =>
+              void action.run("web", async () => {
+                setWeb(`${url}${(await api<{ path: string }>("/team/weblinks", { method: "POST" })).path}`);
+                return undefined;
+              })
+            }
+          >
+            Web link
+          </Button>
+          <Button
+            quiet
+            disabled={action.busy !== null}
+            onClick={() =>
+              void action.run("sync", async () => {
+                const done = await api<{ pushed: number; pulled: number }>("/sync", { method: "POST" });
+                return { text: `Synced: sent ${done.pushed}, took ${done.pulled}.` };
+              })
+            }
+          >
+            Sync now
+          </Button>
+        </div>
+      }
     >
+      {web && (
+        <p className="mb-5 text-sm">
+          Open it in a browser within 10 minutes; it signs that browser in once:
+          <code className="mt-1 block break-all whitespace-normal select-all">{web}</code>
+        </p>
+      )}
       <Notice message={members.error ?? me.error ?? action.message} />
       {invites.data?.some((entry) => entry.code) && (
         <section className="mb-6 rounded-xl border border-accent bg-accent-soft px-5 py-4" aria-label="Waiting to join">
@@ -260,7 +366,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
                 Send this link to {link.member}. It works once, for 24 hours; their machine then shows a code they read
                 to you, and you confirm it here.
               </p>
-              <code className="mt-2 block font-mono text-sm break-all select-all">{link.link}</code>
+              <code className="mt-2 block break-all whitespace-normal select-all">{link.link}</code>
             </div>
           )}
           <form className="flex items-end gap-2" onSubmit={invite}>
@@ -284,9 +390,69 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
         </section>
       )}
 
+      {admin && <Folders />}
       <Machines />
       {me.data && <Usage key={me.data.role} admin={admin} />}
     </Page>
+  );
+}
+
+/** The top folders only some members read, as admins make them. */
+function Folders() {
+  const tops = useLoad(
+    useCallback(
+      () =>
+        api<{ tops: { id: string; kind: string; name?: string; members: string[] | null }[] }>("/team/tops").then(
+          (answer) => answer.tops.filter((top) => top.kind === "custom"),
+        ),
+      [],
+    ),
+  );
+  const action = useAction(tops.reload);
+  return (
+    <section className="mb-7">
+      <h2 className="mb-2.5 font-semibold">Folders for some members</h2>
+      <Notice message={tops.error ?? action.message} />
+      {tops.data && tops.data.length > 0 && (
+        <ul className="mb-3 rounded-xl border border-line bg-panel">
+          {tops.data.map((top) => (
+            <li key={top.id} className="border-t border-line px-4 py-2 first:border-t-0">
+              <b className="font-semibold">{top.name ?? top.id}</b>{" "}
+              <span className="text-sm text-muted">{top.members ? top.members.join(", ") : "everyone"}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const members = String(form.get("members") ?? "")
+            .split(",")
+            .map((name) => name.trim())
+            .filter(Boolean);
+          void action.run("folder", async () => {
+            await api("/team/tops", { body: { name: String(form.get("name") ?? ""), members } });
+            return { text: "Made: it shows in Knowledge for its members after their next sync." };
+          });
+        }}
+      >
+        <Field>
+          Name
+          <Input name="name" placeholder="leads" required />
+        </Field>
+        <div className="min-w-56 flex-1">
+          <Field>
+            Members, comma-separated
+            <Input name="members" placeholder="ada, bob" required />
+          </Field>
+        </div>
+        <Button type="submit" disabled={action.busy !== null}>
+          Make the folder
+        </Button>
+      </form>
+    </section>
   );
 }
 

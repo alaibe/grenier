@@ -2,7 +2,6 @@ export { cacheSavingsOf, costOf, loadPrices, type Prices, priceOf, type TokenCou
 export {
   buildReport,
   folderName,
-  formatStatusLine,
   formatToday,
   type GroupBy,
   mostSpentFirst,
@@ -10,5 +9,4 @@ export {
   projectOf,
   type ReportRow,
   startOfToday,
-  totalOf,
 } from "./report.ts";

@@ -1,4 +1,4 @@
-import { buildReport, formatToday, loadPrices, parseSince, projectOf, totalOf } from "@grenier/log";
+import { buildReport, formatToday, loadPrices, parseSince, projectOf } from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { describe, expect, it } from "vitest";
 
@@ -74,15 +74,7 @@ describe("buildReport", () => {
   });
 });
 
-describe("totalOf and formatToday", () => {
-  const today = totalOf(buildReport([row({ cost: 1.5 }), row({ sessionId: "s2", cost: 2 })], "session", prices));
-
-  it("adds up rows, and is all zeros for none", () => {
-    expect(today).toMatchObject({ key: "total", requests: 2, cost: 3.5, cacheReadTokens: 1800 });
-    expect(today.saved).toBeGreaterThan(0);
-    expect(totalOf([])).toMatchObject({ requests: 0, cost: 0, saved: 0 });
-  });
-
+describe("formatToday", () => {
   it("shows today per project for the menu bar, the most spent first", () => {
     const repos = buildReport(
       [

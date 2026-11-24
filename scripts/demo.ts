@@ -269,7 +269,6 @@ const skill = await record({
   author: "lea",
   device: "lea-pc",
   fields: {
-    recommended: "yes",
     files: {
       "SKILL.md":
         "---\nname: release-notes\ndescription: Writes release notes from the pull requests merged since the last tag.\n---\nRead the merged pull requests, group them by area, write one line each.\n",
@@ -296,26 +295,8 @@ const update = await record({
     trigger: "request",
     repo: repoIdentity,
     tools: ["Edit", "Bash(pnpm install:*)", "Bash(pnpm test:*)"],
-    versions: [
-      {
-        version: 1,
-        prompt: "Update the dependencies the request names, run the tests, and explain what changed.",
-        status: "production",
-      },
-      {
-        version: 2,
-        prompt:
-          "Update the dependencies the request names to their newest release older than 7 days, run the tests, and write the upgrade plan.",
-        status: "testing",
-      },
-    ],
-    evals: [
-      { input: "Bump hono", expect: "hono", judge: "code" },
-      { input: "Bump zod to 4", expect: "Explains the breaking changes", judge: "model" },
-      { input: "Update everything", expect: "A plan a person can review", judge: "person" },
-    ],
   },
-  body: "Keeps checkout's dependencies current, one request at a time.",
+  body: "Update the dependencies the request names to their newest release older than 7 days, run the tests, and explain what changed.",
 });
 await record({
   type: "Routine",
@@ -324,8 +305,8 @@ await record({
     trigger: "schedule",
     schedule: "daily 05:00",
     builtin: "librarian",
-    versions: [{ version: 1, prompt: "Built in: suggests fixes to the store.", status: "production" }],
   },
+  body: "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned requests, and suggests fixes.",
 });
 await record({
   type: "Routine",
@@ -335,14 +316,8 @@ await record({
     schedule: "weekdays 18:00",
     collector: "yes",
     tools: ["mcp__granola__list_meetings", "mcp__granola__get_transcript"],
-    versions: [
-      {
-        version: 1,
-        prompt: "Gather today's meeting transcripts as Meeting records, linked to their project.",
-        status: "production",
-      },
-    ],
   },
+  body: "Gather today's meeting transcripts as Meeting records, linked to their project.",
 });
 const request = await record({
   type: "Task",
@@ -439,30 +414,22 @@ for (const [client, scale] of [
   await teamApi(client, "/api/usage", { method: "PUT", body: { rows } });
 }
 const runs = [
-  { version: 1, kind: "eval", status: "done", score: 1, ago: 6 },
-  { version: 1, kind: "eval", status: "done", score: 0, ago: 6 },
-  { version: 2, kind: "eval", status: "done", score: 1, ago: 1 },
-  { version: 2, kind: "eval", status: "done", score: 1, ago: 1 },
-  { version: 1, kind: "run", status: "done", score: null, ago: 0.2, taskId: request },
+  { status: "done", ago: 3, actions: 2 },
+  { status: "done", ago: 0.2, actions: 3, taskId: request },
 ];
 for (const run of runs) {
-  const id = newId();
   await teamApi(anthony, "/api/runs", {
     body: {
-      id,
+      id: newId(),
       routineId: update,
-      version: run.version,
-      kind: run.kind,
       status: run.status,
       startedAt: now - run.ago * DAY,
       endedAt: now - run.ago * DAY + 6 * 60_000,
-      actions: run.kind === "run" ? 0 : 0,
+      actions: run.actions,
       cost: 0.41,
-      ...(run.score === null ? {} : { score: run.score }),
       ...(run.taskId ? { taskId: run.taskId } : {}),
     },
   });
-  if (run.kind === "run") await teamApi(marie, `/api/runs/${id}/thumbs`, { body: { up: true } });
 }
 
 const sessions = [

@@ -15,7 +15,7 @@ mod menu_bar;
 mod updater;
 mod usage;
 
-/// The daemon this app started, if it had to: stopped when the app quits. One started by `grenier start` is left alone.
+/// The daemon this app started, if it had to: stopped when the app quits. One started by `grenier run` is left alone.
 struct Sidecar(Mutex<Option<CommandChild>>);
 
 #[derive(Serialize)]

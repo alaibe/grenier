@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig } from "@grenier/core";
 import { createGateway } from "@grenier/gateway";
-import type { TeamClient } from "@grenier/index";
+import { TEAM_PROTOCOL, type TeamClient } from "@grenier/index";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
@@ -65,6 +65,7 @@ function call(path: string, init: RequestInit & { origin?: string } = {}) {
 describe("the admin API", () => {
   it("needs the admin token", async () => {
     expect((await app.request("http://127.0.0.1:7788/admin/overview")).status).toBe(401);
+    expect((await app.request("http://127.0.0.1:7788/admin/key", { method: "POST" })).status).toBe(401);
     expect((await call("/overview", { headers: { authorization: "Bearer wrong" } })).status).toBe(401);
     expect((await call("/overview")).status).toBe(200);
   });
@@ -200,7 +201,7 @@ describe("the admin API", () => {
     expect(waiting.waiting).toBe(true);
     expect(sent).toEqual([]);
 
-    await store.state.set("team_protocol", "3");
+    await store.state.set("team_protocol", String(TEAM_PROTOCOL));
     const made = (await (
       await call("/records", { method: "POST", body: JSON.stringify({ type: "Doc", title: "Runbook" }) })
     ).json()) as { id: string };

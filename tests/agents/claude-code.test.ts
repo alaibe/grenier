@@ -1,6 +1,6 @@
 // Run by hand with `pnpm test:agents`: a dummy key and a throwaway config directory, so nothing reaches Anthropic.
 import { execFile, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { freePort, messageStream } from "../support/anthropic.ts";
+import { startDaemon } from "../support/daemon.ts";
 
 const BINARY = fileURLToPath(new URL("../../apps/cli/dist/grenier.js", import.meta.url));
 const claude = (() => {
@@ -21,6 +22,7 @@ const claude = (() => {
 
 let dir: string;
 let upstream: Server;
+let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
 let port: number;
 const messages: string[] = [];
 
@@ -71,16 +73,16 @@ describe.skipIf(claude === null)("Claude Code through grenier run", () => {
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
     port = await freePort();
-    await grenier("status");
+    mkdirSync(join(dir, ".grenier"), { recursive: true });
     writeFileSync(
       join(dir, ".grenier", "config.toml"),
       `[proxy]\nport = ${port}\nupstream_anthropic = "http://127.0.0.1:${(upstream.address() as AddressInfo).port}"\n`,
     );
-    expect((await grenier("start")).code).toBe(0);
+    daemon = await startDaemon(BINARY, env(), dir);
   });
 
   afterAll(async () => {
-    await grenier("stop");
+    await daemon?.stop();
     await new Promise((resolve) => upstream?.close(resolve));
     rmSync(dir, { recursive: true, force: true });
   });

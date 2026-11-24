@@ -49,7 +49,7 @@ export const events = sqliteTable(
   (table) => [index("events_session_ts").on(table.sessionId, table.ts)],
 );
 
-/** Small values this machine keeps: team cursor, last sync, member, role, `me` top folder, auto-install, eval scores. */
+/** Small values this machine keeps: team cursor, last sync, member, role, `me` top folder. */
 export const state = sqliteTable("state", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -157,8 +157,6 @@ export const outbox = sqliteTable("outbox", {
   change: text("change", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
   baseVersion: integer("base_version").notNull(),
   createdAt: integer("created_at").notNull(),
-  /** Why the team store refused it, when it did: it stays here, and sync passes over it. */
-  refused: text("refused"),
 });
 
 /** What this machine's person approved, by hash: a change to the item needs approval again. */
@@ -166,7 +164,7 @@ export const approvals = sqliteTable(
   "approvals",
   {
     recordId: text("record_id").notNull(),
-    kind: text("kind", { enum: ["skill", "mcp", "routine", "workflow"] }).notNull(),
+    kind: text("kind", { enum: ["skill", "mcp", "routine"] }).notNull(),
     hash: text("hash").notNull(),
     approvedAt: integer("approved_at").notNull(),
     /** For a routine on this machine: its mode, its extra tools and daily action limit. */
@@ -184,7 +182,6 @@ export const runs = sqliteTable(
     id: text("id").primaryKey(),
     routineId: text("routine_id").notNull(),
     taskId: text("task_id"),
-    version: integer("version").notNull(),
     sessionId: text("session_id"),
     trigger: text("trigger").notNull(),
     status: text("status", { enum: ["running", "done", "failed", "cut"] }).notNull(),
@@ -194,20 +191,6 @@ export const runs = sqliteTable(
     result: text("result"),
   },
   (table) => [index("runs_routine").on(table.routineId, table.startedAt)],
-);
-
-/** Every read a client made of the store, written before the result is returned. */
-export const audit = sqliteTable(
-  "audit",
-  {
-    id: integer("id").primaryKey(),
-    ts: integer("ts").notNull(),
-    clientId: text("client_id").notNull(),
-    tool: text("tool").notNull(),
-    args: text("args", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
-    recordIds: text("record_ids", { mode: "json" }).$type<string[]>().notNull(),
-  },
-  (table) => [index("audit_client_ts").on(table.clientId, table.ts)],
 );
 
 /** Tokens for the agents and apps that use the store over MCP, with the top folders each may read. */
@@ -236,4 +219,3 @@ export type OutboxEntry = typeof outbox.$inferSelect;
 export type Approval = typeof approvals.$inferSelect;
 export type Run = typeof runs.$inferSelect;
 export type Client = typeof clients.$inferSelect;
-export type AuditEntry = typeof audit.$inferSelect;
