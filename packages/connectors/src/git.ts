@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { open, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -18,6 +18,16 @@ export async function repoRoot(cwd: string): Promise<string | null> {
     return (await git(cwd, ["rev-parse", "--show-toplevel"])).trim() || null;
   } catch {
     return null;
+  }
+}
+
+/** Where the repository lives on this machine: for a linked worktree, such as a routine run's checkout, its main one. */
+export async function repoHome(root: string): Promise<string> {
+  try {
+    const common = (await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+    return basename(common) === ".git" ? dirname(common) : root;
+  } catch {
+    return root;
   }
 }
 

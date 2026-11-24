@@ -319,7 +319,7 @@ await record({
   },
   body: "Gather today's meeting transcripts as Meeting records, linked to their project.",
 });
-const request = await record({
+await record({
   type: "Task",
   title: "Bump hono to 4.12",
   author: "marie",
@@ -415,7 +415,7 @@ for (const [client, scale] of [
 }
 const runs = [
   { status: "done", ago: 3, actions: 2 },
-  { status: "done", ago: 0.2, actions: 3, taskId: request },
+  { status: "done", ago: 0.2, actions: 3 },
 ];
 for (const run of runs) {
   await teamApi(anthony, "/api/runs", {
@@ -427,7 +427,6 @@ for (const run of runs) {
       endedAt: now - run.ago * DAY + 6 * 60_000,
       actions: run.actions,
       cost: 0.41,
-      ...(run.taskId ? { taskId: run.taskId } : {}),
     },
   });
 }

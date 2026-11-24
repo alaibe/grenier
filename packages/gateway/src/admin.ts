@@ -122,6 +122,10 @@ export function createAdmin(options: AdminOptions): Hono {
 
   app.onError((error) => {
     if (error instanceof StoreUseError) return problem(400, error.message);
+    // The app reads a 401 as its own admin token refused: the team store's means this machine was removed.
+    if (error instanceof TeamError && error.status === 401) {
+      return problem(409, "the team store no longer knows this machine: it was removed from the team");
+    }
     if (error instanceof TeamError) return problem(error.status >= 500 ? 502 : error.status, error.detail);
     throw error;
   });

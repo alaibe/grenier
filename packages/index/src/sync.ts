@@ -146,8 +146,8 @@ async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
   return changes;
 }
 
-/** What this Grenier needs the team store to speak: 2 added folders, 3 named top folders, 4 one text per routine. */
-export const TEAM_PROTOCOL = 4;
+/** What this Grenier needs the team store to speak: 2 added folders, 3 named top folders, 4 one text per routine, 5 claimed runs and removable machines. */
+export const TEAM_PROTOCOL = 5;
 
 /** Pushes this machine's changes, then pulls the store's since the last round; offline, it throws and loses nothing. */
 export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
@@ -196,6 +196,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const waiting = new Set((await store.outbox.list()).map((entry) => entry.recordId));
   // The cursor moves past a Me page this machine cannot open: the ids stay, so Settings can say so until it can.
   const unopened = new Set(await unopenedIds(store));
+  const known = new Set((await store.tops.list()).map((top) => top.id));
   for (;;) {
     const page = await teamApi<{
       records: Remote[];
@@ -203,9 +204,12 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
       version: number;
       tops: { id: string; name: string; kind: "team" | "repo" | "custom"; repoId: string | null }[];
     }>(team, `/api/changes?after=${cursor}&limit=500`);
+    // A member-only folder this machine can now read holds pages from before the cursor: pull from the start.
+    const readable = cursor > 0 && page.tops.some((top) => top.kind === "custom" && !known.has(top.id));
     for (const top of page.tops) {
       if (top.id.startsWith("me:")) continue;
       const local = await store.tops.get(top.id);
+      known.add(top.id);
       await store.tops.put({
         id: top.id,
         name: local?.name ?? top.name,
@@ -213,6 +217,10 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
         repoId: top.repoId,
         root: local?.root ?? null,
       });
+    }
+    if (readable) {
+      cursor = 0;
+      continue;
     }
     for (let remote of page.records) {
       if (waiting.has(remote.id)) continue;

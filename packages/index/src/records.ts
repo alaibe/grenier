@@ -19,6 +19,8 @@ import { cosine, type Embedder } from "./embeddings.ts";
 export interface Repo {
   root: string;
   id: string;
+  /** Where the repository lives on this machine, when `root` is a linked worktree of it, such as a run's checkout. */
+  home?: string;
 }
 
 export interface RepoFiles {
@@ -121,9 +123,10 @@ export async function placeOf(
 
 export async function ensureRepoTop(store: Store, repo: Repo): Promise<string> {
   const id = repoTop(repo.id);
-  const name = repo.root.split(/[\\/]/).filter(Boolean).at(-1) ?? repo.id.slice(0, 8);
+  const name = (repo.home ?? repo.root).split(/[\\/]/).filter(Boolean).at(-1) ?? repo.id.slice(0, 8);
   const existing = await store.tops.get(id);
-  await store.tops.put({ id, name: existing?.name ?? name, kind: "repo", repoId: repo.id, root: repo.root });
+  const root = repo.home ?? repo.root;
+  await store.tops.put({ id, name: existing?.name ?? name, kind: "repo", repoId: repo.id, root });
   return id;
 }
 

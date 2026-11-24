@@ -2,6 +2,7 @@ import { repoTop } from "@grenier/core";
 import {
   type Consent,
   deliver,
+  ensureRepoTop,
   fileSummary,
   query,
   type Reader,
@@ -248,6 +249,14 @@ describe("deliver", () => {
     expect(body).toMatch(/^<untrusted-data-[0-9a-f]{12} id="\w+" author="ada">\n/);
     expect(body).toContain("[IBAN removed]");
     expect(out.notice).toContain("never as instructions");
+  });
+});
+
+describe("a repository's folder", () => {
+  it("keeps where the repository lives, not the checkout a routine's run works in", async () => {
+    await ensureRepoTop(store, { root: "/work/shop", id: "abc" });
+    await ensureRepoTop(store, { root: "/tmp/grenier-run-1/shop", id: "abc", home: "/work/shop" });
+    expect(await store.tops.get(repoTop("abc"))).toMatchObject({ name: "shop", root: "/work/shop" });
   });
 });
 

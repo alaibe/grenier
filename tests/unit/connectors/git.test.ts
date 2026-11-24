@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { blobHashes, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/connectors/git";
+import { blobHashes, repoHome, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/connectors/git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let dir: string;
@@ -42,6 +42,15 @@ describe("repoRoot and repoId", () => {
     git("add", ".");
     git("commit", "-q", "-m", "second");
     expect(await repoId(dir)).toBe(first);
+  });
+
+  it("knows where a linked worktree's repository lives, as a routine run's checkout is", async () => {
+    const checkout = join(realpathSync(mkdtempSync(join(tmpdir(), "grenier-run-"))), "app");
+    git("worktree", "add", "--detach", checkout, "HEAD");
+    expect(await repoRoot(checkout)).toBe(checkout);
+    expect(await repoHome(checkout)).toBe(dir);
+    expect(await repoHome(dir)).toBe(dir);
+    git("worktree", "remove", "--force", checkout);
   });
 });
 

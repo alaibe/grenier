@@ -73,8 +73,8 @@ const RECORD_FIELDS = [
   "links",
   "sealed",
 ];
-/** What this store speaks, which a machine checks before it syncs: 2 added folders, 3 named top folders, 4 one text per routine. */
-const PROTOCOL = 4;
+/** What this store speaks, which a machine checks before it syncs: 2 added folders, 3 named top folders, 4 one text per routine, 5 claimed runs and removable machines. */
+const PROTOCOL = 5;
 const INVITE_LIFE = 24 * 60 * 60 * 1000;
 const CONFIRM_WINDOW = 10 * 60 * 1000;
 const LEASE = 5 * 60 * 1000;

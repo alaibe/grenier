@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { blobHashes, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/connectors/git";
+import { blobHashes, repoHome, repoId, repoPath, repoRoot, repoText, trackedFiles } from "@grenier/connectors/git";
 import type { Config } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import { type Embedder, type Repo, type RepoFiles, StoreUseError } from "@grenier/index";
@@ -19,7 +19,7 @@ export function repoResolver(base: string | null): (repo: string | undefined) =>
     if (repo && !root) throw new StoreUseError(`not inside a git repository: ${path}`);
     if (repo && !id)
       throw new StoreUseError(`${root} has no commit yet; the store needs one to identify the repository`);
-    const found = root && id ? { root, id } : null;
+    const found = root && id ? { root, id, home: await repoHome(root) } : null;
     known.set(path, found);
     return found;
   };
