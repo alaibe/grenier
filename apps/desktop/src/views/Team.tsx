@@ -29,6 +29,7 @@ interface Me {
   name: string;
   role: "admin" | "member";
   device: string;
+  deviceId: string;
 }
 
 const loadOverview = () => api<Overview>("/overview");
@@ -196,6 +197,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
   const me = useLoad(loadMe);
   const members = useLoad(useCallback(() => api<{ members: Member[] }>("/team/members").then((a) => a.members), []));
   const admin = me.data?.role === "admin";
+  const [signedOut, setSignedOut] = useState(false);
   const invites = useLoad(
     useCallback(
       () =>
@@ -211,12 +213,12 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
   });
 
   useEffect(() => {
-    if (!admin) return;
+    if (!admin || signedOut) return;
     const timer = window.setInterval(() => {
       if (!document.hidden) invites.reload();
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [admin, invites.reload]);
+  }, [admin, signedOut, invites.reload]);
 
   const invite = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -239,6 +241,16 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
     });
 
   const [web, setWeb] = useState<string | null>(null);
+  if (signedOut) {
+    return (
+      <Page title="Team" intro={new URL(url).host}>
+        <Card tone="problem" role="status">
+          This machine was removed from the team: the team store no longer takes its token, so it is signed out and
+          syncs nothing.
+        </Card>
+      </Page>
+    );
+  }
   return (
     <Page
       title="Team"
@@ -400,7 +412,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
       )}
 
       {admin && <Folders />}
-      <Machines />
+      <Machines me={me.data} removed={(self) => (self ? setSignedOut(true) : members.reload())} />
       {me.data && <Usage key={me.data.role} admin={admin} />}
     </Page>
   );
@@ -458,14 +470,27 @@ function Folders() {
   );
 }
 
-function Machines() {
-  const { data, error } = useLoad(
+/** The team's machines; an admin removes any of them, a member their own. */
+function Machines({ me, removed }: { me: Me | null; removed: (self: boolean) => void }) {
+  const machines = useLoad(
     useCallback(() => api<{ machines: Machine[] }>("/team/machines").then((a) => a.machines), []),
   );
-  if (error) return <Notice message={error} />;
-  if (!data) return null;
+  const action = useAction(() => {});
+  if (machines.error) return <Notice message={machines.error} />;
+  if (!machines.data) return null;
+  const mayRemove = (machine: Machine) => me !== null && (me.role === "admin" || machine.member === me.name);
+  const removable = machines.data.some(mayRemove);
+  const remove = (machine: Machine) =>
+    void action.run(`remove:${machine.id}`, async () => {
+      await api(`/team/devices/${encodeURIComponent(machine.id)}`, { method: "DELETE" });
+      const self = machine.id === me?.deviceId;
+      if (!self) machines.reload();
+      removed(self);
+      return undefined;
+    });
   return (
     <Section title="Machines">
+      <Notice message={action.message} />
       <Table>
         <thead>
           <tr>
@@ -474,16 +499,36 @@ function Machines() {
             <th>State</th>
             <th>Last seen</th>
             <th className="text-right tabular-nums">Runs, 30 days</th>
+            {removable && <th />}
           </tr>
         </thead>
         <tbody>
-          {data.map((machine) => (
+          {machines.data.map((machine) => (
             <tr key={machine.id}>
-              <td className="font-medium">{machine.name}</td>
+              <td className="font-medium">
+                {machine.name}
+                {machine.id === me?.deviceId && <span className="ml-1.5 font-normal text-muted">this machine</span>}
+              </td>
               <td>{machine.member}</td>
               <td>{machine.state}</td>
               <td>{ago(machine.lastSeen)}</td>
               <td className="text-right tabular-nums">{machine.runs ?? 0}</td>
+              {removable && (
+                <td className="text-right whitespace-nowrap">
+                  {mayRemove(machine) && (
+                    <ConfirmButton
+                      label="Remove"
+                      question={
+                        machine.id === me?.deviceId
+                          ? "This is the machine you are on: removing it signs it out of the team. Remove it?"
+                          : `Remove ${machine.name}? It is signed out of the team.`
+                      }
+                      disabled={action.busy !== null}
+                      onConfirm={() => remove(machine)}
+                    />
+                  )}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

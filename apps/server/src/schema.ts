@@ -65,4 +65,8 @@ export const SCHEMA_STEPS: readonly string[] = [
   ALTER TABLE runs DROP COLUMN thumbs;
   UPDATE meta SET value = '4' WHERE key = 'schema';
 `,
+  `
+  ALTER TABLE declines ADD COLUMN at INTEGER NOT NULL DEFAULT 0;
+  UPDATE meta SET value = '5' WHERE key = 'schema';
+`,
 ];

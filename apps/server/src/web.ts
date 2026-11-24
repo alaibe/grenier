@@ -103,17 +103,27 @@ async function openRecord(record) {
 }
 async function requests() {
   const [{ records: tasks }, { records: routineList }] = await Promise.all([api("/api/records?type=Task"), api("/api/records?type=Routine")]);
+  const column = (status) => el("div", {}, el("h3", { text: status }), ...tasks.filter((t) => t.fields.status === status && t.fields.routine).map((t) => recordCard(t)));
+  const board = el("div", { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem" }, column("to-do"), column("doing"), column("done"));
+  // The store takes a request from an admin only.
+  if (me.role !== "admin") return show(board);
+  if (!routineList.length) return show(el("p", { class: "muted", text: "No routine yet." }), board);
   const routine = el("select", { "aria-label": "Routine" }, ...routineList.map((r) => el("option", { value: r.id, text: r.title })));
   const title = el("input", { placeholder: "What to do", "aria-label": "Request" });
+  const said = el("p", { role: "alert" });
   const file = el("button", { text: "File the request", onclick: async () => {
     if (!title.value.trim() || !routine.value) return;
+    said.textContent = "";
     const id = crypto.randomUUID().replace(/-/g, "");
-    await api("/api/changes", { method: "POST", body: JSON.stringify({ changes: [{ id, recordId: id, baseVersion: 0, changed: ["top","type","title","fields","links"], record: { id, top: routineList.find((r) => r.id === routine.value).top, type: "Task", title: title.value.trim(), fields: { status: "to-do", routine: routine.value }, links: [{ kind: "record", ref: routine.value }] } }] }) });
+    try {
+      const { refused } = await api("/api/changes", { method: "POST", body: JSON.stringify({ changes: [{ id, recordId: id, baseVersion: 0, changed: ["top","type","title","fields","links"], record: { id, top: routineList.find((r) => r.id === routine.value).top, type: "Task", title: title.value.trim(), fields: { status: "to-do", routine: routine.value }, links: [{ kind: "record", ref: routine.value }] } }] }) });
+      if (refused.length) return (said.textContent = "Not filed: " + refused[0].reason);
+    } catch (error) {
+      return (said.textContent = "Not filed: " + error.message);
+    }
     requests();
   } });
-  const column = (status) => el("div", {}, el("h3", { text: status }), ...tasks.filter((t) => t.fields.status === status && t.fields.routine).map((t) => recordCard(t)));
-  show(routineList.length ? el("div", { class: "row" }, routine, title, file) : el("p", { class: "muted", text: "No routine yet." }),
-    el("div", { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem" }, column("to-do"), column("doing"), column("done")));
+  show(el("div", { class: "row" }, routine, title, file), said, board);
 }
 async function routines() {
   const [{ records }, { runs }] = await Promise.all([api("/api/records?type=Routine"), api("/api/runs")]);

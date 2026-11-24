@@ -22,6 +22,7 @@ describe("the team store's schema steps", () => {
       INSERT INTO runs (id, routine_id, device_id, version, kind, status, started_at, actions, cost, score, thumbs)
         VALUES ('run', 'r1', 'd1', 1, 'run', 'done', 1, 0, 0.5, NULL, 1),
                ('eval', 'r1', 'd1', 2, 'eval', 'done', 2, 0, 0.25, 1, NULL);
+      INSERT INTO declines (task_id, device_id) VALUES ('t1', 'd1');
     `);
     for (const step of SCHEMA_STEPS.slice(1)) db.exec(step);
 
@@ -42,5 +43,7 @@ describe("the team store's schema steps", () => {
       "cost",
     ]);
     expect(db.prepare("SELECT id, cost FROM runs").all()).toEqual([{ id: "run", cost: 0.5 }]);
+    // A decline from before declines had a time counts as made long ago, so it no longer holds.
+    expect(db.prepare("SELECT task_id, at FROM declines").all()).toEqual([{ task_id: "t1", at: 0 }]);
   });
 });
