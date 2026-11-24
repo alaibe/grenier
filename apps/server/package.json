@@ -1,6 +1,6 @@
 {
   "name": "@grenier/server",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "The team store: a Cloudflare Worker with one Durable Object per team, deployed by `grenier team deploy` into the team's own account.",
   "license": "MIT",
