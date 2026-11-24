@@ -35,15 +35,15 @@ function blocks(text: string, open: (id: string) => void): ReactNode[] {
       const level = (heading[1] as string).length;
       out.push(
         level === 1 ? (
-          <h2 key={key} className="text-2xl font-semibold">
+          <h2 key={key} className="text-xl font-semibold">
             {content}
           </h2>
         ) : level === 2 ? (
-          <h3 key={key} className="text-xl font-semibold">
+          <h3 key={key} className="text-lg font-semibold">
             {content}
           </h3>
         ) : (
-          <h4 key={key} className="text-lg font-semibold">
+          <h4 key={key} className="text-base font-semibold">
             {content}
           </h4>
         ),

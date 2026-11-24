@@ -184,7 +184,7 @@ export function PageEditor({
             ))}
           </Select>
           <input
-            className="w-full bg-transparent font-serif text-4xl leading-[1.2] font-semibold outline-none placeholder:text-muted"
+            className="w-full bg-transparent font-mono text-2xl leading-[1.2] font-semibold outline-none placeholder:text-muted"
             aria-label="Title"
             placeholder="Untitled"
             readOnly={!editable}
@@ -401,7 +401,7 @@ function Anchors({ record }: { record: RecordFull }) {
               record.changed.includes(anchor.ref) ? (
                 <button
                   type="button"
-                  className="cursor-pointer text-sm text-problem underline underline-offset-2"
+                  className="cursor-pointer text-sm text-danger underline underline-offset-2"
                   onClick={() => setShown(shown === anchor.ref ? null : anchor.ref)}
                 >
                   {shown === anchor.ref ? "Hide the change" : "Changed since: show"}
@@ -446,7 +446,7 @@ function FileDiff({ id, path }: { id: string; path: string }) {
           <div
             // biome-ignore lint/suspicious/noArrayIndexKey: the lines of a diff have no other identity
             key={n}
-            className={`px-3 ${line.kind === "new" ? "bg-[#e6f2ea] text-edit" : line.kind === "gone" ? "bg-problem-soft text-problem" : ""}`}
+            className={`px-3 ${line.kind === "new" ? "bg-success/12 text-success" : line.kind === "gone" ? "bg-danger/12 text-danger" : ""}`}
           >
             {line.kind === "new" ? "+ " : line.kind === "gone" ? "- " : "  "}
             {line.text}

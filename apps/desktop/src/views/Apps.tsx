@@ -124,7 +124,7 @@ export function Apps() {
             <Input name="name" required pattern="[\w.@\-]+" placeholder="claude-desktop" autoComplete="off" />
           </Field>
           <fieldset className="flex flex-col gap-2">
-            <legend className="mb-2 text-md font-medium">May read</legend>
+            <legend className="mb-2 text-sm font-medium">May read</legend>
             <div className="flex flex-wrap gap-1.5">
               {(data?.scopes ?? []).map((scope) => (
                 <label

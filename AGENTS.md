@@ -34,3 +34,12 @@ A team's shared memory for people and their AI agents: a pnpm workspace in TypeS
 - A comment is one line, and only where the code can't say why.
 - The user guide is `../laibe/content/grenier/guide`: update it when usage changes, and give a new config key its line in `configuration.md`.
 - The maintainer's own material (launch posts, demo scripts, images) goes in the gitignored `priv/`.
+
+## Design
+
+- The desktop app follows the laibe design system v0.1.0 (`git.laibe.cc/anthony/design`). Before changing its UI,
+  read the system's `principles.md`, the `components/` pages the change touches and `apps/grenier.md`.
+- `apps/desktop/src/laibe/` is a copy of the system's `dist/tokens.css` and `dist/tailwind.css`: replace both files
+  from a new release, never edit them here. Biome ignores the folder so they stay byte for byte.
+- Use the system's colour names only (`bg`, `panel`, `fg`, `muted`, `accent`, `on-accent`, `danger`, `success`…).
+  The interface is in `font-mono`, content in `font-sans`. A status is a `Status` tag, never a colour alone.

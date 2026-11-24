@@ -138,7 +138,7 @@ function RoutineForm({ routine, done, cancel }: { routine?: RoutineView; done: (
         Tools it may use beyond reading, comma-separated (optional)
         <Input name="tools" placeholder="Edit, Bash(pnpm test:*)" defaultValue={routine?.tools.join(", ")} />
       </Field>
-      <label className="flex items-center gap-2 text-md">
+      <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="collector" className="accent-accent" defaultChecked={routine?.collector} />
         Each person's own: it runs on their machines and writes to their Me
       </label>
@@ -265,7 +265,7 @@ export function Routines({ go, member }: ViewProps) {
           <Card key={routine.id}>
             <header className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold">{routine.title}</h2>
+                <h2 className="text-lg font-semibold">{routine.title}</h2>
                 <p className="mt-0.5 text-sm text-muted">
                   {routine.trigger === "schedule" ? `on a schedule, ${routine.schedule}` : `on ${routine.trigger}`} ·{" "}
                   {routine.agent} · by {routine.author}
@@ -308,7 +308,7 @@ export function Routines({ go, member }: ViewProps) {
               </div>
             </header>
 
-            <p className="mt-3 line-clamp-4 text-md whitespace-pre-wrap" title={routine.prompt}>
+            <p className="mt-3 line-clamp-4 text-sm whitespace-pre-wrap" title={routine.prompt}>
               {routine.prompt.trim() || (
                 <span className="text-muted">No text yet: it runs nowhere until an admin writes what it does.</span>
               )}

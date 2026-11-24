@@ -384,7 +384,7 @@ function Subfolder({
         </Row>
       )}
       {problem && (
-        <p className="text-sm text-problem" style={{ paddingLeft: `${depth * 14 + 22}px` }}>
+        <p className="text-sm text-danger" style={{ paddingLeft: `${depth * 14 + 22}px` }}>
           {problem}
         </p>
       )}

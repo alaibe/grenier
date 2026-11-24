@@ -169,7 +169,7 @@ function Join({ joined, me }: { joined: () => void; me: string }) {
       {state?.state === "waiting" ? (
         <Card tone="accent" className="text-center">
           <p>Read this code to the admin who invited you. They confirm it on their screen.</p>
-          <p className="my-3 text-4xl">
+          <p className="my-3 text-2xl">
             <JoinCode code={state.code} />
           </p>
           <p className="text-sm text-muted">Waiting for the confirmation, up to 10 minutes.</p>
@@ -314,7 +314,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
               <div key={entry.id} className="flex items-center justify-between gap-4 py-1">
                 <p>
                   <span className="font-medium">{entry.member}</span> asks to join on {entry.device}, showing{" "}
-                  <JoinCode code={entry.code} className="text-lg" />. Confirm only if it is the code on their screen.
+                  <JoinCode code={entry.code} className="text-base" />. Confirm only if it is the code on their screen.
                 </p>
                 <Button
                   disabled={action.busy !== null}
@@ -348,7 +348,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
                     {member.devices.map((device) => (
                       <span key={device.id} className="mr-3 inline-flex items-center gap-1.5 whitespace-nowrap">
                         <span
-                          className={`size-2 rounded-full ${device.state === "offline" ? "bg-line-strong" : device.state === "available" ? "bg-edit" : "bg-accent"}`}
+                          className={`size-2 rounded-full ${device.state === "offline" ? "bg-line-strong" : device.state === "available" ? "bg-success" : "bg-accent"}`}
                           title={device.state}
                         />
                         {device.name}

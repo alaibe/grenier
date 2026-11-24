@@ -12,7 +12,8 @@
       "!packages/store/migrations/meta",
       "!tests/fixtures",
       "!apps/desktop/src-tauri",
-      "!apps/desktop/resources"
+      "!apps/desktop/resources",
+      "!apps/desktop/src/laibe"
     ]
   },
   "formatter": {

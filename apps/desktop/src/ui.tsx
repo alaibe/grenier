@@ -118,8 +118,8 @@ export function Page({
     <>
       <header className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="font-serif text-4xl leading-[1.2] font-semibold">{title}</h1>
-          <p className="mt-1.5 max-w-[60ch] text-muted">{intro}</p>
+          <h1 className="font-mono text-xl leading-[1.2] font-semibold tracking-tight">{title}</h1>
+          <p className="mt-1.5 max-w-[68ch] text-muted">{intro}</p>
         </div>
         {action}
       </header>
@@ -147,8 +147,8 @@ export function Part({
     <section className="mb-12">
       <header className="mb-4 flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-serif text-2xl leading-[1.2] font-semibold">{title}</h2>
-          {intro && <p className="mt-1 max-w-[60ch] text-muted">{intro}</p>}
+          <h2 className="font-mono text-lg leading-[1.35] font-semibold">{title}</h2>
+          {intro && <p className="mt-1 max-w-[68ch] text-muted">{intro}</p>}
         </div>
         {action}
       </header>
@@ -174,7 +174,7 @@ export function Section({
     <section className="mb-7">
       <header className="mb-2.5 flex items-center justify-between gap-4">
         <div>
-          <Heading className="font-semibold">{title}</Heading>
+          <Heading className="label">{title}</Heading>
           {intro && <p className="mt-0.5 text-sm text-muted">{intro}</p>}
         </div>
         {action}
@@ -188,13 +188,13 @@ type Tone = "plain" | "accent" | "soft" | "problem";
 
 const TONES: Record<Tone, string> = {
   plain: "border-line bg-panel",
-  accent: "border-accent bg-panel",
-  soft: "border-accent bg-accent-soft",
-  problem: "border-problem bg-problem-soft",
+  accent: "border-line bg-panel shadow-[inset_2px_0_0_var(--accent)]",
+  soft: "border-line bg-accent-soft shadow-[inset_2px_0_0_var(--accent)]",
+  problem: "border-danger/50 bg-panel shadow-[inset_2px_0_0_var(--danger)]",
 };
 
 /** A panel's frame: accent for something to act on, soft for something asking you, or a problem. */
-export const panel = (tone: Tone = "plain") => `rounded-xl border ${TONES[tone]}`;
+export const panel = (tone: Tone = "plain") => `rounded-lg border ${TONES[tone]}`;
 
 export function Card({ tone, className = "", ...props }: ComponentProps<"section"> & { tone?: Tone }) {
   return <section className={`mb-6 ${panel(tone)} px-5 py-4 ${className}`} {...props} />;
@@ -333,11 +333,11 @@ export function Row({
   children?: ReactNode;
 }) {
   return (
-    <li className="border-t border-line px-4 py-2 first:border-t-0">
+    <li className="border-t border-line px-3 py-2 first:border-t-0 hover:bg-hover">
       <div className="flex items-center justify-between gap-4">
         <span className="min-w-0">
-          <span className="font-medium">{title}</span>
-          {meta && <span className="block text-sm text-muted">{meta}</span>}
+          <span className="font-semibold">{title}</span>
+          {meta && <span className="block font-mono text-xs text-muted">{meta}</span>}
         </span>
         {actions}
       </div>
@@ -348,7 +348,31 @@ export function Row({
 
 /** A small label in a table cell, such as a scope. */
 export function Tag({ className = "", ...props }: ComponentProps<"span">) {
-  return <span className={`rounded-sm border border-line-strong px-1.75 text-xs leading-5 ${className}`} {...props} />;
+  return (
+    <span
+      className={`inline-flex h-4.5 items-center rounded-sm bg-hover px-1.5 font-mono text-2xs font-medium tracking-label text-muted uppercase ${className}`}
+      {...props}
+    />
+  );
+}
+
+const STATUS = {
+  ok: ["OK", "border-success text-success bg-success/12"],
+  warn: ["WARN", "border-warning text-warning bg-warning/12"],
+  err: ["ERR", "border-danger text-danger bg-danger/12"],
+  info: ["INFO", "border-info text-info bg-info/12"],
+} as const;
+
+/** A status word, so a state never rests on colour alone. */
+export function Status({ kind }: { kind: keyof typeof STATUS }) {
+  const [word, look] = STATUS[kind];
+  return (
+    <span
+      className={`inline-flex h-4.5 shrink-0 items-center rounded-sm border px-1.5 font-mono text-2xs font-medium tracking-label ${look}`}
+    >
+      {word}
+    </span>
+  );
 }
 
 /** Buttons of which one is pressed, to pick how something shows. */
@@ -364,14 +388,14 @@ export function Toggle<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <fieldset className="inline-flex w-fit overflow-hidden rounded-md border border-line-strong text-sm">
+    <fieldset className="inline-flex w-fit overflow-hidden rounded-md border border-line-strong bg-panel font-mono text-xs font-medium">
       <legend className="sr-only">{label}</legend>
       {options.map(([key, name]) => (
         <button
           type="button"
           key={key}
           aria-pressed={value === key}
-          className={`h-7 cursor-pointer px-2.5 ${value === key ? "bg-accent text-accent-fg" : "bg-panel hover:bg-hover"}`}
+          className={`h-7 cursor-pointer border-l border-line px-2.5 first-of-type:border-l-0 ${value === key ? "bg-accent-soft text-fg" : "text-muted hover:bg-hover hover:text-fg"}`}
           onClick={() => onChange(key)}
         >
           {name}
@@ -384,26 +408,62 @@ export function Toggle<T extends string>({
 export function Notice({ message }: { message: Message | string | null }) {
   if (!message) return null;
   const { text, problem } = typeof message === "string" ? { text: message, problem: true } : message;
-  return problem ? (
-    <p className="mb-4 rounded-lg border border-problem bg-problem-soft px-3.5 py-2.5 text-problem" role="alert">
-      {text}
-    </p>
-  ) : (
-    <p className="mb-4 rounded-lg border border-line bg-panel px-3.5 py-2.5" role="status">
-      {text}
+  return (
+    <p
+      className={`mb-4 flex items-start gap-2.5 rounded-md border border-line bg-panel px-3 py-2.5 text-sm ${problem ? "shadow-[inset_2px_0_0_var(--danger)]" : "shadow-[inset_2px_0_0_var(--success)]"}`}
+      role={problem ? "alert" : "status"}
+    >
+      <Status kind={problem ? "err" : "ok"} />
+      <span>{text}</span>
     </p>
   );
 }
 
 /** Shown only when loading takes long enough to notice. */
 export function Loading({ what }: { what: string }) {
-  return <p className="animate-appear text-muted">Loading {what}…</p>;
+  return (
+    <p className="flex animate-appear items-center gap-2 font-mono text-sm text-muted">
+      <span className="size-1.5 rounded-full motion-safe:animate-pulse bg-accent shadow-[0_0_8px_var(--accent)]" />
+      Loading {what}…
+    </p>
+  );
+}
+
+/** Grenier's icon, flat, as brand/icons/grenier-flat.svg in the laibe design system draws it. */
+export function Mark({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden="true">
+      <rect width="512" height="512" rx="115" fill="#04050d" />
+      <g fill="none" stroke="#fec000" strokeWidth="40" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M108 294 L256 166 L404 294" />
+        <circle cx="256" cy="320" r="50" fill="#fff4de" stroke="none" />
+        <path d="M256 284 V356 M220 320 H292" stroke="#04050d" strokeWidth="12" />
+      </g>
+    </svg>
+  );
+}
+
+/** The attic window, Grenier's lit point, for empty states and the status bar. */
+export function LitPoint({ size = 48 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      aria-hidden="true"
+      className="drop-shadow-[0_0_10px_var(--accent)]"
+    >
+      <circle cx="50" cy="50" r="46" className="fill-[color-mix(in_oklab,var(--accent)_25%,white)]" />
+      <path d="M50 22 V78 M22 50 H78" stroke="#04050d" strokeWidth="7" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed border-line-strong px-5 py-7 text-center text-muted [&_code]:mt-2.5 [&_code]:inline-block [&_code]:px-2.5 [&_code]:py-1 [&_code]:text-fg">
-      {children}
+    <div className="grid justify-items-center gap-4 rounded-lg border border-dashed border-line-strong bg-[linear-gradient(color-mix(in_oklab,var(--line)_40%,transparent)_1px,transparent_1px),linear-gradient(90deg,color-mix(in_oklab,var(--line)_40%,transparent)_1px,transparent_1px)] bg-size-[24px_24px] px-5 py-10 text-center text-muted [&_code]:mt-2.5 [&_code]:inline-block [&_code]:px-2.5 [&_code]:py-1 [&_code]:text-fg">
+      <LitPoint />
+      <div>{children}</div>
     </div>
   );
 }
@@ -417,12 +477,12 @@ export function Button({
   ...props
 }: ComponentProps<"button"> & { quiet?: boolean; square?: boolean }) {
   const look = quiet
-    ? "border-line-strong bg-panel text-fg enabled:hover:bg-hover"
-    : "border-accent bg-accent text-accent-fg";
+    ? "rounded-md border border-line-strong bg-panel text-fg enabled:hover:bg-hover"
+    : "chamfer text-on-accent enabled:hover:[--chamfer-fill:var(--accent-strong)] enabled:hover:drop-shadow-[0_0_10px_color-mix(in_oklab,var(--accent)_55%,transparent)]";
   return (
     <button
       type={type}
-      className={`h-8 cursor-pointer rounded-md border font-medium whitespace-nowrap disabled:cursor-default disabled:opacity-55 ${look} ${square ? "w-9 text-xl leading-none" : "px-3.5"} ${className}`}
+      className={`h-8 cursor-pointer font-mono text-sm font-medium whitespace-nowrap transition-[filter] duration-120 disabled:cursor-default disabled:opacity-55 ${look} ${square ? "w-9 text-lg leading-none" : "px-3"} ${className}`}
       {...props}
     />
   );
@@ -475,23 +535,20 @@ export function ConfirmButton({
   );
 }
 
-const box = "rounded-md border border-line-strong bg-panel font-normal";
-const control = `h-8.5 ${box}`;
+/** Controls reset what a Field's label sets on its text: they read in the content's font and colour. */
+const box =
+  "rounded-md border border-line-strong bg-panel font-sans text-base font-normal tracking-normal text-fg normal-case hover:border-muted focus-visible:border-accent";
+const control = `h-8 ${box}`;
 
 export function Input({ className = "", ...props }: ComponentProps<"input">) {
-  return (
-    <input
-      className={`${control} w-full px-2.5 placeholder:text-muted placeholder:opacity-80 ${className}`}
-      {...props}
-    />
-  );
+  return <input className={`${control} w-full px-2.5 placeholder:text-subtle ${className}`} {...props} />;
 }
 
 /** `className` gives its height; `mono` is for Markdown and code. */
 export function Textarea({ mono = false, className = "", ...props }: ComponentProps<"textarea"> & { mono?: boolean }) {
   return (
     <textarea
-      className={`${box} w-full px-2.5 py-2 text-md leading-relaxed placeholder:text-muted placeholder:opacity-80 ${mono ? "font-mono" : ""} ${className}`}
+      className={`${box} w-full px-2.5 py-2 leading-relaxed placeholder:text-subtle ${mono ? "font-mono text-sm" : ""} ${className}`}
       {...props}
     />
   );
@@ -506,7 +563,7 @@ export function Checkbox({
 }: Omit<ComponentProps<"input">, "type"> & { label: ReactNode; hint?: ReactNode }) {
   return (
     <label className={`flex cursor-pointer items-start gap-2.5 ${className}`}>
-      <input type="checkbox" className="mt-1 accent-accent" {...props} />
+      <input type="checkbox" className="mt-1 size-3.5 accent-accent" {...props} />
       <span>
         <span className="font-medium">{label}</span>
         {hint && <span className="mt-0.5 block text-sm text-muted">{hint}</span>}
@@ -524,9 +581,12 @@ export function Select({ className = "", ...props }: ComponentProps<"select">) {
   );
 }
 
+/** A field's name: mono and quiet, in sentence case, as some names are whole sentences. */
+const fieldLabel = "flex flex-col gap-1.5 font-mono text-xs font-medium text-muted";
+
 export function Field({ className = "", children }: { className?: string; children: ReactNode }) {
   // biome-ignore lint/a11y/noLabelWithoutControl: the children hold the field's name and its control
-  return <label className={`flex flex-col gap-1.5 text-md font-medium ${className}`}>{children}</label>;
+  return <label className={`${fieldLabel} ${className}`}>{children}</label>;
 }
 
 export function Table({ children }: { children: ReactNode }) {
@@ -546,10 +606,10 @@ export function Figure({ value, label, title }: { value: ReactNode; label: strin
   return (
     <div
       title={title}
-      className="border-l border-line px-4 py-3.5 first:border-l-0 max-lg:nth-3:border-l-0 max-lg:nth-[n+3]:border-t"
+      className="flex flex-col-reverse justify-end gap-1 border-l border-line px-4 py-3.5 first:border-l-0 max-lg:nth-3:border-l-0 max-lg:nth-[n+3]:border-t"
     >
-      <dd className="text-3xl font-semibold tabular-nums">{value}</dd>
-      <dt className="text-sm leading-[1.35] text-muted">{label}</dt>
+      <dd className="font-mono text-2xl font-semibold tabular-nums">{value}</dd>
+      <dt className="label">{label}</dt>
     </div>
   );
 }
