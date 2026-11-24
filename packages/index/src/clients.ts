@@ -33,9 +33,9 @@ export async function resolveScopes(store: Store, scopes: readonly string[]): Pr
 
 /** Returns the client's token, shown once. */
 export async function addClient(store: Store, name: string, scopes: string[]): Promise<string> {
-  if (!/^[\w.@-]{1,64}$/.test(name)) throw new StoreUseError("a client name takes letters, digits and . _ @ -");
+  if (!/^[\w.@-]{1,64}$/.test(name)) throw new StoreUseError("an app's name takes letters, digits and . _ @ -");
   if ((await store.clients.list()).some((client) => client.name === name)) {
-    throw new StoreUseError(`there is already a client named ${name}; revoke it first on the app's MCP screen`);
+    throw new StoreUseError(`there is already an app named ${name}: revoke it first`);
   }
   const kept = await resolveScopes(store, scopes);
   const { token, hash } = await newClientToken();

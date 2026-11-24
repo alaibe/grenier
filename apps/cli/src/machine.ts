@@ -4,6 +4,7 @@ import { cpus, freemem, loadavg, totalmem } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Config } from "@grenier/core";
+import type { Availability } from "@grenier/core/api";
 
 /** What this machine is doing now, read from the system. Null where it cannot tell. */
 export interface Probes {
@@ -77,14 +78,6 @@ export function systemProbes(platform: NodeJS.Platform = process.platform): Prob
     },
     hour: () => new Date().getHours(),
   };
-}
-
-export interface Availability {
-  state: "available" | "busy" | "away";
-  /** How much this machine could take on, from 0 to 1: the team store offers work to the one with the most. */
-  room: number;
-  /** Why it is not available, in the words the app shows. */
-  reasons: string[];
 }
 
 /** Whether `hour` is inside "a-b", which wraps past midnight when a > b. */

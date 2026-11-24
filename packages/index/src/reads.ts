@@ -311,7 +311,7 @@ export async function repoMap(deps: StoreDeps, repo: Repo): Promise<{ entries: R
   return { entries, notice: shown.notice };
 }
 
-/** Every record leaves redacted and marked untrusted, its place one path, the way agents name a place to write. */
+/** Every record leaves redacted and marked untrusted, its folder as a folder path, the way agents name where to write. */
 export async function deliver<T extends { records?: Found[]; results?: Found[]; linked?: Found[] }>(
   deps: StoreDeps,
   result: T,

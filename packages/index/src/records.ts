@@ -85,13 +85,13 @@ export async function readable(store: Store, reader: Reader | null): Promise<Top
   return all.filter((top) => top.kind === "repo" || reader?.scopes.includes(top.id));
 }
 
-/** "Team/Decisions/2026", or a top folder's id: its first part names Me, or a top folder this reader may read. */
-export async function placeOf(
+/** The top folder and folder a folder path names, as "Team/Decisions/2026": its first part is Me, or a top folder this reader may read, by name or id. */
+export async function resolveFolderPath(
   store: Store,
   reader: Reader | null,
-  path: string,
+  folderPath: string,
 ): Promise<{ top: string; folder: string }> {
-  const [first = "", ...rest] = path.split("/").map((name) => name.trim());
+  const [first = "", ...rest] = folderPath.split("/").map((name) => name.trim());
   // Me is always there to write in, as `remember` allows; reads still go through the reader's scope.
   const me: Top = { id: "me", name: "me", kind: "me", repoId: null, root: null };
   const tops = [me, ...(await readable(store, reader)).filter((top) => top.id !== "me")];

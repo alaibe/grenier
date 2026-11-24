@@ -11,16 +11,33 @@ export function hash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/** The team Worker in Miniflare (local workerd and its Durable Object). */
-export async function startWorker(options: { listen?: boolean } = {}): Promise<{
+/** The team store with a clock each request sets ahead, in milliseconds, by its `x-ahead` header. */
+const CLOCKED = `
+import worker, { TeamStore as Store } from "./src/index.ts";
+const real = Date.now;
+let ahead = 0;
+Date.now = () => real() + ahead;
+export class TeamStore extends Store {
+  async fetch(request) {
+    ahead = Number(request.headers.get("x-ahead") ?? 0);
+    return super.fetch(request);
+  }
+}
+export default worker;
+`;
+
+/** The team Worker in Miniflare (local workerd and its Durable Object); with `clock`, `ahead` moves its time on. */
+export async function startWorker(options: { listen?: boolean; clock?: boolean } = {}): Promise<{
   mf: Miniflare;
-  call: (path: string, token?: string, init?: { method?: string; body?: unknown }) => Promise<Response>;
+  call: (path: string, token?: string, init?: { method?: string; body?: unknown; ahead?: number }) => Promise<Response>;
   /** Where it listens, with `listen`. */
   url: URL | null;
   fetch: typeof fetch;
 }> {
   const bundle = await build({
-    entryPoints: [new URL("src/index.ts", SERVER).pathname],
+    ...(options.clock
+      ? { stdin: { contents: CLOCKED, resolveDir: SERVER.pathname, loader: "ts" as const } }
+      : { entryPoints: [new URL("src/index.ts", SERVER).pathname] }),
     bundle: true,
     write: false,
     platform: "neutral",
@@ -52,7 +69,11 @@ export async function startWorker(options: { listen?: boolean } = {}): Promise<{
       mf.dispatchFetch(`https://team.test${path}`, {
         method: init.method ?? (init.body === undefined ? "GET" : "POST"),
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-        headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json" },
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          ...(init.ahead === undefined ? {} : { "x-ahead": String(init.ahead) }),
+          "content-type": "application/json",
+        },
       }) as unknown as Promise<Response>,
   };
 }

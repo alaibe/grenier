@@ -1,5 +1,5 @@
+import type { MachineRules, MachineState } from "@grenier/core/api";
 import { type FormEvent, useEffect } from "react";
-import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import {
   Actions,
@@ -17,24 +17,6 @@ import {
   useLoad,
 } from "../ui.tsx";
 
-interface Rules {
-  name?: string;
-  routines: boolean;
-  plugged_in: boolean;
-  idle_minutes: number;
-  cpu_max: number;
-  memory_max: number;
-  hours: string;
-  agent: "claude" | "codex";
-}
-
-interface MachineState {
-  state: "available" | "busy" | "away";
-  room: number;
-  reasons: string[];
-  rules: Rules;
-}
-
 const load = () => api<MachineState>("/machine");
 
 const SAYS = {
@@ -43,7 +25,8 @@ const SAYS = {
   away: "Not available",
 };
 
-export function Machine(_: ViewProps) {
+/** For Settings: when this machine takes the team's routine runs. */
+export function Machine() {
   const { data, error, reload } = useLoad(load);
   const action = useAction(reload);
   useEffect(() => {
@@ -53,7 +36,7 @@ export function Machine(_: ViewProps) {
     return () => window.clearInterval(timer);
   }, [reload]);
 
-  const save = (rules: Partial<Rules>, done: string) =>
+  const save = (rules: Partial<MachineRules>, done: string) =>
     void action.run("save", async () => {
       await api("/machine", { method: "PUT", body: { rules } });
       return { text: done };
@@ -72,7 +55,7 @@ export function Machine(_: ViewProps) {
         cpu_max: Number(form.get("cpu_max")) / 100,
         memory_max: Number(form.get("memory_max")) / 100,
         hours: `${from}-${to}`,
-        agent: String(form.get("agent")) as Rules["agent"],
+        agent: String(form.get("agent")) as MachineRules["agent"],
       },
       "Saved. The team sees this machine's new state at once.",
     );

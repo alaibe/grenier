@@ -1,6 +1,6 @@
+import type { AppView, ClientMade, Clients } from "@grenier/core/api";
 import { type FormEvent, useState } from "react";
-import type { ViewProps } from "../App.tsx";
-import { api, type ClientView } from "../api.ts";
+import { api } from "../api.ts";
 import {
   Actions,
   Button,
@@ -21,9 +21,8 @@ import {
   useLoad,
 } from "../ui.tsx";
 
-const load = () => api<{ clients: ClientView[]; scopes: string[] }>("/clients");
-const loadApps = () =>
-  api<{ apps: { app: string; label: string; connected: boolean }[] }>("/apps").then((answer) => answer.apps);
+const load = () => api<Clients>("/clients");
+const loadApps = () => api<{ apps: AppView[] }>("/apps").then((answer) => answer.apps);
 
 /** One click adds Grenier's MCP server to an app here, able to read every folder; narrow it in the list below. */
 function Connect({ added }: { added: () => void }) {
@@ -57,7 +56,8 @@ function Connect({ added }: { added: () => void }) {
   );
 }
 
-export function Clients(_: ViewProps) {
+/** For the MCP screen: the apps on this computer that read Grenier, each with its own key. */
+export function Apps() {
   const { data, error, reload } = useLoad(load);
   const action = useAction(reload);
   const adding = useAdding("Another app");
@@ -70,7 +70,7 @@ export function Clients(_: ViewProps) {
     const scopes = form.getAll("scope").map(String);
     void action
       .run("create", async () => {
-        const result = await api<{ token: string }>("/clients", { body: { name, scopes } });
+        const result = await api<ClientMade>("/clients", { body: { name, scopes } });
         setCreated({ name, token: result.token });
         return undefined;
       })

@@ -1,4 +1,15 @@
 import { folderProblem, repoTop, TEAM_PROTOCOL } from "@grenier/core";
+import type {
+  Conflict,
+  FileVersions,
+  HistoryEntry,
+  PageRow,
+  RecordFull,
+  RecordRow,
+  Saved,
+  TeamRecord,
+  Top,
+} from "@grenier/core/api";
 import { blobText, repoText } from "@grenier/git";
 import {
   changedFields,
@@ -27,7 +38,7 @@ import { bodyOf } from "./body.ts";
 /** Records Skills, Routines and Settings manage, which Knowledge's tree leaves out. */
 const MANAGED_ELSEWHERE = new Set(["Skill", "McpServer", "Routine", "Task", "Type"]);
 
-async function shown(deps: StoreDeps, record: FullRecord, tops: readonly string[]) {
+async function shown(deps: StoreDeps, record: FullRecord, tops: readonly string[]): Promise<RecordFull> {
   const { status, changed } = await check(deps, record);
   const titles = async (ids: readonly string[]) => {
     const out: { id: string; title: string; type: string }[] = [];
@@ -56,7 +67,11 @@ export function recordRoutes(deps: AdminDeps): Hono {
   const allTops = async () => (await store.tops.list()).map((top) => top.id);
 
   /** With a team, a field changed since `baseVersion` comes back as a conflict; offline, the latest write wins. */
-  async function save(record: RecordInput, before: FullRecord | undefined, baseVersion: number) {
+  async function save(
+    record: RecordInput,
+    before: FullRecord | undefined,
+    baseVersion: number,
+  ): Promise<Saved | Conflict> {
     const storeDeps = await deps.storeDeps();
     const why = await refusal(store, record, before);
     if (why) throw new StoreUseError(`the record is refused: ${why}`);
@@ -72,7 +87,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
         const answer = await teamApi<{
           applied: { version: number }[];
           refused: { reason: string }[];
-          conflicts: { current: unknown }[];
+          conflicts: { current: TeamRecord }[];
         }>(team, "/api/changes", {
           body: { changes: [{ id: newId(), recordId: record.id, baseVersion, ...sent, check: true }] },
         });
@@ -99,7 +114,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
       tops: (await store.tops.list()).map((top) => ({
         ...top,
         records: stats.filter((row) => row.top === top.id).reduce((total, row) => total + row.records, 0),
-      })),
+      })) satisfies Top[],
     });
   });
 
@@ -109,7 +124,14 @@ export function recordRoutes(deps: AdminDeps): Hono {
     return c.json({
       pages: records
         .filter((record) => !MANAGED_ELSEWHERE.has(record.type))
-        .map(({ id, top, folder, title, type, updatedAt }) => ({ id, top, folder, title, type, updatedAt })),
+        .map(({ id, top, folder, title, type, updatedAt }) => ({
+          id,
+          top,
+          folder,
+          title,
+          type,
+          updatedAt,
+        })) satisfies PageRow[],
     });
   });
 
@@ -170,7 +192,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
         })
       ).records;
     }
-    return c.json({ records: records.filter((record) => tops.includes(record.top)) });
+    return c.json({ records: records.filter((record) => tops.includes(record.top)) satisfies RecordRow[] });
   });
 
   app.get("/records/:id", async (c) => {
@@ -186,12 +208,14 @@ export function recordRoutes(deps: AdminDeps): Hono {
     // The team store keeps a Me page sealed, so its versions say nothing: this machine's own do.
     if (team && (await store.records.get(id))?.top !== "me") {
       try {
-        return c.json(await teamApi(team, `/api/records/${encodeURIComponent(id)}/history`));
+        return c.json(
+          await teamApi<{ history: HistoryEntry[] }>(team, `/api/records/${encodeURIComponent(id)}/history`),
+        );
       } catch {
         // Offline, or a record that never reached the team store: the versions this machine kept.
       }
     }
-    return c.json({ history: await store.history.list(id) });
+    return c.json({ history: (await store.history.list(id)) satisfies HistoryEntry[] });
   });
 
   /** A stale anchor's file: the version the record was written from, and the one there is now. */
@@ -202,7 +226,11 @@ export function recordRoutes(deps: AdminDeps): Hono {
     if (!record || !anchor?.repoId) return c.json({ error: "no such file among the record's anchors" }, 404);
     const root = (await store.tops.get(repoTop(anchor.repoId)))?.root;
     if (!root) return c.json({ error: "this repository is not on this machine" }, 404);
-    return c.json({ path: file, before: await blobText(root, anchor.version), now: await repoText(root, file) });
+    return c.json({
+      path: file,
+      before: await blobText(root, anchor.version),
+      now: await repoText(root, file),
+    } satisfies FileVersions);
   });
 
   app.post("/records", async (c) => {

@@ -1,3 +1,4 @@
+import type { SharedNow } from "@grenier/core/api";
 import { StoreUseError } from "@grenier/index";
 import type { FullRecord } from "@grenier/store";
 import { Hono } from "hono";
@@ -58,7 +59,7 @@ export function installRoutes(deps: AdminDeps): Hono {
       body: String(input.description ?? "").trim(),
       fields: serverToShare(input),
     });
-    return c.json({ ...shared, title });
+    return c.json({ ...shared, title } satisfies SharedNow);
   });
 
   app.post("/installs/skill", async (c) => {
@@ -85,7 +86,7 @@ export function installRoutes(deps: AdminDeps): Hono {
       body: "",
       fields: { files: skill.files },
     });
-    return c.json({ ...shared, title: skill.name });
+    return c.json({ ...shared, title: skill.name } satisfies SharedNow);
   });
 
   app.post("/installs/share", async (c) => {
@@ -100,7 +101,7 @@ export function installRoutes(deps: AdminDeps): Hono {
       body: "",
       fields: { files: skill.files },
     });
-    return c.json({ ...shared, title: skill.name, files: Object.keys(skill.files).length });
+    return c.json({ ...shared, title: skill.name, files: Object.keys(skill.files).length } satisfies SharedNow);
   });
 
   app.get("/installs", async (c) => c.json({ shared: await sharedList(store) }));

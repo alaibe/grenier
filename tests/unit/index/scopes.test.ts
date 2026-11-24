@@ -1,6 +1,6 @@
 import { createMcpServer } from "@grenier/gateway";
 import { gitFiles } from "@grenier/git";
-import { placeOf, type Reader, remember } from "@grenier/index";
+import { type Reader, remember, resolveFolderPath } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -191,22 +191,22 @@ describe("what a read returns", () => {
 
 describe("folder paths", () => {
   it("name a top folder only among those the client reads, then the folders inside it", async () => {
-    expect(await placeOf(store, reader(["team"]), "Team/Decisions/2026")).toEqual({
+    expect(await resolveFolderPath(store, reader(["team"]), "Team/Decisions/2026")).toEqual({
       top: "team",
       folder: "Decisions/2026",
     });
-    await expect(placeOf(store, reader(["team"]), "leads")).rejects.toThrow("no top folder leads");
-    expect(await placeOf(store, reader(["team"]), "Me/Notes")).toEqual({ top: "me", folder: "Notes" });
-    await expect(placeOf(store, null, "Team")).rejects.toThrow("no top folder Team");
-    expect(await placeOf(store, reader(["*"]), "leads")).toEqual({ top: "top:leads", folder: "" });
-    await expect(placeOf(store, reader(["*"]), "Team/../up")).rejects.toThrow("cannot be named ..");
+    await expect(resolveFolderPath(store, reader(["team"]), "leads")).rejects.toThrow("no top folder leads");
+    expect(await resolveFolderPath(store, reader(["team"]), "Me/Notes")).toEqual({ top: "me", folder: "Notes" });
+    await expect(resolveFolderPath(store, null, "Team")).rejects.toThrow("no top folder Team");
+    expect(await resolveFolderPath(store, reader(["*"]), "leads")).toEqual({ top: "top:leads", folder: "" });
+    await expect(resolveFolderPath(store, reader(["*"]), "Team/../up")).rejects.toThrow("cannot be named ..");
   });
 
   it("asks for the id when two repositories share a folder name", async () => {
     for (const id of ["repo:a", "repo:b"]) {
       await store.tops.put({ id, name: "app", kind: "repo", repoId: id.slice(5), root: null });
     }
-    await expect(placeOf(store, null, "app")).rejects.toThrow("more than one top folder is named app");
-    expect(await placeOf(store, null, "repo:b/Proxy")).toEqual({ top: "repo:b", folder: "Proxy" });
+    await expect(resolveFolderPath(store, null, "app")).rejects.toThrow("more than one top folder is named app");
+    expect(await resolveFolderPath(store, null, "repo:b/Proxy")).toEqual({ top: "repo:b", folder: "Proxy" });
   });
 });

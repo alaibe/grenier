@@ -7,6 +7,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./api": "./src/api.ts",
     "./policy": "./src/policy.ts",
     "./records": "./src/records.ts",
     "./routines": "./src/routines.ts",

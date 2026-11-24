@@ -14,11 +14,12 @@ import {
   routineHash,
   toolsOf,
 } from "@grenier/core";
+import type { Availability } from "@grenier/core/api";
 import type { RunGuard } from "@grenier/gateway";
 import { newId, refusal, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
 import type { FullRecord, RecordInput, Session, Store } from "@grenier/store";
 import { LIBRARIAN, librarian } from "./librarian.ts";
-import { type Availability, availability, type Probes, systemProbes } from "./machine.ts";
+import { availability, type Probes, systemProbes } from "./machine.ts";
 import { newSessionId } from "./runtime.ts";
 
 export interface AgentResult {

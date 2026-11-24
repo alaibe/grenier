@@ -1,27 +1,9 @@
 import { hasPrompt, nextDue, ROUTINE_MODES, type RoutineMode, routineHash } from "@grenier/core";
+import type { RoutineView } from "@grenier/core/api";
 import { newRecord, type StoreDeps, write } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { Refusal } from "./io.ts";
 import { LIBRARIAN } from "./librarian.ts";
-
-export interface RoutineView {
-  id: string;
-  title: string;
-  top: string;
-  author: string;
-  trigger: string;
-  schedule: string | null;
-  repo: string | null;
-  /** Whether the routine's repository is on this machine. */
-  repoHere: boolean;
-  agent: string;
-  collector: boolean;
-  tools: string[];
-  /** What a run does: the routine's text. */
-  prompt: string;
-  /** How this machine's person approved it: its mode, and whether it changed since. */
-  approval: { mode: RoutineMode; limit: number; current: boolean } | null;
-}
 
 export async function routineViews(store: Store): Promise<RoutineView[]> {
   const tops = (await store.tops.list()).map((top) => top.id);

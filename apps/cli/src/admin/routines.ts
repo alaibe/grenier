@@ -1,4 +1,5 @@
 import { hasPrompt, type RoutineMode, routineHash } from "@grenier/core";
+import type { LocalRun } from "@grenier/core/api";
 import { StoreUseError } from "@grenier/index";
 import { Hono } from "hono";
 import { addLibrarian, addRoutine, approve, editRoutine, routineFromForm, routineViews } from "../routines.ts";
@@ -23,7 +24,7 @@ export function routineRoutes(deps: AdminDeps): Hono {
   };
 
   app.get("/routines", async (c) => c.json({ routines: await routineViews(store) }));
-  app.get("/runs", async (c) => c.json({ runs: await store.runs.list({ limit: 50 }) }));
+  app.get("/runs", async (c) => c.json({ runs: (await store.runs.list({ limit: 50 })) satisfies LocalRun[] }));
 
   app.post("/routines", async (c) => {
     if (!deps.team()) return c.json(noTeam, 409);

@@ -7,7 +7,6 @@ import {
   fileSummary,
   type Identity,
   needsConsent,
-  placeOf,
   query,
   type Reader,
   type Repo,
@@ -16,6 +15,7 @@ import {
   remember,
   repoMap,
   request,
+  resolveFolderPath,
   StoreUseError,
 } from "@grenier/index";
 import type { Store } from "@grenier/store";
@@ -153,12 +153,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
       answer(async () => {
         const store = await storeDeps();
         const client = await reader();
-        const place = input.folder ? await placeOf(store.store, client, input.folder) : null;
+        const resolved = input.folder ? await resolveFolderPath(store.store, client, input.folder) : null;
         const result = await recall(store, client, {
           query: input.query,
           repo: await deps.resolveRepo(input.repo),
           ...(input.type ? { type: input.type } : {}),
-          ...(place ? { top: place.top, folder: place.folder } : {}),
+          ...(resolved ? { top: resolved.top, folder: resolved.folder } : {}),
           ...(input.limit ? { limit: input.limit } : {}),
         });
         return deliver(store, result);
@@ -187,12 +187,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
       answer(async () => {
         const store = await storeDeps();
         const client = await reader();
-        const place = input.folder ? await placeOf(store.store, client, input.folder) : null;
+        const resolved = input.folder ? await resolveFolderPath(store.store, client, input.folder) : null;
         const result = await query(store, client, {
           ...(input.id ? { id: input.id } : {}),
           ...(input.title ? { title: input.title } : {}),
           ...(input.type ? { type: input.type } : {}),
-          ...(place ? { top: place.top, folder: place.folder } : {}),
+          ...(resolved ? { top: resolved.top, folder: resolved.folder } : {}),
           ...(input.fields ? { fields: input.fields } : {}),
           ...(input.linked_to ? { linkedTo: input.linked_to } : {}),
           ...(input.limit ? { limit: input.limit } : {}),
@@ -234,7 +234,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     async (input) =>
       answer(async () => {
         const client = await reader();
-        const place = input.folder ? await placeOf(deps.store, client, input.folder) : null;
+        const resolved = input.folder ? await resolveFolderPath(deps.store, client, input.folder) : null;
         const kind = input.kind ?? (input.fields?.kind as string | undefined) ?? "fact";
         const anchors = [
           ...(input.files ?? []).map(() => ({ kind: "git" as const })),
@@ -243,7 +243,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const aboutCode = !needsConsent({ type: input.type ?? "Memory", kind, anchors });
         // A run's output goes to its top folder; an answer about the code goes to its repository's, as anywhere else.
         const runTop = deps.runTop === "me" || !aboutCode ? deps.runTop : undefined;
-        if (!place && runTop && runTop !== "me" && (await deps.store.state.get("team_role")) === "member") {
+        if (!resolved && runTop && runTop !== "me" && (await deps.store.state.get("team_role")) === "member") {
           throw new StoreUseError(
             "the record is refused: a routine's run on a member's machine keeps only answers about the code, with the files they come from",
           );
@@ -258,7 +258,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
             ...(input.kind ? { kind: input.kind } : {}),
             ...(input.body ? { body: input.body } : {}),
             ...(input.fields ? { fields: input.fields } : {}),
-            ...(place ? { top: place.top, folder: place.folder } : runTop ? { top: runTop } : {}),
+            ...(resolved ? { top: resolved.top, folder: resolved.folder } : runTop ? { top: runTop } : {}),
             ...(input.files ? { files: input.files } : {}),
             ...(input.items ? { items: input.items } : {}),
             ...(input.links ? { links: input.links } : {}),

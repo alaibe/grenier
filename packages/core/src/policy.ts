@@ -180,7 +180,7 @@ function nonce(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** Records as they reach an MCP client: redacted, each body in a block its writer cannot close, and with `nameOf` naming top folders, each place as one path, "Team/Decisions". */
+/** Records as they reach an MCP client: redacted, each body in a block its writer cannot close, and with `nameOf` naming top folders, each folder as its folder path, "Team/Decisions". */
 export function untrusted<T extends { results?: Shown[]; records?: Shown[]; linked?: Shown[] }>(
   result: T,
   nameOf?: (top: string) => string,

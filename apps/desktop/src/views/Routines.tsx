@@ -1,6 +1,8 @@
+import type { LocalRun, MadeLink, Overview, RoutineView, Top } from "@grenier/core/api";
+import type { RoutineMode } from "@grenier/core/routines";
 import { useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api, type Overview, type Top } from "../api.ts";
+import { api } from "../api.ts";
 import {
   ago,
   Button,
@@ -20,41 +22,13 @@ import {
 } from "../ui.tsx";
 import { Requests } from "./Requests.tsx";
 
-type Mode = "read-only" | "shadow" | "limited" | "on";
-const MODES: Mode[] = ["read-only", "shadow", "limited", "on"];
-const MODE_SAYS: Record<Mode, string> = {
+const MODES: RoutineMode[] = ["read-only", "shadow", "limited", "on"];
+const MODE_SAYS: Record<RoutineMode, string> = {
   "read-only": "reads only",
   shadow: "says what it would do",
   limited: "acts, a set number of times a day",
   on: "acts within its tools",
 };
-
-interface RoutineView {
-  id: string;
-  title: string;
-  author: string;
-  trigger: string;
-  schedule: string | null;
-  repo: string | null;
-  repoHere: boolean;
-  agent: string;
-  collector: boolean;
-  tools: string[];
-  /** What a run does: the routine's text. */
-  prompt: string;
-  approval: { mode: Mode; limit: number; current: boolean } | null;
-}
-
-interface LocalRun {
-  id: string;
-  routineId: string;
-  trigger: string;
-  status: string;
-  startedAt: number;
-  endedAt: number | null;
-  actions: number;
-  result: string | null;
-}
 
 const load = () => api<{ routines: RoutineView[] }>("/routines").then((answer) => answer.routines);
 const loadRuns = () => api<{ runs: LocalRun[] }>("/runs").then((answer) => answer.runs);
@@ -193,7 +167,7 @@ function Webhook({ routine }: { routine: RoutineView }) {
         disabled={action.busy !== null}
         onClick={() =>
           void action.run("webhook", async () => {
-            const made = await api<{ path: string }>("/team/webhooks", { body: { routine: routine.id } });
+            const made = await api<MadeLink>("/team/webhooks", { body: { routine: routine.id } });
             setAddress(`${team.data?.team?.url ?? ""}${made.path}`);
             return undefined;
           })
@@ -220,7 +194,7 @@ export function Routines({ go, member }: ViewProps) {
   const team = useLoad(loadTeam);
   // Routines run on the team's machines: without a team there is nowhere to add one.
   const adding = !member && Boolean(team.data?.team);
-  const [modes, setModes] = useState<Record<string, Mode>>({});
+  const [modes, setModes] = useState<Record<string, RoutineMode>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const action = useAction(() => {
     routines.reload();
@@ -306,7 +280,7 @@ export function Routines({ go, member }: ViewProps) {
                 <Select
                   aria-label={`Mode of ${routine.title}`}
                   value={mode}
-                  onChange={(event) => setModes({ ...modes, [routine.id]: event.currentTarget.value as Mode })}
+                  onChange={(event) => setModes({ ...modes, [routine.id]: event.currentTarget.value as RoutineMode })}
                 >
                   {MODES.map((name) => (
                     <option key={name} value={name}>

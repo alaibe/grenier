@@ -1,5 +1,6 @@
 import { posix } from "node:path";
 import { secretIn } from "@grenier/core";
+import type { FoundServer, FoundSkill } from "@grenier/core/api";
 import { MAX_SKILL_BYTES, MAX_SKILL_FILES, type SkillFiles, skillField, skillFromFiles } from "./installs.ts";
 import { Refusal } from "./io.ts";
 
@@ -20,13 +21,6 @@ function reach(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promis
 }
 
 /** A skill skills.sh lists: `source` is the GitHub repository that holds it. */
-export interface FoundSkill {
-  id: string;
-  name: string;
-  source: string;
-  installs: number;
-}
-
 /** Skills on skills.sh that match the words; only the words are sent. */
 export async function searchSkills(words: string, fetchImpl: typeof fetch = fetch): Promise<FoundSkill[]> {
   const query = words.trim().slice(0, 200);
@@ -95,16 +89,6 @@ export async function fetchSkill(source: string, name: string, fetchImpl: typeof
 const REGISTRY = "https://registry.modelcontextprotocol.io/v0/servers";
 
 /** A server the MCP Registry lists, as the team would share it: pinned, with the names of the keys each person enters. */
-export interface FoundServer {
-  name: string;
-  title: string;
-  description: string;
-  version: string;
-  config: Record<string, unknown>;
-  credentials: string[];
-  website: string | null;
-}
-
 interface RegistryInput {
   name?: unknown;
   value?: unknown;

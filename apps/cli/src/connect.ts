@@ -78,7 +78,7 @@ export function withCodexServer(text: string, command: string, args: string[], e
   return [...all.slice(0, start), ...lines, ...all.slice(end)].join("\n");
 }
 
-/** Sets `mcpServers.grenier` in a client's JSON config, keeping every other key. */
+/** Sets `mcpServers.grenier` in an app's JSON config, keeping every other key. */
 export function withJsonServer(
   text: string,
   server: { command: string; args: string[]; env?: Record<string, string> },
@@ -89,7 +89,7 @@ export function withJsonServer(
     try {
       config = JSON.parse(text) as Record<string, unknown>;
     } catch {
-      throw new Refusal("the client's config file is not valid JSON; fix it or move it aside first");
+      throw new Refusal("the app's config file is not valid JSON; fix it or move it aside first");
     }
   }
   const servers = (config.mcpServers ?? {}) as Record<string, unknown>;

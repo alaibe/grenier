@@ -1,10 +1,11 @@
+import type { AppView, ClientMade, Clients } from "@grenier/core/api";
 import { addClient } from "@grenier/index";
 import { Hono } from "hono";
 import { APPS, type App, configPath, connectApp, connected, LABELS } from "../connect.ts";
 import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./body.ts";
 
-/** The apps on this computer Grenier can be added to, and the client tokens that read the store through MCP. */
+/** The apps on this computer Grenier can be added to, and the keys apps read the store with over MCP. */
 export function appRoutes(deps: AdminDeps): Hono {
   const { store, where } = deps;
   const app = new Hono();
@@ -15,7 +16,7 @@ export function appRoutes(deps: AdminDeps): Hono {
         app: name,
         label: LABELS[name],
         connected: connected(name, configPath(name, where.home, where.platform, where.env)),
-      })),
+      })) satisfies AppView[],
     }),
   );
 
@@ -35,7 +36,7 @@ export function appRoutes(deps: AdminDeps): Hono {
         .filter((client) => client.revokedAt === null)
         .map((client) => ({ name: client.name, scopes: client.scopes, createdAt: client.createdAt })),
       scopes: ["*", ...tops.map((top) => top.id)],
-    });
+    } satisfies Clients);
   });
 
   app.post("/clients", async (c) => {
@@ -45,13 +46,13 @@ export function appRoutes(deps: AdminDeps): Hono {
       : [];
     if (typeof body.name !== "string") return c.json({ error: "name is required" }, 400);
     const token = await addClient(store, body.name, scopes);
-    return c.json({ name: body.name, scopes, token }, 201);
+    return c.json({ name: body.name, scopes, token } satisfies ClientMade, 201);
   });
 
   app.post("/clients/:name/revoke", async (c) =>
     (await store.clients.revoke(c.req.param("name"), Date.now()))
       ? c.json({ revoked: c.req.param("name") })
-      : c.json({ error: `no active client named ${c.req.param("name")}` }, 404),
+      : c.json({ error: `no app named ${c.req.param("name")} reads Grenier` }, 404),
   );
 
   return app;

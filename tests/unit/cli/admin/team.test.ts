@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig } from "@grenier/core";
@@ -85,7 +85,7 @@ describe("joining a team from the app", () => {
     const paths = resolvePaths({ GRENIER_HOME: join(home, ".grenier") });
     const started: TeamClient[] = [];
     const route = testAdmin(store, home, {
-      config: { ...defaultConfig(), machine: { ...defaultConfig().machine, name: "bob-mbp" } },
+      config: () => ({ ...defaultConfig(), machine: { ...defaultConfig().machine, name: "bob-mbp" } }),
       fetch: workerFetch,
       joined: (team) => started.push(team),
     }).reply;
@@ -116,10 +116,66 @@ describe("joining a team from the app", () => {
     expect(await store.state.get("team_member")).toBe("bob");
   }, 30_000);
 
+  it("joins under the name this machine was given in Settings since the daemon started", async () => {
+    const admin = { authorization: `Bearer ${SETUP_TOKEN}`, "content-type": "application/json" };
+    const invite = (await (
+      await workerFetch("https://team.test/api/invites", {
+        method: "POST",
+        headers: admin,
+        body: JSON.stringify({ name: "bob" }),
+      })
+    ).json()) as { id: string; secret: string };
+    const route = testAdmin(store, home, { fetch: workerFetch }).reply;
+    expect(await route("PUT", "/machine", { rules: { name: "bob-studio" } })).toMatchObject({ status: 200 });
+
+    const asked = await route("POST", "/join", { link: `grenier://join/team.test/${invite.id}/${invite.secret}` });
+    const confirmed = await workerFetch("https://team.test/api/invites/confirm", {
+      method: "POST",
+      headers: admin,
+      body: JSON.stringify({ code: (asked.body as { code?: string }).code }),
+    });
+    expect(await confirmed.json()).toEqual({ joined: "bob", device: "bob-studio" });
+    const deadline = Date.now() + 10_000;
+    while (((await route("GET", "/join", undefined)).body as { state: string }).state === "waiting") {
+      if (Date.now() > deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }, 30_000);
+
   it("refuses what is not an invite link", async () => {
     const route = testAdmin(store, home, { fetch: workerFetch }).reply;
     expect(await route("POST", "/join", { link: "https://example.com" })).toMatchObject({ status: 400 });
     expect(await route("GET", "/join", undefined)).toEqual({ status: 200, body: { state: "idle" } });
     expect(await route("GET", "/elsewhere", undefined)).toEqual({ status: 404, body: { error: "no GET /elsewhere" } });
+  });
+});
+
+describe("deploying the team store from the app", () => {
+  it("sets it up under the name this machine was given in Settings since the daemon started", async () => {
+    const serverDir = join(home, "server");
+    mkdirSync(serverDir);
+    writeFileSync(join(serverDir, "server.js"), "export default {};");
+    let device: unknown = null;
+    const cloudflare = (async (input: string | URL, init: RequestInit = {}) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/setup") {
+        device = (JSON.parse(String(init.body)) as { device?: unknown }).device;
+        return Response.json({ member: "ada" }, { status: 201 });
+      }
+      const result = path.endsWith("/accounts")
+        ? [{ id: "acc1" }]
+        : path.endsWith("/workers/scripts")
+          ? []
+          : path.endsWith("/workers/subdomain")
+            ? { subdomain: "acme" }
+            : {};
+      return Response.json({ success: true, result });
+    }) as typeof fetch;
+    const route = testAdmin(store, home, { fetch: cloudflare, serverDir }).reply;
+    expect(await route("PUT", "/machine", { rules: { name: "ada-studio" } })).toMatchObject({ status: 200 });
+
+    const deployed = await route("POST", "/deploy", { token: "cf_token", name: "grenier-team", member: "ada" });
+    expect(deployed).toEqual({ status: 200, body: { url: "https://grenier-team.acme.workers.dev", created: true } });
+    expect(device).toBe("ada-studio");
   });
 });

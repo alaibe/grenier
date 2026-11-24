@@ -1,6 +1,20 @@
+import type {
+  Deployed,
+  Invite,
+  InviteMade,
+  Joining,
+  Machine,
+  MadeLink,
+  Member,
+  Overview,
+  Synced,
+  TeamMe,
+  TeamTop,
+  TeamUsage,
+} from "@grenier/core/api";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api, type Invite, type Joining, type Machine, type Member, type Overview, type TeamUsage } from "../api.ts";
+import { api } from "../api.ts";
 import {
   Actions,
   ago,
@@ -25,15 +39,8 @@ import {
   useLoad,
 } from "../ui.tsx";
 
-interface Me {
-  name: string;
-  role: "admin" | "member";
-  device: string;
-  deviceId: string;
-}
-
 const loadOverview = () => api<Overview>("/overview");
-const loadMe = () => api<Me>("/team/me");
+const loadMe = () => api<TeamMe>("/team/me");
 
 export function Team({ changed }: ViewProps) {
   const overview = useLoad(loadOverview);
@@ -43,7 +50,7 @@ export function Team({ changed }: ViewProps) {
     overview.reload();
     changed();
   };
-  if (!overview.data.team) return <Join joined={done} me={overview.data.me ?? ""} />;
+  if (!overview.data.team) return <Join joined={done} me={overview.data.me} />;
   return (
     <>
       {overview.data.outdated && (
@@ -54,7 +61,7 @@ export function Team({ changed }: ViewProps) {
           </p>
           <Deploy
             name={new URL(overview.data.team.url).hostname.split(".")[0] ?? "grenier-team"}
-            me={overview.data.me ?? ""}
+            me={overview.data.me}
             label="Update the team store"
             done={done}
           />
@@ -84,7 +91,7 @@ function Deploy({ name, me, label, done }: { name: string; me: string; label: st
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         void action.run("deploy", async () => {
-          const made = await api<{ url: string; created: boolean }>("/deploy", {
+          const made = await api<Deployed>("/deploy", {
             body: {
               token: String(form.get("token") ?? ""),
               name: String(form.get("name") ?? name),
@@ -226,7 +233,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
     const name = String(form.get("name") ?? "").trim();
     const role = String(form.get("role") ?? "member");
     void action.run("invite", async () => {
-      const made = await api<{ id: string; secret: string; member: string }>("/team/invites", {
+      const made = await api<InviteMade>("/team/invites", {
         body: { name, role },
       });
       setLink({ member: made.member, link: `grenier://join/${new URL(url).host}/${made.id}/${made.secret}` });
@@ -268,7 +275,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
             title="Sign a browser in to the team's web view, once, within 10 minutes"
             onClick={() =>
               void action.run("web", async () => {
-                setWeb(`${url}${(await api<{ path: string }>("/team/weblinks", { method: "POST" })).path}`);
+                setWeb(`${url}${(await api<MadeLink>("/team/weblinks", { method: "POST" })).path}`);
                 return undefined;
               })
             }
@@ -280,7 +287,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
             disabled={action.busy !== null}
             onClick={() =>
               void action.run("sync", async () => {
-                const done = await api<{ pushed: number; pulled: number }>("/sync", { method: "POST" });
+                const done = await api<Synced>("/sync", { method: "POST" });
                 return { text: `Synced: sent ${done.pushed}, took ${done.pulled}.` };
               })
             }
@@ -422,10 +429,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
 function Folders() {
   const tops = useLoad(
     useCallback(
-      () =>
-        api<{ tops: { id: string; kind: string; name?: string; members: string[] | null }[] }>("/team/tops").then(
-          (answer) => answer.tops.filter((top) => top.kind === "custom"),
-        ),
+      () => api<{ tops: TeamTop[] }>("/team/tops").then((answer) => answer.tops.filter((top) => top.kind === "custom")),
       [],
     ),
   );
@@ -436,7 +440,7 @@ function Folders() {
       {tops.data && tops.data.length > 0 && (
         <List className="mb-3">
           {tops.data.map((top) => (
-            <Row key={top.id} title={top.name ?? top.id} meta={top.members ? top.members.join(", ") : "everyone"} />
+            <Row key={top.id} title={top.name} meta={top.members ? top.members.join(", ") : "everyone"} />
           ))}
         </List>
       )}
@@ -471,7 +475,7 @@ function Folders() {
 }
 
 /** The team's machines; an admin removes any of them, a member their own. */
-function Machines({ me, removed }: { me: Me | null; removed: (self: boolean) => void }) {
+function Machines({ me, removed }: { me: TeamMe | null; removed: (self: boolean) => void }) {
   const machines = useLoad(
     useCallback(() => api<{ machines: Machine[] }>("/team/machines").then((a) => a.machines), []),
   );

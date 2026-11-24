@@ -1,6 +1,7 @@
+import type { Overview, PausedSession, ReportRow, SessionRow } from "@grenier/core/api";
 import { useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api, type Overview, type PausedSession, type ReportRow, type SessionRow } from "../api.ts";
+import { api } from "../api.ts";
 import {
   ago,
   Button,

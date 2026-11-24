@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, posix } from "node:path";
 import { recordProblem, secretIn, sharedHash } from "@grenier/core";
+import type { SharedState } from "@grenier/core/api";
 import { writeAtomically } from "@grenier/core/node";
 import { newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
 import type { Approval, FullRecord, Store } from "@grenier/store";
@@ -251,18 +252,6 @@ export async function rollback(store: Store, home: string, record: FullRecord): 
     return restored;
   }
   throw new Refusal(`the version installed before is not in this machine's history of ${record.title}`);
-}
-
-export interface SharedState {
-  id: string;
-  type: Shared;
-  title: string;
-  description: string;
-  author: string;
-  /** Installed as it is now, installed with a newer version waiting for approval, or not installed here. */
-  state: "installed" | "update" | "available";
-  credentials: string[];
-  canRollBack: boolean;
 }
 
 /** The team's skills and servers, and where this machine stands with each. */

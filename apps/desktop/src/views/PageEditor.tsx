@@ -1,5 +1,20 @@
+import type {
+  Conflict,
+  Created,
+  Editors,
+  FileVersions,
+  HistoryEntry,
+  Link,
+  LinkedRecord,
+  RecordFull,
+  RecordRow,
+  Saved,
+  TeamRecord,
+  Top,
+} from "@grenier/core/api";
+import { topName } from "@grenier/core/team";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, type HistoryEntry, type Link, type RecordFull, type RecordRow, type Top } from "../api.ts";
+import { ApiError, api } from "../api.ts";
 import { hunks, lineDiff } from "../diff.ts";
 import { Markdown } from "../markdown.tsx";
 import {
@@ -35,18 +50,18 @@ interface Draft {
 /** What a page editor opens: a page, or a new one in a folder. */
 export type Target = { id: string } | { top: string; folder: string };
 
-/** Where a page can go: the top of each top folder this machine writes to, and every folder in them. */
-export interface Place {
+/** Where a page can go: the top of a top folder this machine writes to, or a folder in it, with its folder path. */
+export interface FolderPath {
   top: string;
   folder: string;
   label: string;
 }
 
-export const placeKey = (place: { top: string; folder: string }) => `${place.top}\u0000${place.folder}`;
+export const folderPathKey = (path: { top: string; folder: string }) => `${path.top}\u0000${path.folder}`;
 
 export function PageEditor({
   target,
-  places,
+  folderPaths,
   tops,
   member,
   open,
@@ -54,7 +69,7 @@ export function PageEditor({
   closed,
 }: {
   target: Target;
-  places: Place[];
+  folderPaths: FolderPath[];
   tops: Top[];
   member: boolean;
   open: (id: string) => void;
@@ -71,7 +86,7 @@ export function PageEditor({
   const record = useLoad(load);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [base, setBase] = useState(0);
-  const [conflict, setConflict] = useState<RecordFull | null>(null);
+  const [conflict, setConflict] = useState<TeamRecord | null>(null);
   const action = useAction(() => {});
 
   useEffect(() => {
@@ -90,12 +105,12 @@ export function PageEditor({
       if (!draft) return { text: "Nothing to save." };
       try {
         if (!id) {
-          const created = await api<{ id: string }>("/records", { body: { ...draft, type: "Doc" } });
+          const created = await api<Created>("/records", { body: { ...draft, type: "Doc" } });
           changed();
           open(created.id);
           return { text: "Saved." };
         }
-        const saved = await api<{ waiting?: boolean; team?: boolean }>(`/records/${encodeURIComponent(id)}`, {
+        const saved = await api<Saved>(`/records/${encodeURIComponent(id)}`, {
           method: "PUT",
           body: { ...draft, baseVersion: version },
         });
@@ -107,7 +122,7 @@ export function PageEditor({
         return { text: saved.team ? "Saved here; it goes to the team at the next sync." : "Saved on this machine." };
       } catch (error) {
         if (error instanceof ApiError && error.status === 409 && error.body && typeof error.body === "object") {
-          const current = (error.body as { conflict?: RecordFull }).conflict;
+          const current = (error.body as Partial<Conflict>).conflict;
           if (current) {
             setConflict(current);
             return { text: "Someone changed this page since you opened it.", problem: true };
@@ -117,7 +132,7 @@ export function PageEditor({
       }
     });
 
-  const take = (theirs: RecordFull) => {
+  const take = (theirs: TeamRecord) => {
     setDraft({
       top: theirs.top,
       folder: theirs.folder,
@@ -139,10 +154,10 @@ export function PageEditor({
   const answer = record.data?.type === "Memory" && kindOf(from) === "repo";
   const writes = (top: string) => !member || kindOf(top) === "me" || (answer && top === from);
   const editable = writes(from);
-  const allowed = places.filter((place) => writes(place.top));
-  const choices = allowed.some((place) => placeKey(place) === placeKey(here))
+  const allowed = folderPaths.filter((path) => writes(path.top));
+  const choices = allowed.some((path) => folderPathKey(path) === folderPathKey(here))
     ? allowed
-    : [...allowed, { ...here, label: placeLabel(tops, draft.top, draft.folder) }];
+    : [...allowed, { ...here, label: folderPath(tops, draft.top, draft.folder) }];
   const kind =
     record.data && record.data.type !== "Doc"
       ? `${record.data.type}${record.data.kind ? ` · ${record.data.kind}` : ""} · `
@@ -156,15 +171,15 @@ export function PageEditor({
             className="mb-2 max-w-full text-sm"
             aria-label="Folder"
             disabled={!editable}
-            value={placeKey(here)}
+            value={folderPathKey(here)}
             onChange={(event) => {
-              const place = choices.find((entry) => placeKey(entry) === event.currentTarget.value);
-              if (place) set({ top: place.top, folder: place.folder });
+              const path = choices.find((entry) => folderPathKey(entry) === event.currentTarget.value);
+              if (path) set({ top: path.top, folder: path.folder });
             }}
           >
-            {choices.map((place) => (
-              <option key={placeKey(place)} value={placeKey(place)}>
-                {place.label}
+            {choices.map((path) => (
+              <option key={folderPathKey(path)} value={folderPathKey(path)}>
+                {path.label}
               </option>
             ))}
           </Select>
@@ -248,17 +263,10 @@ export function PageEditor({
   );
 }
 
-/** "Team / Decisions / 2026": a top folder's name, then the folder's path. */
-export function placeLabel(tops: Top[], top: string, folder: string): string {
-  return [topName(tops, top), ...(folder ? folder.split("/") : [])].join(" / ");
-}
-
-export function topName(tops: Top[], id: string): string {
-  const top = tops.find((entry) => entry.id === id);
-  if (!top) return id;
-  if (top.kind === "me") return "Me";
-  if (top.kind === "team") return "Team";
-  return top.name;
+/** A folder path as the editor shows it, "Team / Decisions / 2026": a top folder's name, then the folders in it. */
+export function folderPath(tops: Top[], top: string, folder: string): string {
+  const named = tops.find((entry) => entry.id === top);
+  return [named ? topName(named) : top, ...(folder ? folder.split("/") : [])].join(" / ");
 }
 
 /** The text: Markdown, with @ to link another page. */
@@ -415,10 +423,7 @@ function Anchors({ record }: { record: RecordFull }) {
 
 function FileDiff({ id, path }: { id: string; path: string }) {
   const load = useCallback(
-    () =>
-      api<{ before: string | null; now: string | null }>(
-        `/records/${encodeURIComponent(id)}/diff?path=${encodeURIComponent(path)}`,
-      ),
+    () => api<FileVersions>(`/records/${encodeURIComponent(id)}/diff?path=${encodeURIComponent(path)}`),
     [id, path],
   );
   const { data, error } = useLoad(load);
@@ -452,15 +457,7 @@ function FileDiff({ id, path }: { id: string; path: string }) {
   );
 }
 
-function Linked({
-  title,
-  items,
-  open,
-}: {
-  title: string;
-  items: { id: string; title: string; type: string }[];
-  open: (id: string) => void;
-}) {
+function Linked({ title, items, open }: { title: string; items: LinkedRecord[]; open: (id: string) => void }) {
   if (items.length === 0) return null;
   return (
     <Section title={title}>
@@ -542,12 +539,12 @@ function History({ id, restore }: { id: string; restore: (draft: Partial<Draft>)
 
 /** Who else has the record open, told every few seconds by the team store. */
 function Presence({ id }: { id: string }) {
-  const [others, setOthers] = useState<{ member: string; device: string }[]>([]);
+  const [others, setOthers] = useState<Editors["others"]>([]);
   useEffect(() => {
     let current = true;
     const tell = () => {
       if (document.hidden) return;
-      api<{ others: { member: string; device: string }[] }>(`/team/records/${encodeURIComponent(id)}/open`, {
+      api<Editors>(`/team/records/${encodeURIComponent(id)}/open`, {
         method: "PUT",
         body: {},
       })

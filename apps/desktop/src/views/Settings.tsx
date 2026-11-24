@@ -1,3 +1,4 @@
+import type { KeyState, ShownKey } from "@grenier/core/api";
 import { useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api, setUsageEnabled, usageEnabled } from "../api.ts";
@@ -19,20 +20,20 @@ import {
 } from "../ui.tsx";
 import { Machine } from "./Machine.tsx";
 
-export function Settings(props: ViewProps) {
+export function Settings(_: ViewProps) {
   return (
     <Page
       title="Settings"
       intro="This computer: when it takes the team's routine runs, your personal key, and usage statistics."
     >
-      <Machine {...props} />
+      <Machine />
       <PersonalKey />
       <UsageStatistics />
     </Page>
   );
 }
 
-const loadKeyState = () => api<{ unopened: number }>("/key");
+const loadKeyState = () => api<KeyState>("/key");
 
 /** The key that seals the Me folder: shown when asked, to put on this person's other machines. */
 function PersonalKey() {
@@ -63,7 +64,7 @@ function PersonalKey() {
               disabled={action.busy !== null}
               onClick={() =>
                 void action.run("show", async () => {
-                  setKey((await api<{ key: string }>("/key", { method: "POST" })).key);
+                  setKey((await api<ShownKey>("/key", { method: "POST" })).key);
                   return undefined;
                 })
               }
@@ -77,7 +78,7 @@ function PersonalKey() {
             event.preventDefault();
             const value = String(new FormData(event.currentTarget).get("key") ?? "");
             void action.run("set", async () => {
-              const saved = await api<{ unopened: number }>("/key", { method: "PUT", body: { key: value } });
+              const saved = await api<KeyState>("/key", { method: "PUT", body: { key: value } });
               setKey(null);
               return {
                 text:
@@ -124,7 +125,7 @@ function UsageStatistics() {
         <Card>
           <Checkbox
             label="Share anonymous usage statistics"
-            hint="Sends which screens you open, Grenier's version and your system to stats.laibe.cc, to count how Grenier is used. Nothing you write or read."
+            hint="Sends the name and address of each screen you open, your display's size, Grenier's version, your system's name and a random id to stats.laibe.cc, to count how Grenier is used. Nothing you write or read."
             checked={on}
             disabled={action.busy !== null}
             onChange={(event) => turn(event.currentTarget.checked)}

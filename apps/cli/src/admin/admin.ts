@@ -19,10 +19,8 @@ export interface AdminDeps {
   store: Store;
   prices: Prices;
   paths: GrenierPaths;
-  /** The config the daemon started with. */
-  config: Config;
-  /** The config as this machine's rules were last set. */
-  rules: () => Config;
+  /** The config as it is now: Settings changes this machine's rules in it while the daemon runs. */
+  config: () => Config;
   /** Called after the rules changed, so the daemon reads them again. */
   reloaded: (config: Config) => void;
   token: string;
@@ -39,6 +37,8 @@ export interface AdminDeps {
   where: Where;
   /** Reaches the team store, Cloudflare, skills.sh, GitHub and the MCP Registry; tests pass a stand-in. */
   fetch?: typeof fetch;
+  /** The built Worker a deploy uploads, dist/server beside the CLI's bundle; tests pass their own. */
+  serverDir?: string;
 }
 
 /** The desktop app's webview: Tauri serves it from these origins; the Vite dev server from the last. */

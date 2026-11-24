@@ -1,5 +1,6 @@
+import type { Overview } from "@grenier/core/api";
 import { type ComponentType, useEffect, useState } from "react";
-import { api, type Overview, sendPageView } from "./api.ts";
+import { api, sendPageView } from "./api.ts";
 import { useLoad } from "./ui.tsx";
 import { SCREENS, type ViewName } from "./usage/screens.ts";
 import { useUsage } from "./usage/use-usage.ts";

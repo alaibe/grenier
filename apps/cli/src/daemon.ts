@@ -156,8 +156,7 @@ export async function runDaemon(io: Io): Promise<number> {
     store,
     prices,
     paths,
-    config,
-    rules: () => rules,
+    config: () => rules,
     reloaded: (next) => {
       rules = next;
     },

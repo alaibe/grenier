@@ -1,8 +1,10 @@
+import type { PageRow, RecordRow, Top } from "@grenier/core/api";
+import { topName } from "@grenier/core/team";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api, type PageRow, type RecordRow, type Top } from "../api.ts";
+import { api } from "../api.ts";
 import { Empty, Input, Loading, Notice, useLoad } from "../ui.tsx";
-import { PageEditor, type Place, placeKey, placeLabel, type Target, topName } from "./Record.tsx";
+import { type FolderPath, folderPath, folderPathKey, PageEditor, type Target } from "./PageEditor.tsx";
 
 const loadTops = () => api<{ tops: Top[] }>("/tops").then((answer) => answer.tops);
 const loadPages = () => api<{ pages: PageRow[] }>("/pages").then((answer) => answer.pages);
@@ -100,13 +102,13 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
         })),
     [tops.data, pages.data],
   );
-  const places: Place[] = useMemo(
+  const folderPaths: FolderPath[] = useMemo(
     () =>
       trees.flatMap(({ top, tree }) =>
         ["", ...foldersIn(tree)].map((folder) => ({
           top: top.id,
           folder,
-          label: placeLabel(tops.data ?? [], top.id, folder),
+          label: folderPath(tops.data ?? [], top.id, folder),
         })),
       ),
     [trees, tops.data],
@@ -151,7 +153,7 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
                 key={top.id}
                 top={top}
                 tree={tree}
-                name={topName(tops.data ?? [], top.id)}
+                name={topName(top)}
                 unfolded={unfolded}
                 toggle={toggle}
                 current={openId}
@@ -166,9 +168,9 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
       <section className="min-w-0">
         {target ? (
           <PageEditor
-            key={"id" in target ? target.id : `new:${placeKey(target)}`}
+            key={"id" in target ? target.id : `new:${folderPathKey(target)}`}
             target={target}
-            places={places}
+            folderPaths={folderPaths}
             tops={tops.data}
             member={member}
             open={open}
@@ -519,7 +521,7 @@ function Found({
             onClick={() => open(page.id)}
           >
             <span className={`block truncate ${current === page.id ? "font-medium" : ""}`}>{page.title}</span>
-            <span className="block truncate text-sm text-muted">{placeLabel(tops, page.top, page.folder)}</span>
+            <span className="block truncate text-sm text-muted">{folderPath(tops, page.top, page.folder)}</span>
           </button>
         </li>
       ))}

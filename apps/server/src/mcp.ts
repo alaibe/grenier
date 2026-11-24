@@ -55,7 +55,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member, device: Dev
       .sql("SELECT id, name, kind FROM tops")
       .map((row) => [row.id as string, topName({ kind: row.kind as string, name: row.name as string })]),
   );
-  const place = (top: string) => (top.startsWith("me:") ? "Me" : (names.get(top) ?? top));
+  const nameOf = (top: string) => (top.startsWith("me:") ? "Me" : (names.get(top) ?? top));
   const shown = (record: StoredRecord) => ({
     id: record.id,
     type: record.type,
@@ -99,7 +99,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member, device: Dev
           Math.min(Number(args.limit ?? 5), 20),
         );
         return reply(
-          text(untrusted({ status: found.length ? "unchecked" : "miss", results: found.map(shown) }, place)),
+          text(untrusted({ status: found.length ? "unchecked" : "miss", results: found.map(shown) }, nameOf)),
         );
       }
       if (params.name === "query") {
@@ -125,7 +125,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member, device: Dev
               )
               .map((row) => team.record(row)),
           ].filter((record): record is StoredRecord => record !== undefined && tops.includes(record.top));
-          return reply(text(untrusted({ records: [shown(one)], linked: linked.map(shown) }, place)));
+          return reply(text(untrusted({ records: [shown(one)], linked: linked.map(shown) }, nameOf)));
         }
         const rows = team
           .sql(
@@ -136,7 +136,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member, device: Dev
           .map((row) => team.record(row))
           .filter((record) => tops.includes(record.top));
         return reply(
-          text(untrusted({ records: rows.slice(0, Math.min(Number(args.limit ?? 50), 200)).map(shown) }, place)),
+          text(untrusted({ records: rows.slice(0, Math.min(Number(args.limit ?? 50), 200)).map(shown) }, nameOf)),
         );
       }
       if (params.name === "request") {

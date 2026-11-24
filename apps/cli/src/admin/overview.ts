@@ -1,10 +1,11 @@
 import { TEAM_PROTOCOL } from "@grenier/core";
+import type { Overview, PausedSession, SessionRow } from "@grenier/core/api";
 import { buildReport, mostSpentFirst, type Prices, parseSince, projectOf } from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { Hono } from "hono";
 import type { AdminDeps } from "./admin.ts";
 
-function sessionReport(rows: readonly UsageWithSession[], prices: Prices) {
+function sessionReport(rows: readonly UsageWithSession[], prices: Prices): SessionRow[] {
   const sessions = new Map(rows.map((row) => [row.sessionId, row]));
   return buildReport(rows, "session", prices)
     .map((report) => {
@@ -39,7 +40,7 @@ export function overviewRoutes(deps: AdminDeps): Hono {
       role: team ? ((await store.state.get("team_role")) ?? null) : null,
       outdated: team ? Number((await store.state.get("team_protocol")) ?? TEAM_PROTOCOL) < TEAM_PROTOCOL : false,
       paused: (await store.sessions.paused()).length,
-    });
+    } satisfies Overview);
   });
 
   app.get("/sessions/paused", async (c) => {
@@ -50,7 +51,7 @@ export function overviewRoutes(deps: AdminDeps): Hono {
         client: session.client,
         repo: projectOf(session),
         pausedAt: loops.filter((event) => event.sessionId === session.id).at(-1)?.ts ?? null,
-      })),
+      })) satisfies PausedSession[],
     });
   });
 

@@ -1,64 +1,22 @@
-import { build } from "esbuild";
-import { convertV4MiniflareOptions, Miniflare } from "miniflare";
+import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { hash, SETUP_TOKEN } from "../../support/worker.ts";
+import { SETUP_TOKEN, startWorker } from "../../support/worker.ts";
 
-/** The team store with a clock each request can set ahead, by its `x-ahead` header. */
-const CLOCKED = `
-import worker, { TeamStore as Store } from "./apps/server/src/index.ts";
-const real = Date.now;
-let ahead = 0;
-Date.now = () => real() + ahead;
-export class TeamStore extends Store {
-  async fetch(request) {
-    ahead = Number(request.headers.get("x-ahead") ?? 0);
-    return super.fetch(request);
-  }
-}
-export default worker;
-`;
 const MINUTE = 60 * 1000;
 
 let mf: Miniflare;
+let worker: Awaited<ReturnType<typeof startWorker>>["call"];
 
 beforeEach(async () => {
-  const bundle = await build({
-    stdin: { contents: CLOCKED, resolveDir: new URL("../../../", import.meta.url).pathname, loader: "ts" },
-    bundle: true,
-    write: false,
-    platform: "neutral",
-    format: "esm",
-    target: "es2023",
-    external: ["cloudflare:workers"],
-    conditions: ["workerd", "worker", "browser"],
-    mainFields: ["module", "main"],
-    logLevel: "silent",
-  });
-  mf = new Miniflare(
-    convertV4MiniflareOptions({
-      modules: true,
-      script: bundle.outputFiles[0]?.text ?? "",
-      compatibilityDate: "2026-11-01",
-      durableObjects: { TEAM: { className: "TeamStore", useSQLite: true } },
-      bindings: { SETUP_HASH: hash(SETUP_TOKEN) },
-    }),
-  );
+  ({ mf, call: worker } = await startWorker({ clock: true }));
 }, 60_000);
 
 afterEach(async () => {
   await mf.dispose();
 });
 
-const call = async (path: string, init: { method?: string; body?: unknown; ahead?: number } = {}) =>
-  (await mf.dispatchFetch(`https://team.test${path}`, {
-    method: init.method ?? "POST",
-    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-    headers: {
-      authorization: `Bearer ${SETUP_TOKEN}`,
-      "content-type": "application/json",
-      "x-ahead": String(init.ahead ?? 0),
-    },
-  })) as unknown as Response;
+const call = (path: string, init: { method?: string; body?: unknown; ahead?: number } = {}) =>
+  worker(path, SETUP_TOKEN, { ...init, method: init.method ?? "POST", ahead: init.ahead ?? 0 });
 
 it("offers a declined request to the same machine again once its decline is 30 minutes old", async () => {
   expect((await call("/api/setup", { body: { member: "ada", device: "ada-mbp" } })).status).toBe(201);

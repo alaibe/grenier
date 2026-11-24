@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { joinCode, sha256 } from "@grenier/core";
+import type { Deployed, Joining, Synced } from "@grenier/core/api";
 import { type TeamClient, TeamError, teamApi } from "@grenier/index";
 import { Hono } from "hono";
 import { deployTeamStore } from "../deploy.ts";
@@ -8,15 +9,6 @@ import { deviceName, ensureBaseTops, ensurePersonalKey } from "../runtime.ts";
 import { newTeamToken, parseInvite, saveTeam } from "../team.ts";
 import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./body.ts";
-
-/** Where joining from the app stands: waiting for the admin to confirm the code, then joined or failed. */
-interface Joining {
-  state: "waiting" | "joined" | "failed";
-  code?: string;
-  error?: string;
-  url?: string;
-  member?: string;
-}
 
 /** The team store: its pages with this device's token, joining or deploying one, and a round of sync now. */
 export function teamRoutes(deps: AdminDeps): Hono {
@@ -34,7 +26,7 @@ export function teamRoutes(deps: AdminDeps): Hono {
   });
 
   /** Joining from the app: the link, then the code to read to the admin, then the wait for their confirmation. */
-  app.get("/join", (c) => c.json(joining ?? { state: "idle" }));
+  app.get("/join", (c) => c.json(joining ?? ({ state: "idle" } satisfies Joining)));
 
   app.post("/join", async (c) => {
     if (joining?.state === "waiting") return c.json({ error: "already waiting for a confirmation" }, 409);
@@ -56,7 +48,7 @@ export function teamRoutes(deps: AdminDeps): Hono {
       body: JSON.stringify({
         invite: invite.invite,
         secret: invite.secret,
-        device: deviceName(deps.config),
+        device: deviceName(deps.config()),
         tokenHash: hash,
         nonce,
       }),
@@ -101,9 +93,9 @@ export function teamRoutes(deps: AdminDeps): Hono {
     const deployed = await deployTeamStore(
       {
         paths: deps.paths,
-        config: deps.config,
+        config: deps.config(),
         store,
-        serverDir: fileURLToPath(new URL("./server/", import.meta.url)),
+        serverDir: deps.serverDir ?? fileURLToPath(new URL("./server/", import.meta.url)),
         inTeam: deps.team() !== null,
         ...(deps.fetch ? { fetch: deps.fetch } : {}),
       },
@@ -114,13 +106,15 @@ export function teamRoutes(deps: AdminDeps): Hono {
       },
     );
     if (deployed.team) deps.joined(deployed.team);
-    return c.json({ url: deployed.url, created: deployed.team !== null });
+    return c.json({ url: deployed.url, created: deployed.team !== null } satisfies Deployed);
   });
 
   app.post("/sync", async (c) => {
     if (!deps.team()) return c.json({ error: "this machine is in no team" }, 409);
     const result = await deps.sync();
-    return result ? c.json(result) : c.json({ error: "the sync failed: the daemon's log says why" }, 502);
+    return result
+      ? c.json(result satisfies Synced)
+      : c.json({ error: "the sync failed: the daemon's log says why" }, 502);
   });
 
   return app;

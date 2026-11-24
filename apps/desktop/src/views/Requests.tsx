@@ -1,6 +1,8 @@
+import type { RecordRow, Run } from "@grenier/core/api";
+import { taskFor } from "@grenier/core/routines";
 import { type FormEvent, useCallback } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api, type RecordRow, type Run } from "../api.ts";
+import { api } from "../api.ts";
 import { routineTitle, takesRequests } from "../requests.ts";
 import {
   Actions,
@@ -48,15 +50,11 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
+    const routine = requestable.find((entry) => entry.id === data.get("routine"));
+    if (!routine) return;
     void action.run("file", async () => {
       await api("/records", {
-        body: {
-          type: "Task",
-          top: "team",
-          title: String(data.get("title") ?? ""),
-          body: String(data.get("details") ?? ""),
-          fields: { status: "to-do", routine: String(data.get("routine") ?? "") },
-        },
+        body: taskFor(routine, String(data.get("title") ?? ""), String(data.get("details") ?? "")),
       });
       form.reset();
       return { text: "Filed. The first idle machine that allows this routine takes it." };

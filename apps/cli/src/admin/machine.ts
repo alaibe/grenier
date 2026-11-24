@@ -1,4 +1,5 @@
 import { type Config, ConfigError, open, seal, VaultError } from "@grenier/core";
+import type { KeyState, MachineState, ShownKey } from "@grenier/core/api";
 import { setRules } from "@grenier/core/node";
 import { rekeyed, teamApi, unopenedCount } from "@grenier/index";
 import { Hono } from "hono";
@@ -12,7 +13,7 @@ export function machineRoutes(deps: AdminDeps): Hono {
   const app = new Hono();
 
   app.get("/machine", async (c) =>
-    c.json({ rules: deps.rules().machine, running: runner.running, ...(await runner.state()) }),
+    c.json({ rules: deps.config().machine, running: runner.running, ...(await runner.state()) } satisfies MachineState),
   );
 
   app.put("/machine", async (c) => {
@@ -34,8 +35,8 @@ export function machineRoutes(deps: AdminDeps): Hono {
   });
 
   // The key is shown only when asked for, and never written anywhere but its own file.
-  app.get("/key", async (c) => c.json({ unopened: await unopenedCount(store) }));
-  app.post("/key", (c) => c.json({ key: ensurePersonalKey(paths) }));
+  app.get("/key", async (c) => c.json({ unopened: await unopenedCount(store) } satisfies KeyState));
+  app.post("/key", (c) => c.json({ key: ensurePersonalKey(paths) } satisfies ShownKey));
 
   app.put("/key", async (c) => {
     const key = String((await bodyOf(c)).key ?? "").trim();

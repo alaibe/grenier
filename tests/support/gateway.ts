@@ -104,6 +104,7 @@ export interface TestAdmin {
 /** The admin API mounted in the gateway as the daemon mounts it: `home` is the user's, with Grenier's in .grenier. */
 export function testAdmin(store: Store, home: string, deps: Partial<AdminDeps> = {}): TestAdmin {
   const config = defaultConfig();
+  let current = config;
   const paths = resolvePaths({ GRENIER_HOME: join(home, ".grenier") });
   ensureDirectories(paths);
   const upstream = fakeUpstream(() => new Response("{}"));
@@ -111,9 +112,10 @@ export function testAdmin(store: Store, home: string, deps: Partial<AdminDeps> =
     store,
     prices: loadPrices(),
     paths,
-    config,
-    rules: () => config,
-    reloaded: () => {},
+    config: () => current,
+    reloaded: (next) => {
+      current = next;
+    },
     token: ADMIN_TOKEN,
     version: "test",
     storeDeps: () => storeDeps(store),
