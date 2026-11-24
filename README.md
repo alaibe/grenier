@@ -31,3 +31,16 @@ To count what an agent costs, run it through Grenier:
 ```bash
 grenier run -- claude
 ```
+
+## Develop
+
+Node.js 22 (`.node-version`, the version the app bundles to run its daemon) and pnpm 10, Rust (`rust-toolchain.toml`)
+for the desktop app, and on Linux [Tauri's system libraries](https://v2.tauri.app/start/prerequisites/#linux)
+(WebKitGTK 4.1).
+
+```bash
+pnpm install
+cd apps/desktop && pnpm tauri dev    # builds the CLI and the daemon's sidecar first, then opens the app
+```
+
+`AGENTS.md` lists the checks every change passes.
