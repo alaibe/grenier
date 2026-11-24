@@ -2,7 +2,7 @@ import { redact } from "@grenier/core";
 import { describe, expect, it } from "vitest";
 
 describe("redact", () => {
-  it("removes valid IBANs, with or without spaces, and leaves look-alikes", () => {
+  it("removes valid IBANs, with or without tops, and leaves look-alikes", () => {
     expect(redact("Pay to FR76 3000 6000 0112 3456 7890 189 today")).toBe("Pay to [IBAN removed] today");
     expect(redact("IBAN: DE89370400440532013000.")).toBe("IBAN: [IBAN removed].");
     expect(redact("Order FR12 3456 7890 1234 5678 900 is not one")).toBe(

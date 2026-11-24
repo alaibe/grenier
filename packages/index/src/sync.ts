@@ -45,7 +45,7 @@ export async function teamApi<T>(
 /** A record as the team store sends it. */
 interface Remote {
   id: string;
-  space: string;
+  top: string;
   type: string;
   kind: string | null;
   title: string;
@@ -104,7 +104,7 @@ export interface SyncDeps {
   store: Store;
   team: TeamClient;
   embedder: Embedder | null;
-  /** The person's own key for the `me` space; without it, `me` records stay here. */
+  /** The person's own key for the `me` top folder; without it, `me` records stay here. */
   personalKey: string | null;
   now?: () => number;
 }
@@ -123,28 +123,48 @@ async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
     const change = entry.change as { changed: string[]; record: Record<string, unknown> };
     let record = change.record;
     let changed = change.changed;
-    if (record.space === "me") {
+    // Without its top folder, a change could be a `me` record leaving unsealed: it stays here.
+    if (typeof record.top !== "string") continue;
+    if (record.top === "me") {
       if (!deps.personalKey) continue;
       record = await sealRecord(deps.personalKey, record);
       changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
     } else {
       // Out of `me`, the team store holds only the sealed copy: every part goes again, in the clear.
-      if (changed.includes("space")) {
+      if (changed.includes("top")) {
         record = { ...record, sealed: null };
         changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
       }
-      const space = await deps.store.spaces.get(String(record.space));
-      if (space?.kind === "repo") record = { ...record, spaceName: space.name };
+      const top = await deps.store.tops.get(String(record.top));
+      if (top?.kind === "repo") record = { ...record, topName: top.name };
     }
     changes.push({ id: entry.id, recordId: entry.recordId, baseVersion: entry.baseVersion, changed, record });
   }
   return changes;
 }
 
+/** What this Grenier needs the team store to speak: 2 added folders, 3 named top folders. */
+export const TEAM_PROTOCOL = 3;
+
 /** Pushes this machine's changes, then pulls the store's since the last round; offline, it throws and loses nothing. */
 export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const { store, team } = deps;
   const result: SyncResult = { pushed: 0, refused: [], pulled: 0, unopened: 0 };
+
+  // An older store would drop what it does not know, and file a member-only folder's page under Team.
+  const me = await teamApi<{ me: string; name: string; role: string; protocol?: number }>(team, "/api/me");
+  await store.state.set("team_protocol", String(me.protocol ?? 1));
+  if ((me.protocol ?? 1) < TEAM_PROTOCOL) {
+    throw new TeamError(
+      "the team store is older than this Grenier: deploy it again (grenier team deploy), and sync waits until then",
+      426,
+      "the team store is older than this Grenier",
+    );
+  }
+  // The role too: an admin can change it at any time, and what this machine may write follows it.
+  await store.state.set("team_me_top", me.me);
+  await store.state.set("team_member", me.name);
+  await store.state.set("team_role", me.role);
 
   for (;;) {
     // Without the personal key, `me` changes wait here; they must not hold back the others.
@@ -169,7 +189,6 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
     if (answer.applied.length === 0) break;
   }
 
-  const me = await store.state.get("team_me_space");
   let cursor = Number((await store.state.get("team_cursor")) ?? 0);
   const waiting = new Set((await store.outbox.list()).map((entry) => entry.recordId));
   for (;;) {
@@ -177,28 +196,28 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
       records: Remote[];
       next: number;
       version: number;
-      spaces: { id: string; name: string; kind: "team" | "repo" | "custom"; repoId: string | null }[];
+      tops: { id: string; name: string; kind: "team" | "repo" | "custom"; repoId: string | null }[];
     }>(team, `/api/changes?after=${cursor}&limit=500`);
-    for (const space of page.spaces) {
-      if (space.id.startsWith("me:")) continue;
-      const local = await store.spaces.get(space.id);
-      await store.spaces.put({
-        id: space.id,
-        name: local?.name ?? space.name,
-        kind: space.kind,
-        repoId: space.repoId,
+    for (const top of page.tops) {
+      if (top.id.startsWith("me:")) continue;
+      const local = await store.tops.get(top.id);
+      await store.tops.put({
+        id: top.id,
+        name: local?.name ?? top.name,
+        kind: top.kind,
+        repoId: top.repoId,
         root: local?.root ?? null,
       });
     }
     for (let remote of page.records) {
       if (waiting.has(remote.id)) continue;
-      if (remote.space === me) {
+      if (remote.top === me.me) {
         if (!deps.personalKey) {
           result.unopened += 1;
           continue;
         }
         try {
-          remote = { ...(await openRecord(deps.personalKey, remote)), space: "me" };
+          remote = { ...(await openRecord(deps.personalKey, remote)), top: "me" };
         } catch (error) {
           if (!(error instanceof VaultError)) throw error;
           result.unopened += 1;

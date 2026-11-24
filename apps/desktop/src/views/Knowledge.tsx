@@ -1,10 +1,10 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api, type PageRow, type RecordRow, type Space } from "../api.ts";
+import { api, type PageRow, type RecordRow, type Top } from "../api.ts";
 import { Empty, Input, Loading, Notice, useLoad } from "../ui.tsx";
 import { PageEditor, type Place, placeKey, placeLabel, type Target, topName } from "./Record.tsx";
 
-const loadSpaces = () => api<{ spaces: Space[] }>("/spaces").then((answer) => answer.spaces);
+const loadTops = () => api<{ tops: Top[] }>("/tops").then((answer) => answer.tops);
 const loadPages = () => api<{ pages: PageRow[] }>("/pages").then((answer) => answer.pages);
 
 interface Folder {
@@ -79,12 +79,12 @@ function useFolding(): [(key: string) => boolean, (key: string, open?: boolean) 
   return [unfolded, fold];
 }
 
-const ORDER: Record<Space["kind"], number> = { me: 0, team: 1, repo: 2, custom: 3 };
+const ORDER: Record<Top["kind"], number> = { me: 0, team: 1, repo: 2, custom: 3 };
 
-const folderKey = (space: string, path: string) => `${space}/${path}`;
+const folderKey = (top: string, path: string) => `${top}/${path}`;
 
 export function Knowledge({ focus, changed, member }: ViewProps) {
-  const spaces = useLoad(loadSpaces);
+  const tops = useLoad(loadTops);
   const pages = useLoad(loadPages);
   const [target, setTarget] = useState<Target | null>(focus ? { id: focus } : null);
   const [words, setWords] = useState("");
@@ -92,24 +92,24 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
 
   const trees = useMemo(
     () =>
-      [...(spaces.data ?? [])]
+      [...(tops.data ?? [])]
         .sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || byName.compare(a.name, b.name))
-        .map((space) => ({
-          space,
-          tree: treeOf((pages.data ?? []).filter((page) => page.space === space.id)),
+        .map((top) => ({
+          top,
+          tree: treeOf((pages.data ?? []).filter((page) => page.top === top.id)),
         })),
-    [spaces.data, pages.data],
+    [tops.data, pages.data],
   );
   const places: Place[] = useMemo(
     () =>
-      trees.flatMap(({ space, tree }) =>
+      trees.flatMap(({ top, tree }) =>
         ["", ...foldersIn(tree)].map((folder) => ({
-          space: space.id,
+          top: top.id,
           folder,
-          label: placeLabel(spaces.data ?? [], space.id, folder),
+          label: placeLabel(tops.data ?? [], top.id, folder),
         })),
       ),
-    [trees, spaces.data],
+    [trees, tops.data],
   );
 
   // A page opened from elsewhere shows where it sits.
@@ -117,10 +117,10 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
   useEffect(() => {
     const page = pages.data?.find((entry) => entry.id === openId);
     if (!page) return;
-    toggle(folderKey(page.space, ""), true);
+    toggle(folderKey(page.top, ""), true);
     const names = page.folder ? page.folder.split("/") : [];
     for (let depth = 1; depth <= names.length; depth++)
-      toggle(folderKey(page.space, names.slice(0, depth).join("/")), true);
+      toggle(folderKey(page.top, names.slice(0, depth).join("/")), true);
   }, [openId, pages.data, toggle]);
 
   const open = (id: string) => setTarget({ id });
@@ -129,8 +129,8 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
     changed();
   };
 
-  if (spaces.error || pages.error) return <Notice message={spaces.error ?? pages.error} />;
-  if (!spaces.data || !pages.data) return <Loading what="Knowledge" />;
+  if (tops.error || pages.error) return <Notice message={tops.error ?? pages.error} />;
+  if (!tops.data || !pages.data) return <Loading what="Knowledge" />;
 
   return (
     <div className="grid grid-cols-[264px_minmax(0,1fr)] gap-8 max-md:grid-cols-1">
@@ -144,19 +144,19 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
         />
         <div className="mt-3">
           {words.trim().length >= 2 ? (
-            <Found words={words.trim()} pages={pages.data} spaces={spaces.data} open={open} current={openId} />
+            <Found words={words.trim()} pages={pages.data} tops={tops.data} open={open} current={openId} />
           ) : (
-            trees.map(({ space, tree }) => (
-              <Top
-                key={space.id}
-                space={space}
+            trees.map(({ top, tree }) => (
+              <TopFolder
+                key={top.id}
+                top={top}
                 tree={tree}
-                name={topName(spaces.data ?? [], space.id)}
+                name={topName(tops.data ?? [], top.id)}
                 unfolded={unfolded}
                 toggle={toggle}
                 current={openId}
                 open={open}
-                start={!member || space.kind === "me" ? (folder) => setTarget({ space: space.id, folder }) : null}
+                start={!member || top.kind === "me" ? (folder) => setTarget({ top: top.id, folder }) : null}
                 moved={reload}
               />
             ))
@@ -169,7 +169,7 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
             key={"id" in target ? target.id : `new:${placeKey(target)}`}
             target={target}
             places={places}
-            spaces={spaces.data}
+            tops={tops.data}
             member={member}
             open={open}
             changed={reload}
@@ -185,15 +185,15 @@ export function Knowledge({ focus, changed, member }: ViewProps) {
   );
 }
 
-const SAYS: Record<Space["kind"], string> = {
+const SAYS: Record<Top["kind"], string> = {
   me: "only you",
   team: "everyone",
   repo: "repository",
   custom: "some members",
 };
 
-function Top({
-  space,
+function TopFolder({
+  top,
   tree,
   name,
   unfolded,
@@ -203,7 +203,7 @@ function Top({
   start,
   moved,
 }: {
-  space: Space;
+  top: Top;
   tree: Folder;
   name: string;
   unfolded: (key: string) => boolean;
@@ -214,21 +214,21 @@ function Top({
   start: ((folder: string) => void) | null;
   moved: () => void;
 }) {
-  const shown = unfolded(folderKey(space.id, ""));
+  const shown = unfolded(folderKey(top.id, ""));
   return (
     <div className="mb-1">
       <Row
         depth={0}
         unfolded={shown}
-        onClick={() => toggle(folderKey(space.id, ""))}
+        onClick={() => toggle(folderKey(top.id, ""))}
         actions={start && <Actions start={() => start("")} add={(child) => start(child)} />}
       >
         <span className="font-semibold">{name}</span>
-        <span className="ml-1.5 text-xs text-muted">{SAYS[space.kind]}</span>
+        <span className="ml-1.5 text-xs text-muted">{SAYS[top.kind]}</span>
       </Row>
       {shown && (
         <Contents
-          space={space.id}
+          top={top.id}
           folder={tree}
           depth={1}
           unfolded={unfolded}
@@ -244,7 +244,7 @@ function Top({
 }
 
 function Contents({
-  space,
+  top,
   folder,
   depth,
   unfolded,
@@ -254,7 +254,7 @@ function Contents({
   start,
   moved,
 }: {
-  space: string;
+  top: string;
   folder: Folder;
   depth: number;
   unfolded: (key: string) => boolean;
@@ -277,7 +277,7 @@ function Contents({
       {folder.folders.map((child) => (
         <Subfolder
           key={child.path}
-          space={space}
+          top={top}
           folder={child}
           depth={depth}
           unfolded={unfolded}
@@ -306,7 +306,7 @@ function Contents({
 }
 
 function Subfolder({
-  space,
+  top,
   folder,
   depth,
   unfolded,
@@ -316,7 +316,7 @@ function Subfolder({
   start,
   moved,
 }: {
-  space: string;
+  top: string;
   folder: Folder;
   depth: number;
   unfolded: (key: string) => boolean;
@@ -327,7 +327,7 @@ function Subfolder({
   start: ((folder: string) => void) | null;
   moved: () => void;
 }) {
-  const key = folderKey(space, folder.path);
+  const key = folderKey(top, folder.path);
   const shown = unfolded(key);
   const [renaming, setRenaming] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -340,10 +340,10 @@ function Subfolder({
     if (name.includes("/")) return setProblem("A folder's name has no /.");
     const to = parent ? `${parent}/${name}` : name;
     try {
-      await api("/folders/move", { body: { space, from: folder.path, to } });
+      await api("/folders/move", { body: { top, from: folder.path, to } });
       setRenaming(false);
       setProblem(null);
-      toggle(folderKey(space, to), shown);
+      toggle(folderKey(top, to), shown);
       moved();
     } catch (error) {
       setProblem((error as Error).message);
@@ -388,7 +388,7 @@ function Subfolder({
       )}
       {shown && (
         <Contents
-          space={space}
+          top={top}
           folder={folder}
           depth={depth + 1}
           unfolded={unfolded}
@@ -488,13 +488,13 @@ function Actions({ start, add, rename }: { start: () => void; add: (name: string
 function Found({
   words,
   pages,
-  spaces,
+  tops,
   open,
   current,
 }: {
   words: string;
   pages: PageRow[];
-  spaces: Space[];
+  tops: Top[];
   open: (id: string) => void;
   current: string | null;
 }) {
@@ -519,7 +519,7 @@ function Found({
             onClick={() => open(page.id)}
           >
             <span className="block truncate">{page.title}</span>
-            <span className="block truncate text-xs text-muted">{placeLabel(spaces, page.space, page.folder)}</span>
+            <span className="block truncate text-xs text-muted">{placeLabel(tops, page.top, page.folder)}</span>
           </button>
         </li>
       ))}

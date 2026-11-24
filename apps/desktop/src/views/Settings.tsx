@@ -1,17 +1,11 @@
 import type { ViewProps } from "../App.tsx";
 import { setUsageEnabled, usageEnabled } from "../api.ts";
 import { Loading, Notice, Page, Part, useAction, useLoad } from "../ui.tsx";
-import { Clients } from "./Clients.tsx";
 import { Machine } from "./Machine.tsx";
-import { Servers } from "./Skills.tsx";
-import { Team } from "./Team.tsx";
 
 export function Settings(props: ViewProps) {
   return (
-    <Page title="Settings" intro="The team, the MCP servers it shares, the apps that read the store, and this machine.">
-      <Team {...props} />
-      <Servers go={props.go} />
-      <Clients {...props} />
+    <Page title="Settings" intro="This computer: when it takes the team's routine runs, and usage statistics.">
       <Machine {...props} />
       <UsageStatistics />
     </Page>

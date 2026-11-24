@@ -15,9 +15,9 @@ let bobStore: Store;
 const PERSON = { id: "p", name: "p", scopes: ["*"] };
 const KEY = newVaultKey();
 
-async function device(store: Store, member: string, meSpace: string): Promise<StoreDeps> {
+async function device(store: Store, member: string, meTop: string): Promise<StoreDeps> {
   await store.state.set("team_member", member);
-  await store.state.set("team_me_space", meSpace);
+  await store.state.set("team_me_top", meTop);
   return storeDeps(store, null, { member, device: `${member}-${Math.random().toString(36).slice(2, 6)}` });
 }
 
@@ -73,41 +73,41 @@ afterEach(async () => {
   await mf.dispose();
 });
 
-async function meSpace(team: TeamClient): Promise<string> {
+async function meTop(team: TeamClient): Promise<string> {
   const response = await workerFetch(`${team.url}/api/me`, { headers: { authorization: `Bearer ${team.token}` } });
   return ((await response.json()) as { me: string }).me;
 }
 
 describe("sync between machines", () => {
   it("brings a teammate's team record to another machine, and keeps a me record sealed to its person", async () => {
-    const adaDeps = await device(laptop, "ada", await meSpace(ada));
-    await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    const adaDeps = await device(laptop, "ada", await meTop(ada));
+    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
     await remember(adaDeps, PERSON, null, {
       kind: "convention",
       title: "Squash merges only",
       folder: "Engineering/Git",
-      space: "team",
+      top: "team",
     });
     await remember(adaDeps, PERSON, null, {
       kind: "fact",
       title: "My dentist is on Tuesday",
       folder: "Health/Appointments",
-      space: "me",
+      top: "me",
     });
     const pushed = await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
     expect(pushed.pushed).toBe(2);
     expect(await laptop.outbox.list()).toEqual([]);
 
-    const bobDeps = await device(bobStore, "bob", await meSpace(bob));
+    const bobDeps = await device(bobStore, "bob", await meTop(bob));
     const pulled = await syncOnce({ store: bobStore, team: bob, embedder: null, personalKey: null });
     expect(pulled.pulled).toBe(1);
     expect((await recall(bobDeps, PERSON, { query: "squash merges", repo: null })).results[0]?.author).toBe("ada");
-    expect((await bobStore.records.list({ spaces: ["team"] }))[0]?.folder).toBe("Engineering/Git");
+    expect((await bobStore.records.list({ tops: ["team"] }))[0]?.folder).toBe("Engineering/Git");
 
-    const deskDeps = await device(desktop, "ada", await meSpace(adaDesktop));
+    const deskDeps = await device(desktop, "ada", await meTop(adaDesktop));
     await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: KEY });
     const mine = await recall(deskDeps, PERSON, { query: "dentist Tuesday", repo: null });
-    expect(mine.results[0]).toMatchObject({ space: "me", title: "My dentist is on Tuesday" });
+    expect(mine.results[0]).toMatchObject({ top: "me", title: "My dentist is on Tuesday" });
     expect((await desktop.records.get(mine.results[0]?.id as string))?.folder).toBe("Health/Appointments");
 
     const stored = await workerFetch("https://team.test/api/changes?after=0", {
@@ -119,55 +119,95 @@ describe("sync between machines", () => {
   });
 
   it("shares a me record moved to the team in the clear", async () => {
-    const adaDeps = await device(laptop, "ada", await meSpace(ada));
-    await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-    const kept = await remember(adaDeps, PERSON, null, { kind: "fact", title: "Standup moves to ten", space: "me" });
+    const adaDeps = await device(laptop, "ada", await meTop(ada));
+    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    const kept = await remember(adaDeps, PERSON, null, { kind: "fact", title: "Standup moves to ten", top: "me" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
-    await remember(adaDeps, PERSON, null, { id: kept.id, kind: "fact", title: "Standup moves to ten", space: "team" });
+    await remember(adaDeps, PERSON, null, { id: kept.id, kind: "fact", title: "Standup moves to ten", top: "team" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
 
-    const bobDeps = await device(bobStore, "bob", await meSpace(bob));
+    const bobDeps = await device(bobStore, "bob", await meTop(bob));
     await syncOnce({ store: bobStore, team: bob, embedder: null, personalKey: null });
     const found = await recall(bobDeps, PERSON, { query: "standup ten", repo: null });
-    expect(found.results[0]).toMatchObject({ space: "team", title: "Standup moves to ten" });
+    expect(found.results[0]).toMatchObject({ top: "team", title: "Standup moves to ten" });
   });
 
   it("leaves a me record on the machine without the key, and says so", async () => {
-    const adaDeps = await device(laptop, "ada", await meSpace(ada));
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Private", space: "me" });
+    const adaDeps = await device(laptop, "ada", await meTop(ada));
+    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Private", top: "me" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
-    await device(desktop, "ada", await meSpace(adaDesktop));
+    await device(desktop, "ada", await meTop(adaDesktop));
     const result = await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: newVaultKey() });
     expect(result.unopened).toBe(1);
-    expect(await desktop.records.list({ spaces: ["me"] })).toEqual([]);
+    expect(await desktop.records.list({ tops: ["me"] })).toEqual([]);
   });
 
   it("keeps changes made offline and sends them at the next round", async () => {
-    const adaDeps = await device(laptop, "ada", await meSpace(ada));
-    await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    const adaDeps = await device(laptop, "ada", await meTop(ada));
+    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
     const offline: TeamClient = {
       ...ada,
       fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch,
     };
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Written on a train", space: "team" });
+    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Written on a train", top: "team" });
     await expect(syncOnce({ store: laptop, team: offline, embedder: null, personalKey: KEY })).rejects.toThrow(
       "offline",
     );
     expect(await laptop.outbox.list()).toHaveLength(1);
     expect((await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY })).pushed).toBe(1);
-    const record = (await laptop.records.list({ spaces: ["team"] }))[0];
+    const record = (await laptop.records.list({ tops: ["team"] }))[0];
     expect(record?.version).toBeGreaterThan(0);
   });
 
+  it("waits for a team store older than this Grenier to be deployed again, and sends nothing to it", async () => {
+    const adaDeps = await device(laptop, "ada", await meTop(ada));
+    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Squash merges only", top: "team" });
+    const older: TeamClient = {
+      ...ada,
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const response = await workerFetch(input, init);
+        if (!String(input).endsWith("/api/me")) return response;
+        const { protocol: _protocol, ...me } = (await response.json()) as Record<string, unknown>;
+        return Response.json(me);
+      }) as typeof fetch,
+    };
+    await expect(syncOnce({ store: laptop, team: older, embedder: null, personalKey: KEY })).rejects.toThrow(
+      "deploy it again",
+    );
+    expect(await laptop.outbox.list()).toHaveLength(1);
+    expect(await laptop.state.get("team_protocol")).toBe("1");
+  });
+
+  it("never sends a change that names no top folder: it could be a me record", async () => {
+    await device(laptop, "ada", await meTop(ada));
+    await laptop.outbox.add({
+      id: "o1",
+      recordId: "m1",
+      change: {
+        changed: ["title", "body"],
+        record: { id: "m1", type: "Memory", title: "My dentist", body: "Tuesday" },
+      },
+      baseVersion: 0,
+      createdAt: 1,
+    });
+    expect((await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY })).pushed).toBe(0);
+    expect(await laptop.outbox.list()).toHaveLength(1);
+    const stored = await workerFetch("https://team.test/api/changes?after=0", {
+      headers: { authorization: `Bearer ${ada.token}` },
+    });
+    expect(await stored.text()).not.toContain("dentist");
+  });
+
   it("keeps a change the team store refuses here, with why, and sends the others", async () => {
-    const adaDeps = await device(laptop, "ada", await meSpace(ada));
-    await laptop.spaces.put({ id: "space:gone", name: "gone", kind: "custom", repoId: null, root: null });
-    await laptop.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Nowhere", space: "space:gone" });
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Somewhere", space: "team" });
+    const adaDeps = await device(laptop, "ada", await meTop(ada));
+    await laptop.tops.put({ id: "top:gone", name: "gone", kind: "custom", repoId: null, root: null });
+    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Nowhere", top: "top:gone" });
+    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Somewhere", top: "team" });
     const result = await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
     expect(result.pushed).toBe(1);
-    expect(result.refused[0]?.reason).toContain("no space space:gone");
-    expect((await laptop.outbox.list())[0]?.refused).toContain("no space");
+    expect(result.refused[0]?.reason).toContain("no top folder top:gone");
+    expect((await laptop.outbox.list())[0]?.refused).toContain("no top");
   });
 });

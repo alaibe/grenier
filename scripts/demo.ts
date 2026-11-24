@@ -96,9 +96,9 @@ const anthony = await joinTeam("anthony", "anthony-mbp", "admin");
 await teamApi(marie, "/api/invites", { body: { name: "noor" } });
 
 const store: Store = openSqliteStore(join(home, "grenier.db"));
-await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-await store.spaces.put({
+await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
+await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+await store.tops.put({
   id: `repo:${repoIdentity}`,
   name: "checkout",
   kind: "repo",
@@ -107,7 +107,7 @@ await store.spaces.put({
 });
 const me = await teamApi<{ me: string }>(marie, "/api/me");
 await store.state.set("team_member", "marie");
-await store.state.set("team_me_space", me.me);
+await store.state.set("team_me_top", me.me);
 const personalKey = newVaultKey();
 writeFileSync(join(home, "personal.key"), `${personalKey}\n`, { mode: 0o600 });
 const deps: StoreDeps = {
@@ -124,7 +124,7 @@ async function record(input: Partial<RecordInput> & Pick<RecordInput, "type" | "
   const id = input.id ?? newId();
   const full: RecordInput = {
     id,
-    space: "team",
+    top: "team",
     kind: null,
     folder: "",
     body: "",
@@ -145,7 +145,7 @@ async function record(input: Partial<RecordInput> & Pick<RecordInput, "type" | "
     await write(deps, full);
     return id;
   }
-  const changed = ["space", "type", "kind", "title", "folder", "body", "fields", "anchors", "links"];
+  const changed = ["top", "type", "kind", "title", "folder", "body", "fields", "anchors", "links"];
   await teamApi(teammate, "/api/changes", {
     body: { changes: [{ id: newId(), recordId: id, baseVersion: 0, changed, record: full }] },
   });
@@ -224,7 +224,7 @@ await record({
   body: "## What happened\n\n## Why\n\n## What we change",
 });
 const retryAnswer = await record({
-  space: `repo:${repoIdentity}`,
+  top: `repo:${repoIdentity}`,
   type: "Memory",
   kind: "answer",
   title: "Where are failed payments retried?",
@@ -237,7 +237,7 @@ const retryAnswer = await record({
   links: [{ kind: "repo", ref: repoIdentity }, link(decision)],
 });
 const routing = await record({
-  space: `repo:${repoIdentity}`,
+  top: `repo:${repoIdentity}`,
   type: "Memory",
   kind: "answer",
   title: "How are requests routed?",
@@ -257,7 +257,7 @@ const cents = await record({
   body: "Amounts are integers in cents everywhere; `cents()` in src/money.ts converts at the edges.",
 });
 await record({
-  space: "me",
+  top: "me",
   type: "Memory",
   kind: "fact",
   title: "Review Léa's Apple Pay PR before Friday",
@@ -544,7 +544,7 @@ process.on("exit", () => {
   daemon.kill();
 });
 process.stdout.write(
-  `Grenier's demo: http://localhost:1420/demo#cost (or #knowledge, #knowledge/${project}, #routines, #skills, #settings). Ctrl-C stops it.\n`,
+  `Grenier's demo: http://localhost:1420/demo#knowledge (or #knowledge/${project}, #cost, #routines, #skills, #mcp, #team, #settings). Ctrl-C stops it.\n`,
 );
 await new Promise<void>((resolve) => {
   process.once("SIGINT", () => resolve());

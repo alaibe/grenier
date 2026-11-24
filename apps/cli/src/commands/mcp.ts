@@ -9,13 +9,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { version } from "../../package.json";
 import { embedderLoader, gitFiles, repoResolver } from "../exploration.ts";
 import { CommandError, environment, type Io, UsageError, withStore, writeAtomically } from "../io.ts";
-import { ensureBaseSpaces, identity } from "../runtime.ts";
+import { ensureBaseTops, identity } from "../runtime.ts";
 
 /** `grenier mcp serve`: the MCP server over stdio, for an agent that launches it in its working directory. */
 export async function serve(io: Io): Promise<number> {
   const { paths, config } = environment(io);
   const store = openSqliteStore(paths.db);
-  await ensureBaseSpaces(store);
+  await ensureBaseTops(store);
   const server = createMcpServer({
     store,
     files: gitFiles,
@@ -26,7 +26,7 @@ export async function serve(io: Io): Promise<number> {
     me: () => identity(store, config),
     version,
     ...(io.env.GRENIER_SESSION ? { sessionId: io.env.GRENIER_SESSION } : {}),
-    ...(io.env.GRENIER_RUN_SPACE ? { runSpace: io.env.GRENIER_RUN_SPACE } : {}),
+    ...(io.env.GRENIER_RUN_TOP ? { runTop: io.env.GRENIER_RUN_TOP } : {}),
   });
   const transport = new StdioServerTransport();
   const closed = new Promise<void>((resolve) => {
@@ -207,7 +207,7 @@ export async function install(
   const hooked = values.hook ? withPromptHook(settingsText, hook) : null;
 
   const token = await withStore(paths, async (store) => {
-    await ensureBaseSpaces(store);
+    await ensureBaseTops(store);
     // Checked before the old token goes, so a mistyped scope leaves the client working.
     await resolveScopes(store, scopes).catch((error: Error) => {
       throw new CommandError(error.message);
@@ -217,10 +217,10 @@ export async function install(
   });
   writeAtomically(path, configFor(token));
   const reads = scopes.includes("*")
-    ? "may read every space; install again with --scope <spaces> to narrow it"
+    ? "may read every top folder; install again with --scope <folders> to narrow it"
     : scopes.length > 0
       ? `may read ${scopes.join(", ")}`
-      : "reads the repositories' spaces only";
+      : "reads the repositories' folders only";
   const added = `Added Grenier's MCP server to ${path}, with a client token of its own that ${reads}.`;
   if (!values.hook) return `${added} Restart ${client} to load it.`;
 

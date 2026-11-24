@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, defaultConfig, pickVersion } from "@grenier/core";
-import { ensureRepoSpace, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
+import { ensureRepoTop, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import type { Miniflare } from "miniflare";
@@ -73,7 +73,7 @@ async function task(title: string, routine: string): Promise<string> {
   const id = `task-${title.replace(/\W+/g, "-")}`;
   await write(deps, {
     id,
-    space: "team",
+    top: "team",
     type: "Task",
     kind: null,
     title,
@@ -104,9 +104,9 @@ beforeEach(async () => {
   });
   team = { url: "https://team.test", token: SETUP_TOKEN, fetch: workerFetch };
   store = openSqliteStore(":memory:");
-  await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
   await store.state.set("team_member", "ada");
-  await store.state.set("team_me_space", "me:ada");
+  await store.state.set("team_me_top", "me:ada");
   deps = await storeDeps(store);
   calls = [];
   notices = [];
@@ -126,7 +126,7 @@ describe("a machine that takes the team's routine runs", () => {
       prompt: "Update the dependencies.",
       fields: { trigger: "request" },
       repo: null,
-      space: "team",
+      top: "team",
     });
     await task("Bump hono", routine.id);
     await newRunner().tick(true);
@@ -140,13 +140,13 @@ describe("a machine that takes the team's routine runs", () => {
     const repo = new TestRepo({ "router.ts": "export function route() {}\n" });
     try {
       await repo.ready();
-      await ensureRepoSpace(store, repo.repo);
+      await ensureRepoTop(store, repo.repo);
       const routine = await addRoutine(deps, {
         title: "Update dependencies",
         prompt: "Update the dependencies.",
         fields: { trigger: "request", tools: ["Edit", "Bash(pnpm test:*)"] },
         repo: repo.repo.id,
-        space: "team",
+        top: "team",
       });
       await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
       const id = await task("Bump hono", routine.id);
@@ -165,7 +165,7 @@ describe("a machine that takes the team's routine runs", () => {
       expect(call?.args[1]).toContain("Update the dependencies.");
       expect(call?.args[1]).toContain("Bump hono");
       expect(call?.env.ANTHROPIC_BASE_URL).toMatch(/^http:\/\/127\.0\.0\.1:7788\/s\//);
-      expect(call?.env.GRENIER_RUN_SPACE).toBe("team");
+      expect(call?.env.GRENIER_RUN_TOP).toBe("team");
 
       expect((await store.records.get(id))?.fields).toMatchObject({
         status: "done",
@@ -186,7 +186,7 @@ describe("a machine that takes the team's routine runs", () => {
       prompt: "Tidy up.",
       fields: { trigger: "request", tools: ["Edit"] },
       repo: null,
-      space: "team",
+      top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
     const id = await task("Tidy the readme", routine.id);
@@ -213,7 +213,7 @@ describe("a machine that takes the team's routine runs", () => {
       prompt: "Label them.",
       fields: { trigger: "request", tools: ["mcp__linear__update_issue"] },
       repo: null,
-      space: "team",
+      top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "limited", 2);
     await task("Label this week's", routine.id);
@@ -241,7 +241,7 @@ describe("a machine that takes the team's routine runs", () => {
       prompt: "Do it.",
       fields: { trigger: "request" },
       repo: "not-on-this-machine",
-      space: "team",
+      top: "team",
     });
     const record = (await store.records.get(routine.id)) as FullRecord;
     const version = pickVersion(record) as NonNullable<ReturnType<typeof pickVersion>>;
@@ -255,14 +255,14 @@ describe("a machine that takes the team's routine runs", () => {
       prompt: "Built in.",
       fields: { trigger: "request", builtin: LIBRARIAN },
       repo: null,
-      space: "team",
+      top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
     await task("Look through the store", routine.id);
     await store.state.set("team_role", "member");
     await newRunner().tick(true);
     expect(logs).toContainEqual(expect.stringContaining("an admin's machine runs it"));
-    expect(await store.records.list({ spaces: ["team"], type: "Suggestion" })).toEqual([]);
+    expect(await store.records.list({ tops: ["team"], type: "Suggestion" })).toEqual([]);
   });
 
   it("runs the librarian on an admin's machine, which suggests fixes instead of starting an agent", async () => {
@@ -271,7 +271,7 @@ describe("a machine that takes the team's routine runs", () => {
       prompt: "Built in.",
       fields: { trigger: "request", builtin: LIBRARIAN },
       repo: null,
-      space: "team",
+      top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
     for (const [id, updatedAt] of [
@@ -280,7 +280,7 @@ describe("a machine that takes the team's routine runs", () => {
     ] as const) {
       await write(deps, {
         id,
-        space: "team",
+        top: "team",
         type: "Doc",
         kind: null,
         title: "How to release",
@@ -301,7 +301,7 @@ describe("a machine that takes the team's routine runs", () => {
     await task("Look through the store", routine.id);
     await newRunner().tick(true);
     expect(calls).toEqual([]);
-    const suggestions = await store.records.list({ spaces: ["team"], type: "Suggestion" });
+    const suggestions = await store.records.list({ tops: ["team"], type: "Suggestion" });
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]?.fields).toMatchObject({ target: "old", change: { retire: true } });
   });

@@ -220,7 +220,7 @@ export function folderProblem(folder: string): string | null {
 }
 
 interface MemberChange {
-  space: string;
+  top: string;
   type: string;
   title: string;
   folder?: string;
@@ -245,12 +245,11 @@ export function memberMay(
   mine: string,
   ranIt: boolean,
 ): boolean {
-  if (after.space === mine && (!before || before.space === mine)) return true;
-  const answer = (record: { space: string; type: string }) =>
-    record.type === "Memory" && record.space.startsWith("repo:");
+  if (after.top === mine && (!before || before.top === mine)) return true;
+  const answer = (record: { top: string; type: string }) => record.type === "Memory" && record.top.startsWith("repo:");
   if (answer(after) && (!before || answer(before))) return true;
   if (before?.type !== "Task" || after.type !== "Task" || !ranIt) return false;
-  const kept = ["space", "title", "folder", "body", "retiredAt"] as const;
+  const kept = ["top", "title", "folder", "body", "retiredAt"] as const;
   if (kept.some((part) => (before[part] ?? null) !== (after[part] ?? null))) return false;
   const names = new Set([...Object.keys(before.fields), ...Object.keys(after.fields)]);
   return [...names].every(
@@ -308,7 +307,7 @@ export interface EvalCase {
   judge: "code" | "model" | "person";
 }
 
-export function repoSpace(repoId: string): string {
+export function repoTop(repoId: string): string {
   return `repo:${repoId}`;
 }
 

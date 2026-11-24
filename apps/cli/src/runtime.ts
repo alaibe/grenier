@@ -23,7 +23,7 @@ export async function identity(store: Store, config: Config): Promise<Identity> 
   return { member, device: deviceName(config) };
 }
 
-/** Where the person's own key for the `me` space is kept, readable by this user only. */
+/** Where the person's own key for the `me` top folder is kept, readable by this user only. */
 export function personalKeyFile(paths: GrenierPaths): string {
   return join(paths.home, "personal.key");
 }
@@ -42,10 +42,10 @@ export function ensurePersonalKey(paths: GrenierPaths): string {
   return key;
 }
 
-/** The `me` space, which every machine has, team or not. */
-export async function ensureBaseSpaces(store: Store): Promise<void> {
-  if (!(await store.spaces.get("me"))) {
-    await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
+/** The `me` top folder, which every machine has, team or not. */
+export async function ensureBaseTops(store: Store): Promise<void> {
+  if (!(await store.tops.get("me"))) {
+    await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
   }
 }
 
@@ -54,6 +54,6 @@ export async function storeDeps(
   config: Config,
   embedder: () => Promise<Embedder | null>,
 ): Promise<StoreDeps> {
-  await ensureBaseSpaces(store);
+  await ensureBaseTops(store);
   return { store, files: gitFiles, embedder: await embedder(), me: await identity(store, config) };
 }

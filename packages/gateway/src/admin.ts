@@ -9,6 +9,7 @@ import {
   retire,
   type StoreDeps,
   StoreUseError,
+  TEAM_PROTOCOL,
   type TeamClient,
   TeamError,
   teamApi,
@@ -66,17 +67,17 @@ function problem(status: number, message: string): Response {
   return Response.json({ error: message }, { status });
 }
 
-async function shown(deps: StoreDeps, record: FullRecord, spaces: readonly string[]) {
+async function shown(deps: StoreDeps, record: FullRecord, tops: readonly string[]) {
   const { status, changed } = await check(deps, record);
   const titles = async (ids: readonly string[]) => {
     const out: { id: string; title: string; type: string }[] = [];
     for (const id of ids) {
       const target = await deps.store.records.get(id);
-      if (target && spaces.includes(target.space)) out.push({ id, title: target.title, type: target.type });
+      if (target && tops.includes(target.top)) out.push({ id, title: target.title, type: target.type });
     }
     return out;
   };
-  const backlinks = await deps.store.records.list({ spaces, linkedTo: { kind: "record", ref: record.id } });
+  const backlinks = await deps.store.records.list({ tops, linkedTo: { kind: "record", ref: record.id } });
   return {
     ...record,
     status,
@@ -124,9 +125,9 @@ export function createAdmin(options: AdminOptions): Hono {
   });
 
   const deps = () => host.storeDeps();
-  /** The desktop app is the person: it reads every space this machine has. */
+  /** The desktop app is the person: it reads every top folder this machine has. */
   const everything = { id: "desktop", name: "desktop", scopes: ["*"] };
-  const allSpaces = async () => (await store.spaces.list()).map((space) => space.id);
+  const allTops = async () => (await store.tops.list()).map((top) => top.id);
 
   app.get("/health", (c) => c.json({ ...options.identity, version: options.version }));
 
@@ -147,62 +148,62 @@ export function createAdmin(options: AdminOptions): Hono {
     });
   });
 
-  app.get("/spaces", async (c) => {
+  app.get("/tops", async (c) => {
     const stats = await store.records.stats();
     return c.json({
-      spaces: (await store.spaces.list()).map((space) => ({
-        ...space,
-        records: stats.filter((row) => row.space === space.id).reduce((total, row) => total + row.records, 0),
+      tops: (await store.tops.list()).map((top) => ({
+        ...top,
+        records: stats.filter((row) => row.top === top.id).reduce((total, row) => total + row.records, 0),
       })),
     });
   });
 
   /** Knowledge's tree: every page but the records other screens manage. */
   app.get("/pages", async (c) => {
-    const records = await store.records.list({ spaces: await allSpaces(), limit: 100_000 });
+    const records = await store.records.list({ tops: await allTops(), limit: 100_000 });
     return c.json({
       pages: records
         .filter((record) => !MANAGED_ELSEWHERE.has(record.type))
-        .map(({ id, space, folder, title, type, updatedAt }) => ({ id, space, folder, title, type, updatedAt })),
+        .map(({ id, top, folder, title, type, updatedAt }) => ({ id, top, folder, title, type, updatedAt })),
     });
   });
 
-  /** Moves a folder and every page under it: `to` is the folder's new path, in `toSpace` or its own top folder. */
+  /** Moves a folder and every page under it: `to` is the folder's new path, in `toTop` or its own top folder. */
   app.post("/folders/move", async (c) => {
     const body = await c.req
-      .json<{ space?: unknown; from?: unknown; to?: unknown; toSpace?: unknown }>()
+      .json<{ top?: unknown; from?: unknown; to?: unknown; toTop?: unknown }>()
       .catch(() => ({}) as Record<string, unknown>);
-    const space = String(body.space ?? "");
+    const top = String(body.top ?? "");
     const from = String(body.from ?? "");
     const to = String(body.to ?? "");
-    const toSpace = typeof body.toSpace === "string" ? body.toSpace : space;
+    const toTop = typeof body.toTop === "string" ? body.toTop : top;
     if (from === "" || to === "") return problem(400, "a move names the folder and where it goes");
     const why = folderProblem(to);
     if (why) return problem(400, why);
-    if (toSpace === space && (to === from || to.startsWith(`${from}/`))) {
+    if (toTop === top && (to === from || to.startsWith(`${from}/`))) {
       return problem(400, "a folder cannot move into itself");
     }
-    if (toSpace !== "me" && !(await store.spaces.get(toSpace))) return problem(400, `there is no space ${toSpace}`);
-    const inside = (await store.records.list({ spaces: [space], limit: 100_000 })).filter(
+    if (toTop !== "me" && !(await store.tops.get(toTop))) return problem(400, `there is no top folder ${toTop}`);
+    const inside = (await store.records.list({ tops: [top], limit: 100_000 })).filter(
       (record) => record.folder === from || record.folder.startsWith(`${from}/`),
     );
     for (const before of inside) {
       const { seq: _seq, hits: _hits, ...current } = before;
       const folder = `${to}${before.folder.slice(from.length)}`;
-      const result = await save({ ...current, space: toSpace, folder, updatedAt: Date.now() }, before, before.version);
+      const result = await save({ ...current, top: toTop, folder, updatedAt: Date.now() }, before, before.version);
       if ("conflict" in result) return problem(409, `${before.title} changed meanwhile: move the folder again`);
     }
     return c.json({ moved: inside.length });
   });
 
   app.get("/types", async (c) => {
-    const custom = await store.records.list({ spaces: await allSpaces(), type: "Type" });
+    const custom = await store.records.list({ tops: await allTops(), type: "Type" });
     return c.json({ types: [...BUILTIN_TYPES, ...custom.map((record) => ({ ...customType(record), id: record.id }))] });
   });
 
   app.get("/records", async (c) => {
     const storeDeps = await deps();
-    const spaces = c.req.query("space") ? [c.req.query("space") as string] : await allSpaces();
+    const tops = c.req.query("top") ? [c.req.query("top") as string] : await allTops();
     const type = c.req.query("type");
     const words = c.req.query("q")?.trim();
     let records: Found[];
@@ -214,27 +215,27 @@ export function createAdmin(options: AdminOptions): Hono {
           limit: 20,
           count: false,
           ...(type ? { type } : {}),
-          ...(c.req.query("space") ? { space: c.req.query("space") as string } : {}),
+          ...(c.req.query("top") ? { top: c.req.query("top") as string } : {}),
         })
       ).results;
     } else {
       records = (
         await query(storeDeps, everything, {
           ...(type ? { type } : {}),
-          ...(c.req.query("space") ? { space: c.req.query("space") as string } : {}),
+          ...(c.req.query("top") ? { top: c.req.query("top") as string } : {}),
           ...(c.req.query("retired") === "1" ? { retired: true } : {}),
           limit: 200,
         })
       ).records;
     }
-    return c.json({ records: records.filter((record) => spaces.includes(record.space)) });
+    return c.json({ records: records.filter((record) => tops.includes(record.top)) });
   });
 
   app.get("/records/:id", async (c) => {
     const storeDeps = await deps();
     const record = await store.records.get(c.req.param("id"));
     if (!record) return problem(404, "no such record");
-    return c.json(await shown(storeDeps, record, await allSpaces()));
+    return c.json(await shown(storeDeps, record, await allTops()));
   });
 
   app.get("/records/:id/history", async (c) => {
@@ -253,14 +254,16 @@ export function createAdmin(options: AdminOptions): Hono {
   /** With a team, a field changed since `baseVersion` comes back as a conflict; offline, the latest write wins. */
   async function save(record: RecordInput, before: FullRecord | undefined, baseVersion: number) {
     const storeDeps = await deps();
-    const custom = (await store.records.list({ spaces: await allSpaces(), type: "Type" })).find(
+    const custom = (await store.records.list({ tops: await allTops(), type: "Type" })).find(
       (type) => type.title === record.type,
     );
     const why = recordProblem(record, builtinType(record.type) ?? (custom ? customType(custom) : undefined));
     if (why) throw new StoreUseError(`the record is refused: ${why}`);
     const team = host.team();
-    if (team && record.space !== "me" && (await store.spaces.get(record.space))?.kind !== undefined) {
-      const changed = ["space", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "links"].filter(
+    // Straight to the team store only once a sync found it speaks this Grenier's protocol; else it waits here.
+    const current = Number((await store.state.get("team_protocol")) ?? 0) >= TEAM_PROTOCOL;
+    if (team && current && record.top !== "me" && (await store.tops.get(record.top))?.kind !== undefined) {
+      const changed = ["top", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "links"].filter(
         (key) =>
           !before ||
           JSON.stringify((before as unknown as Record<string, unknown>)[key]) !==
@@ -294,11 +297,11 @@ export function createAdmin(options: AdminOptions): Hono {
     const storeDeps = await deps();
     const body = await c.req.json<Partial<RecordInput>>().catch(() => ({}) as Partial<RecordInput>);
     const now = Date.now();
-    const space = typeof body.space === "string" ? body.space : "team";
-    if (space !== "me" && !(await store.spaces.get(space))) return problem(400, `there is no space ${space}`);
+    const top = typeof body.top === "string" ? body.top : "team";
+    if (top !== "me" && !(await store.tops.get(top))) return problem(400, `there is no top folder ${top}`);
     const record: RecordInput = {
       id: newId(),
-      space,
+      top,
       type: typeof body.type === "string" ? body.type : "Doc",
       kind: typeof body.kind === "string" ? body.kind : body.type === "Memory" ? "fact" : null,
       title: String(body.title ?? "").trim(),
@@ -334,7 +337,7 @@ export function createAdmin(options: AdminOptions): Hono {
       ...(typeof body.body === "string" ? { body: body.body } : {}),
       ...(body.fields && typeof body.fields === "object" ? { fields: body.fields } : {}),
       ...(Array.isArray(body.links) ? { links: body.links } : {}),
-      ...(typeof body.space === "string" ? { space: body.space } : {}),
+      ...(typeof body.top === "string" ? { top: body.top } : {}),
       updatedAt: Date.now(),
     };
     if (record.type === "Memory") record.kind = String(record.fields.kind ?? record.kind ?? "fact");
@@ -379,12 +382,12 @@ export function createAdmin(options: AdminOptions): Hono {
   });
 
   app.get("/clients", async (c) => {
-    const spaces = await store.spaces.list();
+    const tops = await store.tops.list();
     return c.json({
       clients: (await store.clients.list())
         .filter((client) => client.revokedAt === null)
         .map((client) => ({ name: client.name, scopes: client.scopes, createdAt: client.createdAt })),
-      scopes: ["*", ...spaces.map((space) => space.id)],
+      scopes: ["*", ...tops.map((top) => top.id)],
     });
   });
 

@@ -1,5 +1,5 @@
 import { createMcpServer } from "@grenier/gateway";
-import { type Reader, remember } from "@grenier/index";
+import { placeOf, type Reader, remember } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,11 +16,11 @@ beforeEach(async () => {
   repo = new TestRepo({ "src/budget.ts": "export const review = () => 'Friday';\n" });
   await repo.ready();
   const deps = await storeDeps(store);
-  for (const space of ["team", "space:leads"]) {
-    await store.spaces.put({
-      id: space,
-      name: space,
-      kind: space === "team" ? "team" : "custom",
+  for (const top of ["team", "top:leads"]) {
+    await store.tops.put({
+      id: top,
+      name: top.replace(/^top:/, ""),
+      kind: top === "team" ? "team" : "custom",
       repoId: null,
       root: null,
     });
@@ -31,7 +31,7 @@ beforeEach(async () => {
       kind: "fact",
       title: "Budget review with Marie",
       body: "On Friday.",
-      space: "team",
+      top: "team",
     })
   ).id;
   ids.leads = (
@@ -39,7 +39,7 @@ beforeEach(async () => {
       kind: "fact",
       title: "Budget review salaries",
       body: "Friday, leads only.",
-      space: "space:leads",
+      top: "top:leads",
     })
   ).id;
   ids.me = (
@@ -47,7 +47,7 @@ beforeEach(async () => {
       kind: "fact",
       title: "Budget review notes for me",
       body: "Friday.",
-      space: "me",
+      top: "me",
     })
   ).id;
   ids.repo = (
@@ -87,6 +87,8 @@ const reader = (scopes: string[]): Reader => ({ id: `client-${scopes.join("-") |
 /** Every read tool, called so that it would return everything a full scope can see. */
 const READS = [
   { name: "recall", args: { query: "budget review Friday", limit: 20 } },
+  { name: "recall", args: { query: "budget review Friday", folder: "leads", limit: 20 } },
+  { name: "query", args: { type: "Memory", folder: "Me" } },
   { name: "query", args: { type: "Memory" } },
   { name: "query", args: { id: "" } },
   { name: "query", args: { title: "Budget review salaries" } },
@@ -118,8 +120,8 @@ describe("scopes, against every read tool", () => {
     ["a connection without a client", null, ["repo"]],
     ["a client scoped to team", reader(["team"]), ["team", "repo"]],
     ["a client scoped to me", reader(["me"]), ["me", "repo"]],
-    ["a client scoped to a custom space", reader(["space:leads"]), ["leads", "repo"]],
-    ["a client scoped to every space", reader(["*"]), ["team", "leads", "me", "repo"]],
+    ["a client scoped to a custom top", reader(["top:leads"]), ["leads", "repo"]],
+    ["a client scoped to every top", reader(["*"]), ["team", "leads", "me", "repo"]],
     ["a client with an empty scope", reader([]), ["repo"]],
   ];
   for (const [label, client, allowed] of cases) {
@@ -130,9 +132,9 @@ describe("scopes, against every read tool", () => {
     });
   }
 
-  it("lets a client replace only a record in a space it may write to", async () => {
+  it("lets a client replace only a record in a top it may write to", async () => {
     const client = await connect(reader(["team"]));
-    const replace = { id: ids.leads, kind: "fact", title: "Salaries are public now", space: "team" };
+    const replace = { id: ids.leads, kind: "fact", title: "Salaries are public now", folder: "Team" };
     expect((await client.callTool({ name: "remember", arguments: replace })).isError).toBe(true);
     expect((await store.records.get(ids.leads as string))?.title).toBe("Budget review salaries");
   });
@@ -164,5 +166,27 @@ describe("what a read returns", () => {
     const result = await client.callTool({ name: "recall", arguments: { query: "budget review Marie" } });
     const body = (result.structuredContent as { results: { body: string }[] }).results[0]?.body ?? "";
     expect(body).toMatch(/^<untrusted-data-[0-9a-f]{12} id="\w+" author="ada">\n/);
+  });
+});
+
+describe("folder paths", () => {
+  it("name a top folder only among those the client reads, then the folders inside it", async () => {
+    expect(await placeOf(store, reader(["team"]), "Team/Decisions/2026")).toEqual({
+      top: "team",
+      folder: "Decisions/2026",
+    });
+    await expect(placeOf(store, reader(["team"]), "leads")).rejects.toThrow("no top folder leads");
+    expect(await placeOf(store, reader(["team"]), "Me/Notes")).toEqual({ top: "me", folder: "Notes" });
+    await expect(placeOf(store, null, "Team")).rejects.toThrow("no top folder Team");
+    expect(await placeOf(store, reader(["*"]), "leads")).toEqual({ top: "top:leads", folder: "" });
+    await expect(placeOf(store, reader(["*"]), "Team/../up")).rejects.toThrow("cannot be named ..");
+  });
+
+  it("asks for the id when two repositories share a folder name", async () => {
+    for (const id of ["repo:a", "repo:b"]) {
+      await store.tops.put({ id, name: "app", kind: "repo", repoId: id.slice(5), root: null });
+    }
+    await expect(placeOf(store, null, "app")).rejects.toThrow("more than one top folder is named app");
+    expect(await placeOf(store, null, "repo:b/Proxy")).toEqual({ top: "repo:b", folder: "Proxy" });
   });
 });

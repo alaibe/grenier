@@ -13,8 +13,8 @@ const normal = (title: string) =>
 
 /** Files one Suggestion for each stale, duplicate or broken record and each request for a retired routine. */
 export async function librarian(deps: StoreDeps): Promise<{ suggested: number; lines: string[] }> {
-  const spaces = (await deps.store.spaces.list()).filter((space) => space.kind !== "me").map((space) => space.id);
-  const records = await deps.store.records.list({ spaces });
+  const tops = (await deps.store.tops.list()).filter((top) => top.kind !== "me").map((top) => top.id);
+  const records = await deps.store.records.list({ tops });
   const types = records.filter((record) => record.type === "Type");
   const open = new Set(
     records
@@ -36,7 +36,7 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
         });
       }
     }
-    const key = `${record.space}:${record.type}:${normal(record.title)}`;
+    const key = `${record.top}:${record.type}:${normal(record.title)}`;
     const twin = seen.get(key);
     if (twin) {
       const older =
@@ -71,7 +71,7 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
     open.add(`${finding.target.id}:${finding.reason}`);
     await write(deps, {
       id: newId(),
-      space: finding.target.space,
+      top: finding.target.top,
       type: "Suggestion",
       kind: null,
       title: `${finding.target.title}: ${finding.reason.split(":")[0]}`.slice(0, 300),

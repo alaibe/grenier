@@ -151,7 +151,7 @@ describe("client tokens from grenier mcp install", () => {
     );
     const config = JSON.parse(readFileSync(join(home, ".config", "Claude", "claude_desktop_config.json"), "utf8"));
     const first = config.mcpServers.grenier.env.GRENIER_CLIENT_TOKEN;
-    expect(await install(["claude-desktop"], io, { home, platform: "linux" })).toContain("may read every space");
+    expect(await install(["claude-desktop"], io, { home, platform: "linux" })).toContain("may read every top");
 
     const store = openSqliteStore(join(home, ".grenier", "grenier.db"));
     try {

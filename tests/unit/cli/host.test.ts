@@ -108,7 +108,7 @@ describe("the change to a file a record was written from", () => {
         title: "Where are requests routed?",
         body: "route() in router.ts.",
         files: ["router.ts"],
-        space: "me",
+        top: "me",
       });
       repo.write("router.ts", "export function route(path: string) {}\n");
       const diff = await anchorDiffs(store)("GET", `/records/${kept.id}/diff?path=router.ts`, undefined);

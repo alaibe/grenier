@@ -2,16 +2,17 @@ import {
   builtinType,
   copiedLines,
   customType,
+  folderProblem,
   MAX_CODE_LINES,
   MEMBER_WRITES,
   memberMay,
   recordProblem,
   redact,
-  repoSpace,
+  repoTop,
   sha256,
   type TypeDef,
 } from "@grenier/core";
-import type { FullRecord, Link, RecordInput, Space, Store } from "@grenier/store";
+import type { FullRecord, Link, RecordInput, Store, Top } from "@grenier/store";
 import { cosine, type Embedder } from "./embeddings.ts";
 
 /** A repository as the store knows it: where it is on this machine, and its id across machines. */
@@ -46,11 +47,11 @@ export interface StoreDeps {
   now?: () => number;
 }
 
-/** A client of the MCP server: its scope says which spaces it may read. */
+/** A client of the MCP server: its scope says which top folders it may read. */
 export interface Reader {
   id: string;
   name: string;
-  /** Space ids, or "*" for every space. */
+  /** Top folder ids, or "*" for every one. */
   scopes: readonly string[];
 }
 
@@ -83,26 +84,54 @@ export function newId(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** Every repository's space, plus those the reader's scope names; with no reader, repositories only. */
-export async function readable(store: Store, reader: Reader | null): Promise<Space[]> {
-  const all = await store.spaces.list();
+/** Every repository's top folder, plus those the reader's scope names; with no reader, repositories only. */
+export async function readable(store: Store, reader: Reader | null): Promise<Top[]> {
+  const all = await store.tops.list();
   if (reader?.scopes.includes("*")) return all;
-  return all.filter((space) => space.kind === "repo" || reader?.scopes.includes(space.id));
+  return all.filter((top) => top.kind === "repo" || reader?.scopes.includes(top.id));
 }
 
-export async function ensureRepoSpace(store: Store, repo: Repo): Promise<string> {
-  const id = repoSpace(repo.id);
+/** A top folder's name as people and agents write it: Me, Team, a repository's folder name, or a member-only one's. */
+export function topName(top: Pick<Top, "kind" | "name">): string {
+  if (top.kind === "me") return "Me";
+  if (top.kind === "team") return "Team";
+  return top.name;
+}
+
+/** "Team/Decisions/2026", or a top folder's id: its first part names Me, or a top folder this reader may read. */
+export async function placeOf(
+  store: Store,
+  reader: Reader | null,
+  path: string,
+): Promise<{ top: string; folder: string }> {
+  const [first = "", ...rest] = path.split("/").map((name) => name.trim());
+  // Me is always there to write in, as `remember` allows; reads still go through the reader's scope.
+  const me: Top = { id: "me", name: "me", kind: "me", repoId: null, root: null };
+  const tops = [me, ...(await readable(store, reader)).filter((top) => top.id !== "me")];
+  const named = tops.filter((top) => top.id === first || topName(top).toLowerCase() === first.toLowerCase());
+  if (named.length === 0) {
+    throw new StoreUseError(`no top folder ${first}: a path starts with one of ${tops.map(topName).join(", ")}`);
+  }
+  if (named.length > 1) throw new StoreUseError(`more than one top folder is named ${first}: start with its id`);
+  const folder = rest.join("/");
+  const problem = folderProblem(folder);
+  if (problem) throw new StoreUseError(problem);
+  return { top: (named[0] as Top).id, folder };
+}
+
+export async function ensureRepoTop(store: Store, repo: Repo): Promise<string> {
+  const id = repoTop(repo.id);
   const name = repo.root.split(/[\\/]/).filter(Boolean).at(-1) ?? repo.id.slice(0, 8);
-  const existing = await store.spaces.get(id);
-  await store.spaces.put({ id, name: existing?.name ?? name, kind: "repo", repoId: repo.id, root: repo.root });
+  const existing = await store.tops.get(id);
+  await store.tops.put({ id, name: existing?.name ?? name, kind: "repo", repoId: repo.id, root: repo.root });
   return id;
 }
 
 /** The type a record follows: a built-in one, or one an admin defined in a record of type Type. */
-export async function typeOf(store: Store, name: string, spaces: readonly string[]): Promise<TypeDef | undefined> {
+export async function typeOf(store: Store, name: string, tops: readonly string[]): Promise<TypeDef | undefined> {
   const builtin = builtinType(name);
   if (builtin) return builtin;
-  const defined = (await store.records.list({ spaces, type: "Type" })).find((record) => record.title === name);
+  const defined = (await store.records.list({ tops, type: "Type" })).find((record) => record.title === name);
   return defined ? customType(defined) : undefined;
 }
 
@@ -122,7 +151,7 @@ export async function check(deps: StoreDeps, record: FullRecord): Promise<Checke
   const byRepo = new Map<string, typeof git>();
   for (const anchor of git) byRepo.set(anchor.repoId ?? "", [...(byRepo.get(anchor.repoId ?? "") ?? []), anchor]);
   for (const [repoId, list] of byRepo) {
-    const root = (await deps.store.spaces.get(repoSpace(repoId)))?.root;
+    const root = (await deps.store.tops.get(repoTop(repoId)))?.root;
     if (!root) {
       unchecked = true;
       continue;
@@ -171,7 +200,9 @@ export interface Found {
   title: string;
   body: string;
   fields: Record<string, unknown>;
-  space: string;
+  top: string;
+  /** Where it sits in its top folder. */
+  folder: string;
   author: string;
   updatedAt: number;
   status: Status;
@@ -191,7 +222,8 @@ async function found(deps: StoreDeps, record: FullRecord, similarity?: number): 
     title: record.title,
     body: record.body,
     fields: record.fields,
-    space: record.space,
+    top: record.top,
+    folder: record.folder,
     author: record.author,
     updatedAt: record.updatedAt,
     status,
@@ -209,16 +241,29 @@ export interface RecallResult {
 }
 
 /** Full-text and vector search fused by rank; a `hit` on the best one counts as a reuse unless `count` is false. */
+/** Whether a record sits in `folder` or below it; every record does for an empty folder. */
+export function inFolder(record: { folder: string }, folder: string | undefined): boolean {
+  return !folder || record.folder === folder || record.folder.startsWith(`${folder}/`);
+}
+
 export async function recall(
   deps: StoreDeps,
   reader: Reader | null,
-  input: { query: string; repo: Repo | null; type?: string; space?: string; limit?: number; count?: boolean },
+  input: {
+    query: string;
+    repo: Repo | null;
+    type?: string;
+    top?: string;
+    folder?: string;
+    limit?: number;
+    count?: boolean;
+  },
 ): Promise<RecallResult> {
-  if (input.repo) await ensureRepoSpace(deps.store, input.repo);
-  let spaces = (await readable(deps.store, reader)).map((space) => space.id);
-  if (input.space) spaces = spaces.filter((space) => space === input.space);
-  const here = input.repo ? repoSpace(input.repo.id) : null;
-  const linkedRepos = here ? await projectRepos(deps.store, spaces, input.repo?.id as string) : new Set<string>();
+  if (input.repo) await ensureRepoTop(deps.store, input.repo);
+  let tops = (await readable(deps.store, reader)).map((top) => top.id);
+  if (input.top) tops = tops.filter((top) => top === input.top);
+  const here = input.repo ? repoTop(input.repo.id) : null;
+  const linkedRepos = here ? await projectRepos(deps.store, tops, input.repo?.id as string) : new Set<string>();
 
   const words = terms(input.query);
   const candidates = new Map<string, number>();
@@ -232,7 +277,7 @@ export async function recall(
     return records.get(id);
   };
 
-  for (const [rank, match] of (await deps.store.records.search(words, spaces, 30)).entries()) {
+  for (const [rank, match] of (await deps.store.records.search(words, tops, 30)).entries()) {
     const record = await load(match.id);
     if (!record) continue;
     const asked = new Set(words.map(stem));
@@ -248,7 +293,7 @@ export async function recall(
   if (deps.embedder) {
     const [query] = await deps.embedder.embed([input.query]);
     if (query) {
-      const scored = (await deps.store.records.vectors(spaces, deps.embedder.model))
+      const scored = (await deps.store.records.vectors(tops, deps.embedder.model))
         .map(({ id, vector }) => ({ id, similarity: cosine(query, vector) }))
         .sort((a, b) => b.similarity - a.similarity);
       for (const { id, similarity } of scored) similarities.set(id, similarity);
@@ -256,13 +301,13 @@ export async function recall(
     }
   }
 
-  const nearness = (space: string) =>
-    space === here ? 3 : linkedRepos.has(space) ? 2 : space === "team" ? 1 : space === "me" ? 0.5 : 0;
+  const nearness = (top: string) =>
+    top === here ? 3 : linkedRepos.has(top) ? 2 : top === "team" ? 1 : top === "me" ? 0.5 : 0;
   const ranked: { id: string; score: number }[] = [];
   for (const [id, score] of candidates) {
     const record = await load(id);
-    if (!record || (input.type && record.type !== input.type)) continue;
-    ranked.push({ id, score: score * (1 + nearness(record.space) / 10) });
+    if (!record || (input.type && record.type !== input.type) || !inFolder(record, input.folder)) continue;
+    ranked.push({ id, score: score * (1 + nearness(record.top) / 10) });
   }
   const closeness = (id: string) => similarities.get(id) ?? -1;
   ranked.sort((a, b) => b.score - a.score || closeness(b.id) - closeness(a.id));
@@ -276,12 +321,12 @@ export async function recall(
   return { status: best?.status ?? "miss", results };
 }
 
-/** The other repositories' spaces of the projects that link this one. */
-async function projectRepos(store: Store, spaces: readonly string[], repoId: string): Promise<Set<string>> {
-  const projects = await store.records.list({ spaces, type: "Project", linkedTo: { kind: "repo", ref: repoId } });
+/** The top folders of the other repositories of the projects that link this one. */
+async function projectRepos(store: Store, tops: readonly string[], repoId: string): Promise<Set<string>> {
+  const projects = await store.records.list({ tops, type: "Project", linkedTo: { kind: "repo", ref: repoId } });
   const repos = new Set<string>();
   for (const project of projects) {
-    for (const link of project.links) if (link.kind === "repo" && link.ref !== repoId) repos.add(repoSpace(link.ref));
+    for (const link of project.links) if (link.kind === "repo" && link.ref !== repoId) repos.add(repoTop(link.ref));
   }
   return repos;
 }
@@ -299,30 +344,31 @@ export async function query(
     id?: string;
     title?: string;
     type?: string;
-    space?: string;
+    top?: string;
+    folder?: string;
     fields?: Record<string, string>;
     linkedTo?: { kind: Link["kind"]; ref: string };
     retired?: boolean;
     limit?: number;
   },
 ): Promise<QueryResult> {
-  let spaces = (await readable(deps.store, reader)).map((space) => space.id);
-  if (input.space) spaces = spaces.filter((space) => space === input.space);
+  let tops = (await readable(deps.store, reader)).map((top) => top.id);
+  if (input.top) tops = tops.filter((top) => top === input.top);
   const limit = Math.min(input.limit ?? 50, 200);
 
   if (input.id || input.title) {
     const one = input.id
       ? await deps.store.records.get(input.id)
-      : (await deps.store.records.list({ spaces, ...(input.type ? { type: input.type } : {}) })).find(
+      : (await deps.store.records.list({ tops, ...(input.type ? { type: input.type } : {}) })).find(
           (record) => record.title.toLowerCase() === input.title?.trim().toLowerCase(),
         );
-    if (!one || !spaces.includes(one.space)) return { records: [] };
+    if (!one || !tops.includes(one.top)) return { records: [] };
     const outgoing: FullRecord[] = [];
     for (const link of one.links.filter((entry) => entry.kind === "record")) {
       const target = await deps.store.records.get(link.ref);
-      if (target && spaces.includes(target.space) && target.retiredAt === null) outgoing.push(target);
+      if (target && tops.includes(target.top) && target.retiredAt === null) outgoing.push(target);
     }
-    const incoming = await deps.store.records.list({ spaces, linkedTo: { kind: "record", ref: one.id } });
+    const incoming = await deps.store.records.list({ tops, linkedTo: { kind: "record", ref: one.id } });
     const linked = [...outgoing, ...incoming.filter((record) => !outgoing.some((o) => o.id === record.id))];
     return {
       records: [await found(deps, one)],
@@ -331,14 +377,16 @@ export async function query(
   }
 
   const listed = await deps.store.records.list({
-    spaces,
+    tops,
     ...(input.type ? { type: input.type } : {}),
     ...(input.linkedTo ? { linkedTo: input.linkedTo } : {}),
     ...(input.retired ? { retired: true } : {}),
     limit: 1000,
   });
-  const matching = listed.filter((record) =>
-    Object.entries(input.fields ?? {}).every(([name, value]) => String(record.fields[name] ?? "") === value),
+  const matching = listed.filter(
+    (record) =>
+      inFolder(record, input.folder) &&
+      Object.entries(input.fields ?? {}).every(([name, value]) => String(record.fields[name] ?? "") === value),
   );
   return { records: await Promise.all(matching.slice(0, limit).map((record) => found(deps, record))) };
 }
@@ -347,12 +395,12 @@ export interface RememberInput {
   type?: string;
   kind?: string;
   title: string;
-  /** Where it sits in its space; a replaced record keeps its own. */
+  /** Where it sits in its top folder; a replaced record keeps its own. */
   folder?: string;
   body?: string;
   fields?: Record<string, unknown>;
-  /** By default the repository's space for what is about its code, else `team` when writable, else `me`. */
-  space?: string;
+  /** By default the repository's top folder for what is about its code, else `team` when writable, else `me`. */
+  top?: string;
   /** Every file it was worked out from, in the repository the agent is in. */
   files?: readonly string[];
   /** Outside items it came from, as `{ ref: "linear:acme/LIN-123", version: "2026-11-20T10:00:00Z" }`. */
@@ -370,7 +418,7 @@ export type AskConsent = (record: {
   type: string;
   title: string;
   body: string;
-  space: string;
+  top: string;
 }) => Promise<Consent | null>;
 
 export function needsConsent(record: { type: string; kind?: string | null; anchors: FullRecord["anchors"] }): boolean {
@@ -389,7 +437,7 @@ export async function remember(
   repo: Repo | null,
   input: RememberInput,
   ask?: AskConsent,
-): Promise<{ id: string; space: string; status: "kept" | "kept in me" }> {
+): Promise<{ id: string; top: string; status: "kept" | "kept in me" }> {
   const now = (deps.now ?? Date.now)();
   const type = input.type ?? "Memory";
   const kind = type === "Memory" ? (input.kind ?? (input.fields?.kind as string | undefined) ?? "fact") : null;
@@ -418,24 +466,23 @@ export async function remember(
     throw new StoreUseError("list the files (or items) the answer was worked out from");
   }
 
-  if (repo) await ensureRepoSpace(deps.store, repo);
-  const writable = (await readable(deps.store, reader)).map((space) => space.id);
-  let space = input.space;
-  if (!space) {
-    const member = (await deps.store.state.get("team_role")) === "member";
-    if (repo && anchors.some((anchor) => anchor.kind === "git")) space = repoSpace(repo.id);
-    else space = writable.includes("team") && !member ? "team" : "me";
+  if (repo) await ensureRepoTop(deps.store, repo);
+  const writable = (await readable(deps.store, reader)).map((top) => top.id);
+  let top = input.top;
+  const member = (await deps.store.state.get("team_role")) === "member";
+  if (!top) {
+    if (repo && anchors.some((anchor) => anchor.kind === "git")) top = repoTop(repo.id);
+    else top = writable.includes("team") && !member ? "team" : "me";
   }
-  if (space !== "me" && !(await deps.store.spaces.get(space))) throw new StoreUseError(`there is no space ${space}`);
-  if (reader && space !== "me" && !writable.includes(space))
-    throw new StoreUseError(`this client may not write to ${space}`);
+  if (top !== "me" && !(await deps.store.tops.get(top))) throw new StoreUseError(`there is no top folder ${top}`);
+  if (reader && top !== "me" && !writable.includes(top)) throw new StoreUseError(`this client may not write to ${top}`);
 
   const typeDef = await typeOf(deps.store, type, writable);
   let existing = input.id ? await deps.store.records.get(input.id) : undefined;
-  if (input.id && (!existing || (reader && existing.space !== "me" && !writable.includes(existing.space))))
+  if (input.id && (!existing || (reader && existing.top !== "me" && !writable.includes(existing.top))))
     throw new StoreUseError(`there is no record ${input.id}`);
   if (!existing && type === "Memory" && (kind === "answer" || kind === "summary")) {
-    existing = (await deps.store.records.list({ spaces: [space], type: "Memory", kind })).find((record) =>
+    existing = (await deps.store.records.list({ tops: [top], type: "Memory", kind })).find((record) =>
       kind === "summary"
         ? record.fields.path === fields.path
         : record.title.trim().toLowerCase() === title.toLowerCase(),
@@ -455,16 +502,21 @@ export async function remember(
     links.push({ kind: "repo", ref: repo.id });
   }
 
-  if (space !== "me" && ask && needsConsent({ type, kind, anchors })) {
-    const answer = await ask({ type, title, body, space });
-    if (answer === null || answer.action === "me") space = "me";
+  // Refused before asking: the person is not asked to share what the team store would refuse.
+  if (member && !memberMay(existing, { top, type, title, folder, body, fields }, "me", true)) {
+    throw new StoreUseError(`the record is refused: ${MEMBER_WRITES}`);
+  }
+
+  if (top !== "me" && ask && needsConsent({ type, kind, anchors })) {
+    const answer = await ask({ type, title, body, top });
+    if (answer === null || answer.action === "me") top = "me";
     else if (answer.action === "cancel") throw new StoreUseError("the person chose not to keep it");
     else if (answer.action === "edit") body = answer.body.trim();
   }
 
   const record: RecordInput = {
     id: existing?.id ?? newId(),
-    space,
+    top,
     type,
     kind,
     title,
@@ -482,12 +534,12 @@ export async function remember(
     links,
   };
   await write(deps, record, existing);
-  return { id: record.id, space, status: space === "me" && input.space !== "me" ? "kept in me" : "kept" };
+  return { id: record.id, top, status: top === "me" && input.top !== "me" ? "kept in me" : "kept" };
 }
 
 /** The fields a change touches, which the team store applies over what it has. */
 function changedFields(before: FullRecord | undefined, after: RecordInput): string[] {
-  const keys = ["space", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "anchors", "links"] as const;
+  const keys = ["top", "type", "kind", "title", "folder", "body", "fields", "retiredAt", "anchors", "links"] as const;
   if (!before) return [...keys];
   return keys.filter(
     (key) => JSON.stringify((before as unknown as Record<string, unknown>)[key]) !== JSON.stringify(after[key]),
@@ -555,9 +607,9 @@ export async function fileSummary(
 ): Promise<{ status: "hit" | "miss"; path: string; summary?: string }> {
   const [path] = inRepo(deps, repo, [input.path]);
   if (!path) return { status: "miss", path: input.path };
-  const space = await ensureRepoSpace(deps.store, repo);
+  const top = await ensureRepoTop(deps.store, repo);
   const hash = (await contentHashes(deps, repo, [path])).get(path);
-  const summary = (await deps.store.records.list({ spaces: [space], type: "Memory", kind: "summary" })).find(
+  const summary = (await deps.store.records.list({ tops: [top], type: "Memory", kind: "summary" })).find(
     (record) => record.fields.path === path && record.anchors.some((a) => a.ref === path && a.version === hash),
   );
   return summary ? { status: "hit", path, summary: summary.body } : { status: "miss", path };
@@ -573,10 +625,10 @@ export interface RepoMapEntry {
 }
 
 export async function repoMap(deps: StoreDeps, repo: Repo): Promise<{ entries: RepoMapEntry[] }> {
-  const space = await ensureRepoSpace(deps.store, repo);
+  const folder = await ensureRepoTop(deps.store, repo);
   const tracked = await deps.files.tracked(repo.root);
   const summaries = new Map<string, FullRecord>();
-  for (const record of await deps.store.records.list({ spaces: [space], type: "Memory", kind: "summary" })) {
+  for (const record of await deps.store.records.list({ tops: [folder], type: "Memory", kind: "summary" })) {
     const path = String(record.fields.path ?? "");
     if (path && !summaries.has(path)) summaries.set(path, record);
   }
@@ -628,8 +680,13 @@ export async function deliver<T extends { records?: Found[]; results?: Found[]; 
     });
   }
   const marker = nonce();
+  const names = new Map((await deps.store.tops.list()).map((top) => [top.id, topName(top)]));
+  // Agents see where a record is as one path, "Team/Decisions", the way they name a place to write.
   const wrap = (record: Found): Found => ({
     ...record,
+    folder: [names.get(record.top) ?? (record.top === "me" ? "Me" : record.top), record.folder]
+      .filter(Boolean)
+      .join("/"),
     title: redact(record.title),
     body: `<untrusted-data-${marker} id="${record.id}" author="${record.author}">\n${redact(record.body)}\n</untrusted-data-${marker}>`,
   });

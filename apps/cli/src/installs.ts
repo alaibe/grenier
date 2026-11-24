@@ -241,10 +241,10 @@ export interface SharedState {
 
 /** The team's skills and servers, and where this machine stands with each. */
 export async function sharedList(store: Store): Promise<SharedState[]> {
-  const spaces = (await store.spaces.list()).filter((space) => space.kind !== "me").map((space) => space.id);
+  const tops = (await store.tops.list()).filter((top) => top.kind !== "me").map((top) => top.id);
   const out: SharedState[] = [];
   for (const type of ["Skill", "McpServer"] as const) {
-    for (const record of await store.records.list({ spaces, type })) {
+    for (const record of await store.records.list({ tops, type })) {
       const approval = await store.approvals.get(record.id, KIND[type]);
       const hash = await sharedHash(record);
       out.push({
@@ -328,14 +328,14 @@ export function shareableServer(entry: Record<string, unknown>): {
   return { config, credentials };
 }
 
-/** Writes a Skill or McpServer record to the team space, or a new version of the one with the same title. */
+/** Writes a Skill or McpServer record to the Team folder, or a new version of the one with the same title. */
 export async function share(
   deps: StoreDeps,
   input: { type: Shared; title: string; body: string; fields: Record<string, unknown> },
 ): Promise<{ id: string; updated: boolean }> {
-  const spaces = (await deps.store.spaces.list()).map((space) => space.id);
-  if (!spaces.includes("team")) throw new CommandError("this machine is in no team: join one first");
-  const existing = (await deps.store.records.list({ spaces: ["team"], type: input.type })).find(
+  const tops = (await deps.store.tops.list()).map((top) => top.id);
+  if (!tops.includes("team")) throw new CommandError("this machine is in no team: join one first");
+  const existing = (await deps.store.records.list({ tops: ["team"], type: input.type })).find(
     (record) => slug(record.title) === slug(input.title),
   );
   const why = recordProblem(
@@ -348,7 +348,7 @@ export async function share(
     ? (({ seq: _seq, hits: _hits, ...rest }) => rest)(existing)
     : {
         id: newId(),
-        space: "team",
+        top: "team",
         type: input.type,
         kind: null,
         folder: "",

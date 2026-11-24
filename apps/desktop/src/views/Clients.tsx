@@ -56,19 +56,18 @@ export function Clients(_: ViewProps) {
 
   return (
     <Part
-      title="Clients"
+      title="Apps on this computer"
       intro={
         <>
-          Each app that reads the store through Grenier has its own token. It reads the folder of every repository on
-          this machine, and only the top folders you give it beyond them: me, team, or one for some members.{" "}
-          <code>grenier mcp install</code> creates the client for the app it installs into; create one here only for
-          another app or a script.
+          Claude Code, Cursor and other apps here read Grenier over MCP, each with its own key.{" "}
+          <code>grenier mcp install claude-code</code> adds one for you. Each reads its repository's folder, plus the
+          top folders you tick: Me, Team, or one for some members. Only you see this list.
         </>
       }
       action={
         !adding && (
           <Button quiet onClick={() => setAdding(true)}>
-            New client
+            New app
           </Button>
         )
       }

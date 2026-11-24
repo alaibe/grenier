@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { repoSpace } from "@grenier/core";
+import { repoTop } from "@grenier/core";
 import { repoResolver } from "../exploration.ts";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
 
@@ -12,9 +12,9 @@ export async function storeCommand(argv: string[], io: Io): Promise<string[]> {
   if (!repo) throw new CommandError("store clear takes --repo <path> of a git repository");
   const { paths } = environment(io);
   return withStore(paths, async (store) => {
-    const space = repoSpace(repo.id);
-    const count = (await store.records.list({ spaces: [space], retired: true, limit: 100_000 })).length;
-    await store.spaces.remove(space);
+    const top = repoTop(repo.id);
+    const count = (await store.records.list({ tops: [top], retired: true, limit: 100_000 })).length;
+    await store.tops.remove(top);
     return [`Removed the ${count} record(s) of ${repo.root} from this machine.`];
   });
 }

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { repoId, repoRoot } from "@grenier/connectors/git";
-import { ensureRepoSpace } from "@grenier/index";
+import { ensureRepoTop, placeOf } from "@grenier/index";
 import type { FullRecord, Run, Store } from "@grenier/store";
 import { adminToken, startDaemon } from "../daemon.ts";
 import { embedderLoader } from "../exploration.ts";
@@ -29,8 +29,8 @@ async function daemonApi<T>(io: Io, path: string, init: { method?: string; body?
 async function findRoutine(store: Store, name: string): Promise<FullRecord> {
   const byId = await store.records.get(name);
   if (byId?.type === "Routine" && byId.retiredAt === null) return byId;
-  const spaces = (await store.spaces.list()).map((space) => space.id);
-  const found = (await store.records.list({ spaces, type: "Routine" })).filter(
+  const tops = (await store.tops.list()).map((top) => top.id);
+  const found = (await store.records.list({ tops, type: "Routine" })).filter(
     (record) => record.title.toLowerCase() === name.toLowerCase(),
   );
   if (found.length !== 1)
@@ -60,7 +60,7 @@ export async function routines(argv: string[], io: Io): Promise<string[]> {
         args: rest,
         allowPositionals: true,
         strict: true,
-        options: { repo: { type: "string" }, space: { type: "string", default: "team" } },
+        options: { repo: { type: "string" }, folder: { type: "string", default: "Team" } },
       });
       const [file] = positionals;
       if (!file || positionals.length > 1) throw new UsageError("routines add takes one Markdown file");
@@ -73,15 +73,17 @@ export async function routines(argv: string[], io: Io): Promise<string[]> {
           const root = await repoRoot(resolve(io.cwd, values.repo));
           const id = root ? await repoId(root) : null;
           if (!root || !id) throw new CommandError(`${values.repo} is not in a git repository with a commit`);
-          await ensureRepoSpace(store, { root, id });
+          await ensureRepoTop(store, { root, id });
           repo = id;
         }
         const deps = await storeDeps(store, config, embedderLoader(config, paths, io.err));
-        const added = await addRoutine(deps, {
-          ...routine,
-          repo,
-          space: values.space,
-        });
+        let place: { top: string; folder: string };
+        try {
+          place = await placeOf(store, { id: "cli", name: "cli", scopes: ["*"] }, values.folder);
+        } catch (error) {
+          throw new CommandError((error as Error).message);
+        }
+        const added = await addRoutine(deps, { ...routine, repo, ...place });
         return [
           added.version === 1
             ? `Added the routine ${routine.title} (${added.id}). Each machine approves it on the app's Routines screen.`
@@ -91,8 +93,8 @@ export async function routines(argv: string[], io: Io): Promise<string[]> {
     }
     case "librarian": {
       return withStore(paths, async (store) => {
-        const spaces = (await store.spaces.list()).map((space) => space.id);
-        const existing = (await store.records.list({ spaces, type: "Routine" })).find(
+        const tops = (await store.tops.list()).map((top) => top.id);
+        const existing = (await store.records.list({ tops, type: "Routine" })).find(
           (record) => record.fields.builtin === LIBRARIAN,
         );
         if (existing) return [`The team has its librarian already (${existing.id}).`];
@@ -103,7 +105,7 @@ export async function routines(argv: string[], io: Io): Promise<string[]> {
             "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned requests, and suggests fixes.",
           fields: { trigger: "schedule", schedule: "daily 05:00", builtin: LIBRARIAN },
           repo: null,
-          space: "team",
+          top: "team",
         });
         return [
           `Added the librarian (${added.id}): every day at 05:00 UTC, one available machine looks through the store and suggests fixes.`,

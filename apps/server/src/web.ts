@@ -72,7 +72,7 @@ function show(...nodes) { main.replaceChildren(...nodes); }
 function recordCard(record, open) {
   return el("div", { class: "card" },
     el("h3", {}, open ? el("a", { href: "#", text: record.title, onclick: (event) => { event.preventDefault(); open(record); } }) : record.title),
-    el("div", { class: "muted", text: record.type + (record.kind ? " · " + record.kind : "") + " · " + record.space + " · " + record.author + " · " + new Date(record.updatedAt).toLocaleString() }));
+    el("div", { class: "muted", text: record.type + (record.kind ? " · " + record.kind : "") + " · " + record.top + " · " + record.author + " · " + new Date(record.updatedAt).toLocaleString() }));
 }
 async function store() {
   const q = el("input", { placeholder: "Search the store", "aria-label": "Search" });
@@ -93,7 +93,7 @@ async function openRecord(record) {
   show(
     el("button", { text: "Back", onclick: store }),
     el("h2", { text: record.title }),
-    el("p", { class: "muted", text: record.type + " · " + record.space + " · by " + record.author }),
+    el("p", { class: "muted", text: record.type + " · " + record.top + " · by " + record.author }),
     el("pre", { text: record.body }),
     el("h3", { text: "Fields" }), el("pre", { text: JSON.stringify(record.fields, null, 2) }),
     el("h3", { text: "Links" }), el("pre", { text: record.links.map((l) => l.kind + ": " + l.ref).join("\\n") || "None" }),
@@ -108,7 +108,7 @@ async function requests() {
   const file = el("button", { text: "File the request", onclick: async () => {
     if (!title.value.trim() || !routine.value) return;
     const id = crypto.randomUUID().replace(/-/g, "");
-    await api("/api/changes", { method: "POST", body: JSON.stringify({ changes: [{ id, recordId: id, baseVersion: 0, changed: ["space","type","title","fields","links"], record: { id, space: routineList.find((r) => r.id === routine.value).space, type: "Task", title: title.value.trim(), fields: { status: "to-do", routine: routine.value }, links: [{ kind: "record", ref: routine.value }] } }] }) });
+    await api("/api/changes", { method: "POST", body: JSON.stringify({ changes: [{ id, recordId: id, baseVersion: 0, changed: ["top","type","title","fields","links"], record: { id, top: routineList.find((r) => r.id === routine.value).top, type: "Task", title: title.value.trim(), fields: { status: "to-do", routine: routine.value }, links: [{ kind: "record", ref: routine.value }] } }] }) });
     requests();
   } });
   const column = (status) => el("div", {}, el("h3", { text: status }), ...tasks.filter((t) => t.fields.status === status && t.fields.routine).map((t) => recordCard(t)));

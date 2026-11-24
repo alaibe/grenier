@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, type HistoryEntry, type Link, type RecordFull, type RecordRow, type Space } from "../api.ts";
+import { ApiError, api, type HistoryEntry, type Link, type RecordFull, type RecordRow, type Top } from "../api.ts";
 import { hunks, lineDiff } from "../diff.ts";
 import { Markdown } from "../markdown.tsx";
 import {
@@ -16,7 +16,7 @@ import {
 } from "../ui.tsx";
 
 interface Draft {
-  space: string;
+  top: string;
   folder: string;
   title: string;
   body: string;
@@ -24,21 +24,21 @@ interface Draft {
 }
 
 /** What a page editor opens: a page, or a new one in a folder. */
-export type Target = { id: string } | { space: string; folder: string };
+export type Target = { id: string } | { top: string; folder: string };
 
 /** Where a page can go: the top of each top folder this machine writes to, and every folder in them. */
 export interface Place {
-  space: string;
+  top: string;
   folder: string;
   label: string;
 }
 
-export const placeKey = (place: { space: string; folder: string }) => `${place.space}\u0000${place.folder}`;
+export const placeKey = (place: { top: string; folder: string }) => `${place.top}\u0000${place.folder}`;
 
 export function PageEditor({
   target,
   places,
-  spaces,
+  tops,
   member,
   open,
   changed,
@@ -46,7 +46,7 @@ export function PageEditor({
 }: {
   target: Target;
   places: Place[];
-  spaces: Space[];
+  tops: Top[];
   member: boolean;
   open: (id: string) => void;
   /** After a save or a move: the tree reloads. */
@@ -68,11 +68,11 @@ export function PageEditor({
   useEffect(() => {
     if (draft) return;
     if (record.data) {
-      const { space, folder, title, body, links, version } = record.data;
-      setDraft({ space, folder, title, body, links });
+      const { top, folder, title, body, links, version } = record.data;
+      setDraft({ top, folder, title, body, links });
       setBase(version);
-    } else if (!id && "space" in target) {
-      setDraft({ space: target.space, folder: target.folder, title: "", body: "", links: [] });
+    } else if (!id && "top" in target) {
+      setDraft({ top: target.top, folder: target.folder, title: "", body: "", links: [] });
     }
   }, [draft, record.data, id, target]);
 
@@ -110,7 +110,7 @@ export function PageEditor({
 
   const take = (theirs: RecordFull) => {
     setDraft({
-      space: theirs.space,
+      top: theirs.top,
       folder: theirs.folder,
       title: theirs.title,
       body: theirs.body,
@@ -123,17 +123,17 @@ export function PageEditor({
   if (record.error) return <Notice message={record.error} />;
   if (!draft) return <Loading what="the page" />;
   const set = (change: Partial<Draft>) => setDraft({ ...draft, ...change });
-  const here = { space: draft.space, folder: draft.folder };
-  const kindOf = (space: string) => spaces.find((entry) => entry.id === space)?.kind;
+  const here = { top: draft.top, folder: draft.folder };
+  const kindOf = (top: string) => tops.find((entry) => entry.id === top)?.kind;
   // A member writes in Me, and their agents' answers where they are; the team store refuses the rest.
-  const from = record.data?.space ?? draft.space;
+  const from = record.data?.top ?? draft.top;
   const answer = record.data?.type === "Memory" && kindOf(from) === "repo";
-  const writes = (space: string) => !member || kindOf(space) === "me" || (answer && space === from);
+  const writes = (top: string) => !member || kindOf(top) === "me" || (answer && top === from);
   const editable = writes(from);
-  const allowed = places.filter((place) => writes(place.space));
+  const allowed = places.filter((place) => writes(place.top));
   const choices = allowed.some((place) => placeKey(place) === placeKey(here))
     ? allowed
-    : [...allowed, { ...here, label: placeLabel(spaces, draft.space, draft.folder) }];
+    : [...allowed, { ...here, label: placeLabel(tops, draft.top, draft.folder) }];
   const kind =
     record.data && record.data.type !== "Doc"
       ? `${record.data.type}${record.data.kind ? ` · ${record.data.kind}` : ""} · `
@@ -150,7 +150,7 @@ export function PageEditor({
             value={placeKey(here)}
             onChange={(event) => {
               const place = choices.find((entry) => placeKey(entry) === event.currentTarget.value);
-              if (place) set({ space: place.space, folder: place.folder });
+              if (place) set({ top: place.top, folder: place.folder });
             }}
           >
             {choices.map((place) => (
@@ -178,7 +178,7 @@ export function PageEditor({
           {record.data && !record.data.retiredAt && (
             <ConfirmButton
               label="Retire"
-              question={draft.space === "me" ? "Retire it?" : "Retire it for everyone who reads it?"}
+              question={draft.top === "me" ? "Retire it?" : "Retire it for everyone who reads it?"}
               disabled={action.busy !== null}
               onConfirm={() =>
                 void action.run("retire", async () => {
@@ -240,16 +240,16 @@ export function PageEditor({
 }
 
 /** "Team / Decisions / 2026": a top folder's name, then the folder's path. */
-export function placeLabel(spaces: Space[], space: string, folder: string): string {
-  return [topName(spaces, space), ...(folder ? folder.split("/") : [])].join(" / ");
+export function placeLabel(tops: Top[], top: string, folder: string): string {
+  return [topName(tops, top), ...(folder ? folder.split("/") : [])].join(" / ");
 }
 
-export function topName(spaces: Space[], id: string): string {
-  const space = spaces.find((entry) => entry.id === id);
-  if (!space) return id;
-  if (space.kind === "me") return "Me";
-  if (space.kind === "team") return "Team";
-  return space.name;
+export function topName(tops: Top[], id: string): string {
+  const top = tops.find((entry) => entry.id === id);
+  if (!top) return id;
+  if (top.kind === "me") return "Me";
+  if (top.kind === "team") return "Team";
+  return top.name;
 }
 
 /** The text: Markdown, with @ to link another page. */

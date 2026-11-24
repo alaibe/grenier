@@ -22,7 +22,7 @@ Commands:
   start, stop                Start or stop the daemon (the proxy on 127.0.0.1)
   run -- <command>           Run an agent through the proxy as its own session
   statusline [--today]       One line for Claude Code's status line: what this session and today spent and cached
-  mcp install <claude-code|cursor|codex|claude-desktop> [--scope <spaces>] [--hook]
+  mcp install <claude-code|cursor|codex|claude-desktop> [--scope <folders>] [--hook]
                              Add Grenier's MCP server to that client's config, with a client token;
                              --hook also passes Claude Code a recorded answer close to each prompt
   mcp serve                  The MCP server over stdio (what the clients launch)
@@ -35,13 +35,14 @@ Commands:
   team deploy [--name grenier-team] [--member <name>]
                              Put the team store in your Cloudflare account (after npx wrangler login), as its admin
   team rename <name>         Rename this machine
-  team spaces [add <name> [--members a,b]]
+  team folders [add <name> [--members a,b]]
+                             The top folders; add makes one for the whole team, or for some members
   team web                   A one-time link that signs a browser in to the web view
   team webhook <routine>     An address another tool can call to file requests for a routine (admins)
   team sync                  Sync with the team store now (the daemon syncs on its own)
-  key, key set <key>         Your personal key for the encrypted \`me\` space; put the same on your other machines
+  key, key set <key>         Your personal key for the encrypted Me folder; put the same on your other machines
   skills share <folder>      Share a skill with the team; each teammate installs it once approved
-  routines add <file.md> [--repo <path>] [--space <space>]
+  routines add <file.md> [--repo <path>] [--folder <path>]
   routines workflow <id> [--file <path>], routines librarian
                              Write a routine; workflow prints and approves the GitHub workflow that runs one
                              on a Grenier runner; librarian adds the built-in routine that suggests fixes

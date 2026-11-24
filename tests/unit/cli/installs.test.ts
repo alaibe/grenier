@@ -24,7 +24,7 @@ let home: string;
 beforeEach(async () => {
   store = openSqliteStore(":memory:");
   deps = await storeDeps(store);
-  await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
   home = mkdtempSync(join(tmpdir(), "grenier-installs-"));
 });
 

@@ -6,6 +6,7 @@ import {
   fileSummary,
   type Identity,
   newId,
+  placeOf,
   query,
   type Reader,
   type Repo,
@@ -15,6 +16,7 @@ import {
   remember,
   repoMap,
   StoreUseError,
+  topName,
   write,
 } from "@grenier/index";
 import type { Store } from "@grenier/store";
@@ -47,8 +49,8 @@ export interface McpDeps {
   me: () => Promise<Identity>;
   version: string;
   sessionId?: string;
-  /** In a routine's run, where its output goes: written without asking, since no one watches a run. */
-  runSpace?: string;
+  /** In a routine's run, the top folder its output goes to: written without asking, since no one watches a run. */
+  runTop?: string;
 }
 
 interface ToolResult {
@@ -84,7 +86,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
   /** Null when the client cannot ask. */
   const ask: AskConsent = async (record) => {
     if (!server.server.getClientCapabilities()?.elicitation) return null;
-    const where = record.space === "team" ? "the whole team" : record.space;
+    const top = await deps.store.tops.get(record.top);
+    const where = record.top === "team" ? "the whole team" : top ? topName(top) : record.top;
     const result = await server.server.elicitInput({
       message: `Share this ${record.type} with ${where}?\n\n${record.title}\n\n${record.body}`.slice(0, 4000),
       requestedSchema: {
@@ -117,7 +120,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: {
         query: z.string().min(1).describe("The question, in plain words"),
         type: z.string().optional().describe("Only this type: Memory, Decision, Doc, Meeting, Task, Project, Person…"),
-        space: z.string().optional(),
+        folder: z
+          .string()
+          .optional()
+          .describe('Only in this folder, as "Team", "Team/Decisions" or a repository\'s name'),
         limit: z.number().int().min(1).max(20).optional(),
         repo,
       },
@@ -126,11 +132,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
       answer(async () => {
         const store = await storeDeps();
         const client = await reader();
+        const place = input.folder ? await placeOf(store.store, client, input.folder) : null;
         const result = await recall(store, client, {
           query: input.query,
           repo: await deps.resolveRepo(input.repo),
           ...(input.type ? { type: input.type } : {}),
-          ...(input.space ? { space: input.space } : {}),
+          ...(place ? { top: place.top, folder: place.folder } : {}),
           ...(input.limit ? { limit: input.limit } : {}),
         });
         return deliver(store, client, "recall", { query: input.query }, result);
@@ -141,12 +148,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
     "query",
     {
       description:
-        "Records by type, space and fields; or one record by id or title with everything it links to and everything that links to it (a project's meetings, decisions, tasks and docs) in one step.",
+        "Records by type, folder and fields; or one record by id or title with everything it links to and everything that links to it (a project's meetings, decisions, tasks and docs) in one step.",
       inputSchema: {
         id: z.string().optional(),
         title: z.string().optional(),
         type: z.string().optional(),
-        space: z.string().optional(),
+        folder: z
+          .string()
+          .optional()
+          .describe('Only in this folder, as "Team", "Team/Decisions" or a repository\'s name'),
         fields: z.record(z.string(), z.string()).optional().describe('Field values to match, as { "status": "to-do" }'),
         linked_to: link.optional().describe("Only records linking to this"),
         limit: z.number().int().min(1).max(200).optional(),
@@ -156,11 +166,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
       answer(async () => {
         const store = await storeDeps();
         const client = await reader();
+        const place = input.folder ? await placeOf(store.store, client, input.folder) : null;
         const result = await query(store, client, {
           ...(input.id ? { id: input.id } : {}),
           ...(input.title ? { title: input.title } : {}),
           ...(input.type ? { type: input.type } : {}),
-          ...(input.space ? { space: input.space } : {}),
+          ...(place ? { top: place.top, folder: place.folder } : {}),
           ...(input.fields ? { fields: input.fields } : {}),
           ...(input.linked_to ? { linkedTo: input.linked_to } : {}),
           ...(input.limit ? { limit: input.limit } : {}),
@@ -183,7 +194,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
           .record(z.string(), z.unknown())
           .optional()
           .describe("The type's fields, as a Decision's owner, date and reason"),
-        space: z.string().optional().describe("me, team, a repo's space, or one the team made"),
+        folder: z
+          .string()
+          .optional()
+          .describe(
+            'Where it goes, as "Me", "Team/Decisions" or a repository\'s name: its first part is the top folder',
+          ),
         files: z.array(z.string()).optional().describe("Every file it was worked out from, relative to the repository"),
         items: z
           .array(z.object({ ref: z.string(), version: z.string() }))
@@ -195,10 +211,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
       },
     },
     async (input) =>
-      answer(async () =>
-        remember(
+      answer(async () => {
+        const client = await reader();
+        const place = input.folder ? await placeOf(deps.store, client, input.folder) : null;
+        return remember(
           await storeDeps(),
-          await reader(),
+          client,
           await deps.resolveRepo(input.repo),
           {
             title: input.title,
@@ -206,16 +224,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
             ...(input.kind ? { kind: input.kind } : {}),
             ...(input.body ? { body: input.body } : {}),
             ...(input.fields ? { fields: input.fields } : {}),
-            ...(input.space || deps.runSpace ? { space: input.space ?? (deps.runSpace as string) } : {}),
+            ...(place ? { top: place.top, folder: place.folder } : deps.runTop ? { top: deps.runTop } : {}),
             ...(input.files ? { files: input.files } : {}),
             ...(input.items ? { items: input.items } : {}),
             ...(input.links ? { links: input.links } : {}),
             ...(input.id ? { id: input.id } : {}),
             ...(deps.sessionId ? { sessionId: deps.sessionId } : {}),
           },
-          deps.runSpace ? async () => ({ action: "share" }) : ask,
-        ),
-      ),
+          deps.runTop ? async () => ({ action: "share" }) : ask,
+        );
+      }),
   );
 
   server.registerTool(
@@ -233,8 +251,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       answer(async () => {
         const store = await storeDeps();
         const client = await reader();
-        const spaces = (await readable(store.store, client)).map((space) => space.id);
-        const routines = await store.store.records.list({ spaces, type: "Routine" });
+        const tops = (await readable(store.store, client)).map((top) => top.id);
+        const routines = await store.store.records.list({ tops, type: "Routine" });
         const routine = routines.find(
           (candidate) =>
             candidate.id === input.routine || candidate.title.toLowerCase() === input.routine.toLowerCase(),
@@ -258,7 +276,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           ...task,
           folder: "",
           id,
-          space: routine.space,
+          top: routine.top,
           kind: null,
           author: store.me.member,
           device: store.me.device,

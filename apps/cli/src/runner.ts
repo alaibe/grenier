@@ -12,7 +12,7 @@ import {
   pickVersion,
   type RoutineMode,
   type RoutineVersion,
-  repoSpace,
+  repoTop,
   routineHash,
   toolsOf,
 } from "@grenier/core";
@@ -227,7 +227,7 @@ export class Runner {
     for (const id of workflows) {
       const routine = await this.deps.store.records.get(id);
       const repoId = typeof routine?.fields.repo === "string" ? routine.fields.repo : "";
-      const root = repoId ? (await this.deps.store.spaces.get(repoSpace(repoId)))?.root : null;
+      const root = repoId ? (await this.deps.store.tops.get(repoTop(repoId)))?.root : null;
       if (!routine || routine.retiredAt !== null || !root) continue;
       const approval = await this.deps.store.approvals.get(id, "routine");
       if (!approval || approval.hash !== (await routineHash(routine))) continue;
@@ -260,9 +260,9 @@ export class Runner {
   }
 
   async #repos(): Promise<string[]> {
-    return (await this.deps.store.spaces.list())
-      .filter((space) => space.kind === "repo" && space.root && space.repoId)
-      .map((space) => space.repoId as string);
+    return (await this.deps.store.tops.list())
+      .filter((top) => top.kind === "repo" && top.root && top.repoId)
+      .map((top) => top.repoId as string);
   }
 
   /** Asks the team store for a task, and runs it if this machine's person approved its routine as it is now. */
@@ -362,7 +362,7 @@ export class Runner {
     const config = this.deps.config();
     const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : config.machine.agent;
     const repoId = typeof routine.fields.repo === "string" && routine.fields.repo ? routine.fields.repo : null;
-    const root = repoId ? (await store.spaces.get(repoSpace(repoId)))?.root : null;
+    const root = repoId ? (await store.tops.get(repoTop(repoId)))?.root : null;
     const runId = newId();
     const sessionId = newSessionId();
     const startedAt = this.now();
@@ -477,7 +477,7 @@ export class Runner {
         ANTHROPIC_BASE_URL: base,
         OPENAI_BASE_URL: `${base}/openai/v1`,
         GRENIER_SESSION: sessionId,
-        GRENIER_RUN_SPACE: routine.fields.collector === "yes" ? "me" : routine.space === "me" ? "me" : "team",
+        GRENIER_RUN_TOP: routine.fields.collector === "yes" ? "me" : routine.top === "me" ? "me" : "team",
       };
       const allowed = [...this.#current.allowed];
       const builtIn = [
@@ -517,7 +517,7 @@ export class Runner {
       const result = cut
         ? `Cut off: it called ${cut}, which this machine does not allow it.`
         : collector && outcome.code === 0
-          ? "Done: what it gathered is in its person's me space."
+          ? "Done: what it gathered is in its person's Me folder."
           : resultText(outcome.text);
       const cost = (await store.usage.list({ sessionId })).reduce((total, row) => total + (row.cost ?? 0), 0);
       return await this.#finish(

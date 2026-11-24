@@ -49,7 +49,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     usage,
     events,
     state,
-    spaces,
+    tops,
     records,
     anchors,
     links,
@@ -94,7 +94,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
 
   const recordConditions = (filter: RecordFilter) =>
     and(
-      filter.spaces.length === 0 ? sql`0` : inArray(records.space, [...filter.spaces]),
+      filter.tops.length === 0 ? sql`0` : inArray(records.top, [...filter.tops]),
       filter.type === undefined ? undefined : eq(records.type, filter.type),
       filter.kind === undefined ? undefined : eq(records.kind, filter.kind),
       filter.retired ? undefined : isNull(records.retiredAt),
@@ -188,23 +188,23 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       },
     },
 
-    spaces: {
-      put: async (space) => {
-        db.insert(spaces)
-          .values(space)
+    tops: {
+      put: async (top) => {
+        db.insert(tops)
+          .values(top)
           .onConflictDoUpdate({
-            target: spaces.id,
-            set: { name: space.name, ...(space.root === null ? {} : { root: space.root }) },
+            target: tops.id,
+            set: { name: top.name, ...(top.root === null ? {} : { root: top.root }) },
           })
           .run();
       },
-      get: async (id) => db.select().from(spaces).where(eq(spaces.id, id)).get(),
-      list: async () => db.select().from(spaces).orderBy(asc(spaces.kind), asc(spaces.name)).all(),
+      get: async (id) => db.select().from(tops).where(eq(tops.id, id)).get(),
+      list: async () => db.select().from(tops).orderBy(asc(tops.kind), asc(tops.name)).all(),
       remove: async (id) => {
         sqlite
           .transaction(() => {
-            db.delete(records).where(eq(records.space, id)).run();
-            db.delete(spaces).where(eq(spaces.id, id)).run();
+            db.delete(records).where(eq(records.top, id)).run();
+            db.delete(tops).where(eq(tops.id, id)).run();
           })
           .immediate();
       },
@@ -260,31 +260,27 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
             .limit(filter.limit ?? 1000)
             .all(),
         ),
-      search: async (terms, spaceIds, limit) => {
+      search: async (terms, topIds, limit) => {
         const query = ftsQuery(terms);
-        if (query === "" || spaceIds.length === 0) return [];
+        if (query === "" || topIds.length === 0) return [];
         return db
           .select({ id: records.id, score: sql<number>`bm25(records_fts)` })
           .from(sql`records_fts`)
           .innerJoin(records, sql`${records.seq} = records_fts.rowid`)
-          .where(and(sql`records_fts MATCH ${query}`, inArray(records.space, [...spaceIds]), isNull(records.retiredAt)))
+          .where(and(sql`records_fts MATCH ${query}`, inArray(records.top, [...topIds]), isNull(records.retiredAt)))
           .orderBy(sql`bm25(records_fts)`)
           .limit(limit)
           .all();
       },
-      vectors: async (spaceIds, model) =>
-        spaceIds.length === 0
+      vectors: async (topIds, model) =>
+        topIds.length === 0
           ? []
           : db
               .select({ id: recordEmbeddings.recordId, vector: recordEmbeddings.vector })
               .from(recordEmbeddings)
               .innerJoin(records, eq(records.id, recordEmbeddings.recordId))
               .where(
-                and(
-                  inArray(records.space, [...spaceIds]),
-                  eq(recordEmbeddings.model, model),
-                  isNull(records.retiredAt),
-                ),
+                and(inArray(records.top, [...topIds]), eq(recordEmbeddings.model, model), isNull(records.retiredAt)),
               )
               .all()
               .map((row) => ({ id: row.id, vector: fromBlob(row.vector) })),
@@ -300,15 +296,15 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       stats: async () =>
         db
           .select({
-            space: records.space,
+            top: records.top,
             type: records.type,
             records: count(),
             hits: sql<number>`coalesce(${sum(records.hits)}, 0)`,
           })
           .from(records)
           .where(isNull(records.retiredAt))
-          .groupBy(records.space, records.type)
-          .orderBy(asc(records.space), asc(records.type))
+          .groupBy(records.top, records.type)
+          .orderBy(asc(records.top), asc(records.type))
           .all()
           .map((row) => ({ ...row, hits: Number(row.hits) })),
     },
@@ -339,7 +335,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .where(
             and(
               isNull(outbox.refused),
-              withoutMe ? sql`json_extract(${outbox.change}, '$.record.space') IS NOT 'me'` : undefined,
+              withoutMe ? sql`json_extract(${outbox.change}, '$.record.top') IS NOT 'me'` : undefined,
             ),
           )
           .orderBy(asc(outbox.seq))

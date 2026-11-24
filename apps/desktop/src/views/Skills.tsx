@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import { Button, Empty, Input, Loading, Notice, Page, Part, Table, useAction, useLoad } from "../ui.tsx";
@@ -105,7 +105,17 @@ function FindSkills({ shared }: { shared: () => void }) {
 }
 
 /** The skills or MCP servers the team shares, and what this machine has of each. */
-function Shared({ type, none, go }: { type: SharedState["type"]; none: string; go: ViewProps["go"] }) {
+function Shared({
+  type,
+  none,
+  go,
+  member,
+}: {
+  type: SharedState["type"];
+  none: ReactNode;
+  go: ViewProps["go"];
+  member: boolean;
+}) {
   const { data, error, reload } = useLoad(load);
   const action = useAction(reload);
   const call = (key: string, path: string, method: string, done?: string) =>
@@ -118,11 +128,7 @@ function Shared({ type, none, go }: { type: SharedState["type"]; none: string; g
     <section className="mb-7">
       <Notice message={error ?? action.message} />
       {!data && !error && <Loading what={type === "Skill" ? "skills" : "MCP servers"} />}
-      {data && rows.length === 0 && (
-        <Empty>
-          <code>{none}</code>
-        </Empty>
-      )}
+      {data && rows.length === 0 && <Empty>{none}</Empty>}
       {rows.length > 0 && (
         <Table>
           <thead>
@@ -175,6 +181,30 @@ function Shared({ type, none, go }: { type: SharedState["type"]; none: string; g
                         }
                       >
                         {entry.state === "update" ? "Approve the update" : "Install"}
+                      </Button>
+                    )}
+                    {!member && (
+                      <Button
+                        quiet
+                        disabled={action.busy !== null}
+                        title="A recommended one installs and updates by itself on the machines that allow it"
+                        onClick={() =>
+                          void action.run(`recommend:${entry.id}`, async () => {
+                            const record = await api<{ fields: Record<string, unknown>; version: number }>(
+                              `/records/${entry.id}`,
+                            );
+                            await api(`/records/${entry.id}`, {
+                              method: "PUT",
+                              body: {
+                                fields: { ...record.fields, recommended: entry.recommended ? "no" : "yes" },
+                                baseVersion: record.version,
+                              },
+                            });
+                            return undefined;
+                          })
+                        }
+                      >
+                        {entry.recommended ? "Stop recommending" : "Recommend"}
                       </Button>
                     )}
                     {entry.canRollBack && (
@@ -252,20 +282,49 @@ export function Skills({ go, member }: ViewProps) {
       intro="What the team shares for its agents. Installing one approves it as it is now: a later change waits for your approval, unless an admin recommends it and you let recommended ones update by themselves."
     >
       <AutoInstall changed={again} />
-      <Shared key={round} type="Skill" none="grenier skills share <folder>" go={go} />
+      <Shared
+        key={round}
+        type="Skill"
+        go={go}
+        member={member}
+        none={
+          member ? (
+            <p>No skill shared yet.</p>
+          ) : (
+            <>
+              <p>No skill shared yet. Share one of yours, or find one below:</p>
+              <code>grenier skills share &lt;folder&gt;</code>
+            </>
+          )
+        }
+      />
       {!member && <FindSkills shared={again} />}
     </Page>
   );
 }
 
-/** For Settings: the MCP servers the team shares, without their credentials. */
-export function Servers({ go }: Pick<ViewProps, "go">) {
+/** For the MCP screen: the servers the team shares, without their credentials. */
+export function Servers({ go, member }: Pick<ViewProps, "go" | "member">) {
   return (
     <Part
       title="MCP servers"
-      intro="The MCP servers the team shares for Claude Code, without their credentials. Installing one approves it as it is now."
+      intro="Tools for Claude Code, such as Sentry or Linear, that an admin shared from their own setup, without its keys. Install one to add it to your Claude Code, then set its keys in your environment. A change to it waits for your approval again."
     >
-      <Shared type="McpServer" none="grenier mcp share <name>" go={go} />
+      <Shared
+        type="McpServer"
+        go={go}
+        member={member}
+        none={
+          member ? (
+            <p>No server shared yet.</p>
+          ) : (
+            <>
+              <p>No server shared yet. Share one from your Claude Code config by its name:</p>
+              <code>grenier mcp share &lt;name&gt;</code>
+            </>
+          )
+        }
+      />
     </Part>
   );
 }

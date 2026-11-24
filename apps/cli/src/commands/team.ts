@@ -6,7 +6,7 @@ import { parseArgs, promisify } from "node:util";
 import { syncOnce, type TeamClient, TeamError, teamApi } from "@grenier/index";
 import { embedderLoader } from "../exploration.ts";
 import { CommandError, environment, type Io, UsageError, withStore } from "../io.ts";
-import { deviceName, ensureBaseSpaces, ensurePersonalKey, personalKey } from "../runtime.ts";
+import { deviceName, ensureBaseTops, ensurePersonalKey, personalKey } from "../runtime.ts";
 import { newTeamToken, saveTeam, teamClient, withTomlValue } from "../team.ts";
 
 /** The Wrangler that `grenier team deploy` runs, pinned like every other dependency. */
@@ -121,12 +121,12 @@ async function deploy(argv: string[], io: Io, dependencies: TeamDependencies): P
   await withStore(paths, async (store) => {
     await store.state.set("team_member", member);
     await store.state.set("team_role", "admin");
-    await ensureBaseSpaces(store);
+    await ensureBaseTops(store);
   });
   ensurePersonalKey(paths);
   return [
     `The team store is at ${url}, in your own Cloudflare account. This machine is ${deviceName(config)}, and you are its admin, ${member}.`,
-    "Invite teammates in the app's Settings.",
+    "Invite teammates from the app's Team screen.",
   ];
 }
 
@@ -151,27 +151,27 @@ export async function team(argv: string[], io: Io, dependencies: TeamDependencie
       return [`This machine is ${name} now.`];
     }
 
-    case "spaces": {
+    case "folders": {
       const client = needTeam(io, dependencies.fetch);
       const [sub, name, ...more] = rest;
       if (sub === "add") {
-        if (!name) throw new UsageError("team spaces add takes: <name> [--members a,b]");
+        if (!name) throw new UsageError("team folders add takes: <name> [--members a,b]");
         const { values } = parseArgs({ args: more, strict: true, options: { members: { type: "string" } } });
         const members = values.members
           ?.split(",")
           .map((entry) => entry.trim())
           .filter(Boolean);
-        const made = await call<{ id: string }>(client, "/api/spaces", {
+        await call(client, "/api/tops", {
           body: { name, ...(members ? { members } : {}) },
         });
-        return [`Made ${made.id}${members ? `, for ${members.join(", ")}` : ", for the whole team"}.`];
+        return [`Made the top folder ${name}${members ? `, for ${members.join(", ")}` : ", for the whole team"}.`];
       }
-      const { spaces } = await call<{ spaces: { id: string; kind: string; members: string[] | null }[] }>(
+      const { tops } = await call<{ tops: { id: string; kind: string; members: string[] | null }[] }>(
         client,
-        "/api/spaces",
+        "/api/tops",
       );
-      return spaces.map(
-        (space) => `${space.id.padEnd(28)} ${space.kind.padEnd(7)} ${space.members ? space.members.join(", ") : ""}`,
+      return tops.map(
+        (top) => `${top.id.padEnd(28)} ${top.kind.padEnd(7)} ${top.members ? top.members.join(", ") : ""}`,
       );
     }
 
@@ -200,10 +200,6 @@ export async function team(argv: string[], io: Io, dependencies: TeamDependencie
       const client = needTeam(io, dependencies.fetch);
       const result = await withStore(paths, async (store) => {
         try {
-          if (!(await store.state.get("team_me_space"))) {
-            const me = await teamApi<{ me: string }>(client, "/api/me");
-            await store.state.set("team_me_space", me.me);
-          }
           return await syncOnce({
             store,
             embedder: await embedderLoader(config, paths, io.err)(),
@@ -227,6 +223,6 @@ export async function team(argv: string[], io: Io, dependencies: TeamDependencie
     }
 
     default:
-      throw new UsageError("team takes: deploy, rename, spaces, web, webhook or sync");
+      throw new UsageError("team takes: deploy, rename, folders, web, webhook or sync");
   }
 }

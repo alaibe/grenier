@@ -18,7 +18,7 @@ import { TeamLink } from "./link.ts";
 import { desktopNotifier } from "./notify.ts";
 import { routineRoutes } from "./routines.ts";
 import { Runner } from "./runner.ts";
-import { ensureBaseSpaces, identity, storeDeps } from "./runtime.ts";
+import { ensureBaseTops, identity, storeDeps } from "./runtime.ts";
 import { teamClient } from "./team.ts";
 
 export function logFile(home: string): string {
@@ -122,7 +122,7 @@ export async function runDaemon(io: Io): Promise<number> {
   if (current.state === "running") throw new CommandError(`the daemon is already running (pid ${current.pid})`);
 
   const store = openSqliteStore(paths.db);
-  await ensureBaseSpaces(store);
+  await ensureBaseTops(store);
   const port = config.proxy.port;
   const prices = loadPrices(config.prices);
   const embedder = embedderLoader(config, paths, io.err);

@@ -13,7 +13,7 @@ import type {
   RecordRow,
   Run,
   Session,
-  Space,
+  Top,
   Usage,
 } from "./schema.ts";
 
@@ -24,7 +24,7 @@ export interface Store {
   usage: UsageStore;
   events: EventStore;
   state: StateStore;
-  spaces: SpaceStore;
+  tops: TopStore;
   records: RecordStore;
   history: HistoryStore;
   outbox: OutboxStore;
@@ -71,12 +71,12 @@ export interface StateStore {
   set(key: string, value: string): Promise<void>;
 }
 
-export interface SpaceStore {
-  /** Adds the space, or updates its name and root. */
-  put(space: Space): Promise<void>;
-  get(id: string): Promise<Space | undefined>;
-  list(): Promise<Space[]>;
-  /** Removes the space and every record in it, here. */
+export interface TopStore {
+  /** Adds the top folder, or updates its name and root. */
+  put(top: Top): Promise<void>;
+  get(id: string): Promise<Top | undefined>;
+  list(): Promise<Top[]>;
+  /** Removes the top folder and every record in it, here. */
   remove(id: string): Promise<void>;
 }
 
@@ -91,7 +91,7 @@ export type RecordInput = Omit<RecordRow, "seq" | "hits"> & {
 };
 
 export interface RecordFilter {
-  spaces: readonly string[];
+  tops: readonly string[];
   type?: string;
   kind?: string;
   /** Records linking to this ref, as `kind:ref` would: a record id, a person, a repository. */
@@ -108,14 +108,14 @@ export interface RecordStore {
   /** Newest first. */
   list(filter: RecordFilter): Promise<FullRecord[]>;
   /** Full-text matches for any of the terms, best first (BM25), among records not retired. */
-  search(terms: readonly string[], spaces: readonly string[], limit: number): Promise<{ id: string; score: number }[]>;
-  /** Every vector of these spaces' records made by `model`, without the retired ones. */
-  vectors(spaces: readonly string[], model: string): Promise<{ id: string; vector: Float32Array }[]>;
+  search(terms: readonly string[], tops: readonly string[], limit: number): Promise<{ id: string; score: number }[]>;
+  /** Every vector of these top folders' records made by `model`, without the retired ones. */
+  vectors(tops: readonly string[], model: string): Promise<{ id: string; vector: Float32Array }[]>;
   hit(id: string): Promise<void>;
   /** The number the team store gave the record, once it took it. */
   setVersion(id: string, version: number): Promise<void>;
-  /** Records and reuses, by space and type, without the retired ones. */
-  stats(): Promise<{ space: string; type: string; records: number; hits: number }[]>;
+  /** Records and reuses, by top folder and type, without the retired ones. */
+  stats(): Promise<{ top: string; type: string; records: number; hits: number }[]>;
 }
 
 export interface HistoryStore {

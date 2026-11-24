@@ -267,7 +267,7 @@ export function Table({ children }: { children: ReactNode }) {
   );
 }
 
-/** A row of figures; `className` gives its columns and the space below it. */
+/** A row of figures; `className` gives its columns and the top below it. */
 export function Figures({ className, children }: { className: string; children: ReactNode }) {
   return <dl className={`grid rounded-xl border border-line bg-panel ${className}`}>{children}</dl>;
 }

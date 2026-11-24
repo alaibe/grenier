@@ -61,7 +61,7 @@ describe("openSqliteStore", () => {
         "runs",
         "schema_migrations",
         "sessions",
-        "spaces",
+        "tops",
         "usage",
       ]),
     );
@@ -91,6 +91,41 @@ describe("openSqliteStore", () => {
     expect(await store.schemaVersion()).toBe(2);
     await store.close();
     expect(tableNames()).toEqual(["a", "b", "schema_migrations"]);
+  });
+
+  it("keeps each record in its top folder when spaces became top folders, and the changes waiting to leave", async () => {
+    await openSqliteStore(file, { migrations: migrations.filter((migration) => migration.version <= 4) }).close();
+    const old = new Database(file);
+    const space = old.prepare("INSERT INTO spaces (id, name, kind, repo_id, root) VALUES (?, ?, ?, ?, ?)");
+    space.run("me", "me", "me", null, null);
+    space.run("team", "team", "team", null, null);
+    space.run("repo:abc", "app", "repo", "abc", "/work/app");
+    const record = old.prepare(
+      "INSERT INTO records (id, space, type, title, folder, author, created_at, updated_at) VALUES (?, ?, 'Doc', ?, ?, 'ada', 1, 1)",
+    );
+    record.run("m1", "me", "Dentist", "Health");
+    record.run("t1", "team", "Runbook", "Ops");
+    record.run("r1", "repo:abc", "Routing", "");
+    old
+      .prepare(
+        "INSERT INTO outbox (id, seq, record_id, change, base_version, created_at) VALUES ('o1', 1, 'm1', ?, 0, 1)",
+      )
+      .run(JSON.stringify({ changed: ["space", "title"], record: { id: "m1", space: "me", title: "Dentist" } }));
+    old.close();
+
+    const store = openSqliteStore(file);
+    expect(await store.schemaVersion()).toBe(LATEST);
+    for (const [id, top, folder] of [
+      ["m1", "me", "Health"],
+      ["t1", "team", "Ops"],
+      ["r1", "repo:abc", ""],
+    ]) {
+      expect(await store.records.get(id as string)).toMatchObject({ top, folder });
+    }
+    expect((await store.tops.list()).map((top) => top.id).sort()).toEqual(["me", "repo:abc", "team"]);
+    const [waiting] = await store.outbox.list();
+    expect(waiting?.change).toEqual({ changed: ["top", "title"], record: { id: "m1", top: "me", title: "Dentist" } });
+    await store.close();
   });
 
   it("applies nothing when a migration fails", () => {
@@ -123,7 +158,7 @@ describe("the schema", () => {
 
   function addRecord(db: BetterSQLite3Database<typeof schema>, id: string, title: string): void {
     db.insert(schema.records)
-      .values({ id, space: "team", type: "Memory", title, body: "a body", author: "ada", createdAt: 0, updatedAt: 0 })
+      .values({ id, top: "team", type: "Memory", title, body: "a body", author: "ada", createdAt: 0, updatedAt: 0 })
       .run();
   }
 

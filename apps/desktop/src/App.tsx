@@ -5,9 +5,11 @@ import { SCREENS, type ViewName } from "./usage/screens.ts";
 import { useUsage } from "./usage/use-usage.ts";
 import { Cost } from "./views/Cost.tsx";
 import { Knowledge } from "./views/Knowledge.tsx";
+import { Mcp } from "./views/Mcp.tsx";
 import { Routines } from "./views/Routines.tsx";
 import { Settings } from "./views/Settings.tsx";
 import { Skills } from "./views/Skills.tsx";
+import { Team } from "./views/Team.tsx";
 
 export interface ViewProps {
   /** Shows another view; `focus` names what to show first in it: a record in Knowledge. */
@@ -22,10 +24,12 @@ export interface ViewProps {
 export type { ViewName };
 
 const VIEWS: Record<ViewName, ComponentType<ViewProps>> = {
-  cost: Cost,
   knowledge: Knowledge,
+  cost: Cost,
   routines: Routines,
   skills: Skills,
+  mcp: Mcp,
+  team: Team,
   settings: Settings,
 };
 
@@ -34,7 +38,7 @@ const loadOverview = () => api<Overview>("/overview");
 /** The screen a link names, as #knowledge or #knowledge/<record>, for the app opened in a browser. */
 function linked(): { view: ViewName; focus?: string } {
   const [view = "", focus] = window.location.hash.slice(1).split("/");
-  if (!(view in SCREENS)) return { view: "cost" };
+  if (!(view in SCREENS)) return { view: "knowledge" };
   return { view: view as ViewName, ...(focus ? { focus: decodeURIComponent(focus) } : {}) };
 }
 

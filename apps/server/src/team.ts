@@ -27,10 +27,10 @@ interface Vars {
   device: Device;
 }
 
-/** A record as the team store keeps it. For a `me` space, `sealed` holds it encrypted and the rest is empty. */
+/** A record as the team store keeps it. In a `me` top folder, `sealed` holds it encrypted and the rest is empty. */
 export interface StoredRecord {
   id: string;
-  space: string;
+  top: string;
   type: string;
   kind: string | null;
   title: string;
@@ -60,7 +60,7 @@ export interface Change {
 }
 
 const RECORD_FIELDS = [
-  "space",
+  "top",
   "type",
   "kind",
   "title",
@@ -72,6 +72,8 @@ const RECORD_FIELDS = [
   "links",
   "sealed",
 ];
+/** What this store speaks, which a machine checks before it syncs: 2 added folders, 3 named top folders. */
+const PROTOCOL = 3;
 const INVITE_LIFE = 24 * 60 * 60 * 1000;
 const CONFIRM_WINDOW = 10 * 60 * 1000;
 const LEASE = 5 * 60 * 1000;
@@ -116,6 +118,15 @@ export class TeamStore extends DurableObject<Env> {
       this.ctx.storage.sql.exec(`
         ALTER TABLE records ADD COLUMN folder TEXT NOT NULL DEFAULT '';
         UPDATE meta SET value = '2' WHERE key = 'schema';
+      `);
+    }
+    if (schema < 3) {
+      this.ctx.storage.sql.exec(`
+        ALTER TABLE spaces RENAME TO tops;
+        ALTER TABLE records RENAME COLUMN space TO top;
+        DROP INDEX records_space;
+        CREATE INDEX records_top ON records (top, type);
+        UPDATE meta SET value = '3' WHERE key = 'schema';
       `);
     }
   }
@@ -248,22 +259,22 @@ export class TeamStore extends DurableObject<Env> {
     return next;
   }
 
-  /** The spaces a member reads: the team's, repositories', custom ones they are in, and their own `me`. */
-  #spacesOf(member: Member): string[] {
-    const spaces = this.#sql("SELECT id, kind, members FROM spaces");
-    const ids = spaces
-      .filter((space) => {
-        if (space.kind !== "custom" || space.members === null) return true;
-        return (JSON.parse(space.members as string) as string[]).includes(member.name);
+  /** The top folders a member reads: the team's, repositories', custom ones they are in, and their own `me`. */
+  #topsOf(member: Member): string[] {
+    const tops = this.#sql("SELECT id, kind, members FROM tops");
+    const ids = tops
+      .filter((top) => {
+        if (top.kind !== "custom" || top.members === null) return true;
+        return (JSON.parse(top.members as string) as string[]).includes(member.name);
       })
-      .map((space) => space.id as string);
+      .map((top) => top.id as string);
     return [...ids, `me:${member.id}`];
   }
 
   #record(row: Row): StoredRecord {
     return {
       id: row.id as string,
-      space: row.space as string,
+      top: row.top as string,
       type: row.type as string,
       kind: (row.kind as string | null) ?? null,
       title: row.title as string,
@@ -291,15 +302,15 @@ export class TeamStore extends DurableObject<Env> {
   #put(record: StoredRecord, member: Member, device: Device): void {
     this.#sql("DELETE FROM records_fts WHERE id = ?", record.id);
     this.#sql(
-      `INSERT INTO records (id, space, type, kind, title, folder, body, fields, author, device, session_id, created_at,
+      `INSERT INTO records (id, top, type, kind, title, folder, body, fields, author, device, session_id, created_at,
         updated_at, retired_at, version, anchors, links, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET space = excluded.space, type = excluded.type, kind = excluded.kind,
+       ON CONFLICT (id) DO UPDATE SET top = excluded.top, type = excluded.type, kind = excluded.kind,
         title = excluded.title, folder = excluded.folder, body = excluded.body, fields = excluded.fields, author = excluded.author,
         device = excluded.device, session_id = excluded.session_id, updated_at = excluded.updated_at,
         retired_at = excluded.retired_at, version = excluded.version, anchors = excluded.anchors,
         links = excluded.links, sealed = excluded.sealed`,
       record.id,
-      record.space,
+      record.top,
       record.type,
       record.kind,
       record.title,
@@ -340,10 +351,12 @@ export class TeamStore extends DurableObject<Env> {
   ): { version: number } | { refused: string } | { conflict: StoredRecord } {
     const done = this.#one("SELECT version FROM applied WHERE change_id = ?", change.id);
     if (done) return { version: done.version as number };
-    const spaces = this.#spacesOf(member);
+    const tops = this.#topsOf(member);
     const current = this.#get(change.recordId);
-    if (current && !spaces.includes(current.space)) return { refused: "this record is in a space you do not read" };
+    if (current && !tops.includes(current.top)) return { refused: "this record is in a top folder you do not read" };
     const changed = change.changed.filter((name) => RECORD_FIELDS.includes(name));
+    // Filed under Team by default, a new record that names no top folder could be someone's `me` page.
+    if (!current && !changed.includes("top")) return { refused: "a new record names its top folder" };
     if (current && change.check && change.baseVersion < current.version) {
       const since = this.#sql(
         "SELECT snapshot FROM history WHERE record_id = ? AND version > ? ORDER BY version",
@@ -370,7 +383,7 @@ export class TeamStore extends DurableObject<Env> {
     const next: StoredRecord = {
       ...(current ?? {
         id: change.recordId,
-        space: "team",
+        top: "team",
         type: "Memory",
         kind: null,
         title: "",
@@ -396,24 +409,24 @@ export class TeamStore extends DurableObject<Env> {
     next.title ??= "";
     next.folder ??= "";
     next.body ??= "";
-    if (next.space === "me") next.space = `me:${member.id}`;
+    if (next.top === "me") next.top = `me:${member.id}`;
     if (member.role !== "admin") {
       const ran =
         current?.type === "Task" &&
         this.#one("SELECT 1 AS ran FROM runs WHERE task_id = ? AND device_id = ?", current.id, device.id) !== undefined;
       if (!memberMay(current, next, `me:${member.id}`, ran)) return { refused: MEMBER_WRITES };
     }
-    if (!spaces.includes(next.space)) {
-      if (next.space.startsWith("repo:")) {
+    if (!tops.includes(next.top)) {
+      if (next.top.startsWith("repo:")) {
         this.#sql(
-          "INSERT OR IGNORE INTO spaces (id, name, kind, repo_id) VALUES (?, ?, 'repo', ?)",
-          next.space,
-          typeof incoming.spaceName === "string" ? incoming.spaceName : next.space.slice(5, 13),
-          next.space.slice(5),
+          "INSERT OR IGNORE INTO tops (id, name, kind, repo_id) VALUES (?, ?, 'repo', ?)",
+          next.top,
+          typeof incoming.topName === "string" ? incoming.topName : next.top.slice(5, 13),
+          next.top.slice(5),
         );
-      } else return { refused: `there is no space ${next.space} you may write to` };
+      } else return { refused: `there is no top folder ${next.top} you may write to` };
     }
-    if (next.sealed !== null && !next.space.startsWith("me:")) return { refused: "only a record in me is sealed" };
+    if (next.sealed !== null && !next.top.startsWith("me:")) return { refused: "only a record in me is sealed" };
     if (next.sealed !== null && next.folder !== "") return { refused: "a sealed record keeps its folder sealed" };
     if (next.sealed === null) {
       const defined = this.#one(
@@ -475,14 +488,14 @@ export class TeamStore extends DurableObject<Env> {
        ORDER BY created_at`,
       device.id,
     ).map((row) => this.#record(row));
-    // A request and its routine go only to the machines of someone who reads both their spaces.
-    const spaces = new Map<string, string[]>();
-    const reads = (memberId: string, space: string) => {
-      if (!spaces.has(memberId)) {
+    // A request and its routine go only to the machines of someone who reads both their top folders.
+    const tops = new Map<string, string[]>();
+    const reads = (memberId: string, top: string) => {
+      if (!tops.has(memberId)) {
         const member = this.#one("SELECT id, name, role FROM members WHERE id = ?", memberId);
-        spaces.set(memberId, member ? this.#spacesOf(member as unknown as Member) : []);
+        tops.set(memberId, member ? this.#topsOf(member as unknown as Member) : []);
       }
-      return spaces.get(memberId)?.includes(space) ?? false;
+      return tops.get(memberId)?.includes(top) ?? false;
     };
     for (const task of tasks) {
       const routine = this.#get(String(task.fields.routine));
@@ -499,7 +512,7 @@ export class TeamStore extends DurableObject<Env> {
       const can = (machine: Row) => {
         if (owner !== undefined && machine.member_id !== owner) return false;
         const member = machine.member_id as string;
-        if (!reads(member, task.space) || !reads(member, routine.space)) return false;
+        if (!reads(member, task.top) || !reads(member, routine.top)) return false;
         const repos = JSON.parse(machine.repos as string) as string[];
         const agents = JSON.parse(machine.agents as string) as string[];
         const repo = typeof routine.fields.repo === "string" ? routine.fields.repo : "";
@@ -587,7 +600,7 @@ export class TeamStore extends DurableObject<Env> {
     const device: Device = { id: by, name: by, memberId: by };
     const task: StoredRecord = {
       id: randomId(),
-      space: routine.space,
+      top: routine.top,
       type: "Task",
       kind: null,
       title,
@@ -742,6 +755,7 @@ export class TeamStore extends DurableObject<Env> {
         ...c.get("member"),
         device: c.get("device").name,
         version: this.#version(),
+        protocol: PROTOCOL,
         me: `me:${c.get("member").id}`,
       }),
     );
@@ -907,34 +921,35 @@ export class TeamStore extends DurableObject<Env> {
       return c.json({ removed: device.id });
     });
 
-    app.get("/api/spaces", (c) => {
-      const spaces = this.#spacesOf(c.get("member"));
+    app.get("/api/tops", (c) => {
+      const tops = this.#topsOf(c.get("member"));
       return c.json({
-        spaces: this.#sql("SELECT id, name, kind, repo_id, members FROM spaces ORDER BY kind, name")
-          .filter((space) => spaces.includes(space.id as string))
-          .map((space) => ({
-            id: space.id,
-            name: space.name,
-            kind: space.kind,
-            repoId: space.repo_id,
-            members: space.members === null ? null : JSON.parse(space.members as string),
+        tops: this.#sql("SELECT id, name, kind, repo_id, members FROM tops ORDER BY kind, name")
+          .filter((top) => tops.includes(top.id as string))
+          .map((top) => ({
+            id: top.id,
+            name: top.name,
+            kind: top.kind,
+            repoId: top.repo_id,
+            members: top.members === null ? null : JSON.parse(top.members as string),
           })),
       });
     });
 
-    app.post("/api/spaces", adminOnly, async (c) => {
+    app.post("/api/tops", adminOnly, async (c) => {
       const body = await c.req
         .json<{ name?: unknown; members?: unknown }>()
         .catch(() => ({}) as Record<string, unknown>);
       const name = String(body.name ?? "");
       if (!/^[a-z0-9][\w-]{0,40}$/.test(name) || ["team", "me"].includes(name)) {
-        return problem(400, "a space's name takes lowercase letters, digits, _ and -, and is not team or me");
+        return problem(400, "a top folder's name takes lowercase letters, digits, _ and -, and is not team or me");
       }
       const members = Array.isArray(body.members) ? body.members.map(String) : null;
-      const id = `space:${name}`;
-      if (this.#one("SELECT id FROM spaces WHERE id = ?", id)) return problem(409, `there is a space ${name} already`);
+      const id = `top:${name}`;
+      if (this.#one("SELECT id FROM tops WHERE id = ?", id))
+        return problem(409, `there is a top folder ${name} already`);
       this.#sql(
-        "INSERT INTO spaces (id, name, kind, members) VALUES (?, ?, 'custom', ?)",
+        "INSERT INTO tops (id, name, kind, members) VALUES (?, ?, 'custom', ?)",
         id,
         name,
         members === null ? null : JSON.stringify(members),
@@ -969,22 +984,22 @@ export class TeamStore extends DurableObject<Env> {
     app.get("/api/changes", (c) => {
       const after = Number(c.req.query("after") ?? 0);
       const limit = Math.min(Number(c.req.query("limit") ?? MAX_BATCH), MAX_BATCH);
-      const spaces = this.#spacesOf(c.get("member"));
+      const tops = this.#topsOf(c.get("member"));
       const rows = this.#sql("SELECT * FROM records WHERE version > ? ORDER BY version LIMIT ?", after, limit);
       const last = rows.at(-1)?.version as number | undefined;
       return c.json({
-        records: rows.map((row) => this.#record(row)).filter((record) => spaces.includes(record.space)),
+        records: rows.map((row) => this.#record(row)).filter((record) => tops.includes(record.top)),
         next: last ?? Math.max(after, 0),
         version: this.#version(),
-        spaces: this.#sql("SELECT id, name, kind, repo_id FROM spaces")
-          .filter((space) => spaces.includes(space.id as string))
-          .map((space) => ({ id: space.id, name: space.name, kind: space.kind, repoId: space.repo_id })),
+        tops: this.#sql("SELECT id, name, kind, repo_id FROM tops")
+          .filter((top) => tops.includes(top.id as string))
+          .map((top) => ({ id: top.id, name: top.name, kind: top.kind, repoId: top.repo_id })),
       });
     });
 
     app.get("/api/records/:id/history", (c) => {
       const record = this.#get(c.req.param("id"));
-      if (!record || !this.#spacesOf(c.get("member")).includes(record.space)) return problem(404, "no such record");
+      if (!record || !this.#topsOf(c.get("member")).includes(record.top)) return problem(404, "no such record");
       return c.json({
         history: this.#sql(
           "SELECT version, author, device, ts, snapshot FROM history WHERE record_id = ? ORDER BY version",
@@ -994,18 +1009,18 @@ export class TeamStore extends DurableObject<Env> {
     });
 
     app.get("/api/records", (c) => {
-      const spaces = this.#spacesOf(c.get("member"));
+      const tops = this.#topsOf(c.get("member"));
       const query = c.req.query("q")?.trim() ?? "";
       const type = c.req.query("type");
-      const space = c.req.query("space");
+      const top = c.req.query("top");
       const words = query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
-      // Filtered before the LIMIT, so a type or space with older records still gets them.
+      // Filtered before the LIMIT, so a type or top folder with older records still gets them.
       const where = [
-        `r.space IN (${spaces.map(() => "?").join(", ")})`,
+        `r.top IN (${tops.map(() => "?").join(", ")})`,
         "r.retired_at IS NULL AND r.sealed IS NULL",
-        "(? = '' OR r.type = ?) AND (? = '' OR r.space = ?)",
+        "(? = '' OR r.type = ?) AND (? = '' OR r.top = ?)",
       ];
-      const bindings = [...spaces, type ?? "", type ?? "", space ?? "", space ?? ""];
+      const bindings = [...tops, type ?? "", type ?? "", top ?? "", top ?? ""];
       const rows = words.length
         ? this.#sql(
             `SELECT r.* FROM records_fts f JOIN records r ON r.id = f.id WHERE records_fts MATCH ? AND ${where.join(" AND ")} ORDER BY bm25(records_fts) LIMIT 200`,
@@ -1221,7 +1236,7 @@ export class TeamStore extends DurableObject<Env> {
 
   /** Records a member may read that match the words, best first, without sealed or retired ones. */
   #search(member: Member, query: string, type: string | undefined, limit: number): StoredRecord[] {
-    const spaces = this.#spacesOf(member);
+    const tops = this.#topsOf(member);
     const words = query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
     if (words.length === 0) return [];
     return this.#sql(
@@ -1229,7 +1244,7 @@ export class TeamStore extends DurableObject<Env> {
       words.map((word) => `"${word.replace(/"/g, '""')}"`).join(" OR "),
     )
       .map((row) => this.#record(row))
-      .filter((record) => spaces.includes(record.space) && record.retiredAt === null && (!type || record.type === type))
+      .filter((record) => tops.includes(record.top) && record.retiredAt === null && (!type || record.type === type))
       .slice(0, limit);
   }
 
@@ -1243,12 +1258,24 @@ export class TeamStore extends DurableObject<Env> {
     });
     if (request.id === undefined) return null;
     const marker = randomId(6);
+    const names = new Map(
+      this.#sql("SELECT id, name, kind FROM tops").map((row) => [
+        row.id as string,
+        row.kind === "team" ? "Team" : (row.name as string),
+      ]),
+    );
+    // Where a record is, as agents name a place: "Team/Decisions".
+    const folderOf = (record: StoredRecord) =>
+      [record.top.startsWith("me:") ? "Me" : (names.get(record.top) ?? record.top), record.folder]
+        .filter(Boolean)
+        .join("/");
     const shown = (record: StoredRecord) => ({
       id: record.id,
       type: record.type,
       kind: record.kind,
       title: record.title,
-      space: record.space,
+      top: record.top,
+      folder: folderOf(record),
       author: record.author,
       status: record.anchors.length > 0 ? "unchecked" : "hit",
       fields: record.fields,
@@ -1285,7 +1312,7 @@ export class TeamStore extends DurableObject<Env> {
           return reply(text({ status: found.length ? "unchecked" : "miss", results: found.map(shown) }));
         }
         if (params.name === "query") {
-          const spaces = this.#spacesOf(member);
+          const tops = this.#topsOf(member);
           const one =
             typeof args.id === "string"
               ? this.#get(args.id)
@@ -1295,14 +1322,14 @@ export class TeamStore extends DurableObject<Env> {
                     args.title.trim(),
                   ).map((row) => this.#record(row))[0]
                 : undefined;
-          if (one && spaces.includes(one.space)) {
+          if (one && tops.includes(one.top)) {
             const linked = [
               ...one.links.filter((link) => link.kind === "record").map((link) => this.#get(link.ref)),
               ...this.#sql(
                 "SELECT r.* FROM records r, json_each(r.links) l WHERE json_extract(l.value, '$.ref') = ? AND r.retired_at IS NULL",
                 one.id,
               ).map((row) => this.#record(row)),
-            ].filter((record): record is StoredRecord => record !== undefined && spaces.includes(record.space));
+            ].filter((record): record is StoredRecord => record !== undefined && tops.includes(record.top));
             return reply(text({ records: [shown(one)], linked: linked.map(shown) }));
           }
           const rows = this.#sql(
@@ -1311,7 +1338,7 @@ export class TeamStore extends DurableObject<Env> {
             (args.type as string) ?? null,
           )
             .map((row) => this.#record(row))
-            .filter((record) => spaces.includes(record.space));
+            .filter((record) => tops.includes(record.top));
           return reply(text({ records: rows.slice(0, Math.min(Number(args.limit ?? 50), 200)).map(shown) }));
         }
         if (params.name === "request") {
@@ -1321,7 +1348,7 @@ export class TeamStore extends DurableObject<Env> {
               "SELECT * FROM records WHERE type = 'Routine' AND lower(title) = lower(?) AND retired_at IS NULL",
               String(args.routine ?? ""),
             ).map((row) => this.#record(row))[0];
-          if (!routine || !this.#spacesOf(member).includes(routine.space))
+          if (!routine || !this.#topsOf(member).includes(routine.top))
             return reply({ ...text({ error: "no such routine" }), isError: true });
           const title = String(args.title ?? "").trim();
           if (!title) return reply({ ...text({ error: "a request needs a title" }), isError: true });
@@ -1331,10 +1358,10 @@ export class TeamStore extends DurableObject<Env> {
                 id: randomId(),
                 recordId: randomId(),
                 baseVersion: 0,
-                changed: ["space", "type", "title", "body", "fields", "links"],
+                changed: ["top", "type", "title", "body", "fields", "links"],
                 record: {
                   id: "",
-                  space: routine.space,
+                  top: routine.top,
                   type: "Task",
                   title,
                   body: String(args.body ?? ""),

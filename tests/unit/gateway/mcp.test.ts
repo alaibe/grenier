@@ -17,8 +17,8 @@ beforeEach(async () => {
   repo = new TestRepo({ "proxy.ts": "export const proxy = 1;\n" });
   await repo.ready();
   store = openSqliteStore(":memory:");
-  await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-  await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
+  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
 });
 
 afterEach(async () => {
@@ -72,7 +72,7 @@ describe("the MCP server", () => {
         arguments: { kind: "answer", title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
       }),
     );
-    expect(kept).toMatchObject({ status: "kept", space: `repo:${repo.repo.id}` });
+    expect(kept).toMatchObject({ status: "kept", top: `repo:${repo.repo.id}` });
     const recalled = structured(await client.callTool({ name: "recall", arguments: { query: question } }));
     expect(recalled).toMatchObject({ status: "hit", results: [{ title: question, changed: [] }] });
   });
@@ -96,7 +96,7 @@ describe("the MCP server", () => {
       }),
     );
     expect(asked[0]).toContain("Share this Decision with the whole team?");
-    expect(kept).toMatchObject({ space: "me", status: "kept in me" });
+    expect(kept).toMatchObject({ top: "me", status: "kept in me" });
   });
 
   it("keeps a record in me when the client cannot ask", async () => {
@@ -104,7 +104,7 @@ describe("the MCP server", () => {
     const kept = structured(
       await client.callTool({ name: "remember", arguments: { kind: "convention", title: "Tabs" } }),
     );
-    expect(kept).toMatchObject({ space: "me" });
+    expect(kept).toMatchObject({ top: "me" });
   });
 
   it("files a request for a routine, by its title", async () => {
@@ -115,7 +115,7 @@ describe("the MCP server", () => {
         type: "Routine",
         title: "Update dependencies",
         fields: { versions: [{ version: 1, prompt: "Update.", status: "production" }], trigger: "request" },
-        space: "team",
+        top: "team",
       },
     });
     const filed = structured(

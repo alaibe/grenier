@@ -139,7 +139,7 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
 
   it("offers the agent read tools only, and cuts the run off at an edit", async () => {
     writeFileSync(join(dir, "tidy.md"), "---\ntitle: Tidy\ntrigger: request\ntools: Edit\n---\nTidy app.ts.\n");
-    const added = await grenier("routines", "add", join(dir, "tidy.md"), "--repo", repo, "--space", "me");
+    const added = await grenier("routines", "add", join(dir, "tidy.md"), "--repo", repo, "--folder", "Me");
     const id = /\(([0-9a-f]+)\)/.exec(added.stdout)?.[1] as string;
     expect(id, added.stdout + added.stderr).toBeTruthy();
     await admin(`/routines/${id}/approve`, { mode: "read-only" });

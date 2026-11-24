@@ -1,14 +1,14 @@
 import { parseArgs } from "node:util";
-import { MAX_QUESTION, repoSpace } from "@grenier/core";
+import { MAX_QUESTION, repoTop } from "@grenier/core";
 import { type Embedder, type RecallResult, recall } from "@grenier/index";
 import { embedderLoader, gitFiles, repoResolver } from "../exploration.ts";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
-import { ensureBaseSpaces, identity } from "../runtime.ts";
+import { ensureBaseTops, identity } from "../runtime.ts";
 
 /** How close a prompt must be to a recorded question for the prompt hook to pass its answer on. */
 export const PROMPT_SIMILAR = 0.6;
 
-/** The person at the terminal reads every space this machine has. */
+/** The person at the terminal reads every top folder this machine has. */
 const PERSON = { id: "cli", name: "cli", scopes: ["*"] };
 
 function asText(result: RecallResult): string {
@@ -17,7 +17,9 @@ function asText(result: RecallResult): string {
   const lines = [best.body, "", `${best.type}${best.kind ? ` (${best.kind})` : ""}: ${best.title}`];
   const files = best.anchors.map((anchor) => anchor.ref);
   if (files.length > 0) lines.push(`From: ${files.join(", ")}`);
-  lines.push(`By ${best.author}, in ${best.space}. Id: ${best.id} (the app's Knowledge screen retires it)`);
+  lines.push(
+    `By ${best.author}, in ${[best.top, best.folder].filter(Boolean).join("/")}. Id: ${best.id} (the app's Knowledge screen retires it)`,
+  );
   if (best.status === "stale") {
     lines.unshift(
       `Stale: ${best.changed.join(", ")} changed since it was written; re-read them before relying on it.`,
@@ -44,7 +46,7 @@ export async function ask(argv: string[], io: Io): Promise<string> {
   const repo = await repoResolver(io.cwd)(values.repo);
   const embedder = await embedderLoader(config, paths, io.err)();
   const result = await withStore(paths, async (store) => {
-    await ensureBaseSpaces(store);
+    await ensureBaseTops(store);
     const me = await identity(store, config);
     return recall({ store, embedder, files: gitFiles, me }, PERSON, { query: question, repo, count: false });
   });
@@ -68,7 +70,7 @@ export async function promptHook(io: Io, embedder?: Embedder | null): Promise<nu
       return recall({ store, embedder: vectors, files: gitFiles, me }, PERSON, {
         query: question,
         repo,
-        space: repoSpace(repo.id),
+        top: repoTop(repo.id),
         type: "Memory",
         count: false,
         limit: 1,

@@ -53,10 +53,12 @@ macro_rules! screens {
 
 // The app's views, as `src/usage/screens.ts` lists them.
 screens! {
-    Cost => "/cost", "Cost";
     Knowledge => "/knowledge", "Knowledge";
+    Cost => "/cost", "Cost";
     Routines => "/routines", "Routines";
     Skills => "/skills", "Skills";
+    Mcp => "/mcp", "MCP";
+    Team => "/team", "Team";
     Settings => "/settings", "Settings";
 }
 

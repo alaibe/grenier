@@ -78,8 +78,8 @@ export async function storeDeps(
   embedder: Embedder | null = null,
   me: Identity = ADA,
 ): Promise<StoreDeps> {
-  if (!(await store.spaces.get("me"))) {
-    await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
+  if (!(await store.tops.get("me"))) {
+    await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
   }
   return { store, embedder, files: gitFiles, me, now: () => 1_000 };
 }

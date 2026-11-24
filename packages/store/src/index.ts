@@ -14,7 +14,7 @@ export type {
   RecordRow,
   Run,
   Session,
-  Space,
+  Top,
   Usage,
 } from "./schema.ts";
 export * as schema from "./schema.ts";
@@ -31,9 +31,9 @@ export type {
   RecordStore,
   RunStore,
   SessionStore,
-  SpaceStore,
   StateStore,
   Store,
+  TopStore,
   UsageStore,
   UsageWithSession,
 } from "./store.ts";

@@ -1,11 +1,11 @@
 import { blobText, repoText } from "@grenier/connectors/git";
-import { type Config, joinCode, repoSpace, sha256 } from "@grenier/core";
+import { type Config, joinCode, repoTop, sha256 } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import { type StoreDeps, type TeamClient, TeamError, teamApi } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { fetchSkill, searchSkills } from "./catalog.ts";
 import { autoInstall, install, rollback, type Shared, share, sharedList, uninstall } from "./installs.ts";
-import { deviceName, ensureBaseSpaces, ensurePersonalKey } from "./runtime.ts";
+import { deviceName, ensureBaseTops, ensurePersonalKey } from "./runtime.ts";
 import { newTeamToken, parseInvite, saveTeam } from "./team.ts";
 
 export type Reply = { status: number; body: unknown } | null;
@@ -69,9 +69,9 @@ export function joining(deps: {
         const me = await teamApi<{ name: string; me: string; role: string }>(team, "/api/me");
         saveTeam(deps.paths, invite.url, token);
         await deps.store.state.set("team_member", me.name);
-        await deps.store.state.set("team_me_space", me.me);
+        await deps.store.state.set("team_me_top", me.me);
         await deps.store.state.set("team_role", me.role);
-        await ensureBaseSpaces(deps.store);
+        await ensureBaseTops(deps.store);
         ensurePersonalKey(deps.paths);
         state = { state: "joined", url: invite.url, member: me.name };
         deps.joined({ url: invite.url, token });
@@ -102,7 +102,7 @@ export function anchorDiffs(store: Store): Route {
     const file = decodeURIComponent(match[2] as string);
     const anchor = record?.anchors.find((entry) => entry.kind === "git" && entry.ref === file);
     if (!record || !anchor?.repoId) return no(404, "no such file among the record's anchors");
-    const root = (await store.spaces.get(repoSpace(anchor.repoId)))?.root;
+    const root = (await store.tops.get(repoTop(anchor.repoId)))?.root;
     if (!root) return no(404, "this repository is not on this machine");
     const before = await blobText(root, anchor.version);
     const now = await repoText(root, file);

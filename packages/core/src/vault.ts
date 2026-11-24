@@ -1,4 +1,4 @@
-// End-to-end encryption for the `me` space: the key stays on the user's devices, the server stores only sealed bytes.
+// End-to-end encryption for the `me` top folder: the key stays on the user's devices, the server stores only sealed bytes.
 
 const VERSION = 1;
 const IV_BYTES = 12;

@@ -77,7 +77,7 @@ describe("pruning", () => {
 describe("records", () => {
   const record = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
-    space: "team",
+    top: "team",
     type: "Memory",
     kind: "fact",
     title: "Deploys on Friday",
@@ -107,26 +107,22 @@ describe("records", () => {
     expect(await store.records.get("r1")).toMatchObject({ title: "Deploys on Fridays", anchors: [], links: [] });
   });
 
-  it("lists by space, type and link, newest first, without the retired ones unless asked", async () => {
+  it("lists by top, type and link, newest first, without the retired ones unless asked", async () => {
     await store.records.put(record("r1", { updatedAt: 1 }));
     await store.records.put(record("r2", { updatedAt: 2, type: "Doc", kind: null, links: [] }));
     await store.records.put(record("r3", { updatedAt: 3, retiredAt: 3 }));
-    expect((await store.records.list({ spaces: ["team"] })).map((r) => r.id)).toEqual(["r2", "r1"]);
-    expect((await store.records.list({ spaces: ["team"], retired: true })).map((r) => r.id)).toEqual([
-      "r3",
-      "r2",
-      "r1",
-    ]);
-    expect((await store.records.list({ spaces: ["team"], type: "Doc" })).map((r) => r.id)).toEqual(["r2"]);
+    expect((await store.records.list({ tops: ["team"] })).map((r) => r.id)).toEqual(["r2", "r1"]);
+    expect((await store.records.list({ tops: ["team"], retired: true })).map((r) => r.id)).toEqual(["r3", "r2", "r1"]);
+    expect((await store.records.list({ tops: ["team"], type: "Doc" })).map((r) => r.id)).toEqual(["r2"]);
     expect(
-      (await store.records.list({ spaces: ["team"], linkedTo: { kind: "record", ref: "p1" } })).map((r) => r.id),
+      (await store.records.list({ tops: ["team"], linkedTo: { kind: "record", ref: "p1" } })).map((r) => r.id),
     ).toEqual(["r1"]);
-    expect(await store.records.list({ spaces: [] })).toEqual([]);
+    expect(await store.records.list({ tops: [] })).toEqual([]);
   });
 
-  it("searches titles and bodies with the stemmer, in the spaces given", async () => {
+  it("searches titles and bodies with the stemmer, in the tops given", async () => {
     await store.records.put(record("r1", { title: "How does streaming work?" }));
-    await store.records.put(record("r2", { space: "me", title: "Streamed responses" }));
+    await store.records.put(record("r2", { top: "me", title: "Streamed responses" }));
     expect((await store.records.search(["streams"], ["team"], 10)).map((r) => r.id)).toEqual(["r1"]);
     expect((await store.records.search(["streams"], ["team", "me"], 10)).map((r) => r.id).sort()).toEqual(["r1", "r2"]);
   });
@@ -139,16 +135,16 @@ describe("records", () => {
     expect(await store.records.vectors(["team"], "m")).toEqual([]);
     await store.records.hit("r1");
     expect((await store.records.get("r1"))?.hits).toBe(1);
-    expect(await store.records.stats()).toEqual([{ space: "team", type: "Memory", records: 1, hits: 1 }]);
+    expect(await store.records.stats()).toEqual([{ top: "team", type: "Memory", records: 1, hits: 1 }]);
   });
 });
 
-describe("spaces, the outbox, history and approvals", () => {
-  it("removes a space with its records here", async () => {
-    await store.spaces.put({ id: "space:x", name: "x", kind: "custom", repoId: null, root: null });
+describe("tops, the outbox, history and approvals", () => {
+  it("removes a top with its records here", async () => {
+    await store.tops.put({ id: "top:x", name: "x", kind: "custom", repoId: null, root: null });
     await store.records.put({
       id: "r1",
-      space: "space:x",
+      top: "top:x",
       type: "Doc",
       kind: null,
       folder: "",
@@ -165,9 +161,9 @@ describe("spaces, the outbox, history and approvals", () => {
       anchors: [],
       links: [],
     });
-    await store.spaces.remove("space:x");
+    await store.tops.remove("top:x");
     expect(await store.records.get("r1")).toBeUndefined();
-    expect(await store.spaces.get("space:x")).toBeUndefined();
+    expect(await store.tops.get("top:x")).toBeUndefined();
   });
 
   it("gives pending changes oldest first, without refused ones", async () => {
@@ -175,7 +171,7 @@ describe("spaces, the outbox, history and approvals", () => {
     await store.outbox.add({ id: "c2", recordId: "r2", change: {}, baseVersion: 0, createdAt: 2 });
     await store.outbox.refuse("c1", "no");
     expect((await store.outbox.pending(10)).map((entry) => entry.id)).toEqual(["c2"]);
-    const mine = { recordId: "r3", change: { record: { space: "me" } }, baseVersion: 0, createdAt: 3 };
+    const mine = { recordId: "r3", change: { record: { top: "me" } }, baseVersion: 0, createdAt: 3 };
     await store.outbox.add({ id: "c3", ...mine });
     expect((await store.outbox.pending(10)).map((entry) => entry.id)).toEqual(["c2", "c3"]);
     expect((await store.outbox.pending(10, true)).map((entry) => entry.id)).toEqual(["c2"]);

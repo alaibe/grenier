@@ -11,7 +11,7 @@ import {
   Loading,
   money,
   Notice,
-  Part,
+  Page,
   Select,
   Table,
   useAction,
@@ -69,7 +69,7 @@ function Join({ joined }: { joined: () => void }) {
   };
 
   return (
-    <Part
+    <Page
       title="Team"
       intro="A team shares one store: what each person and their agents learn, its skills, MCP servers and routines. It lives in the team's own Cloudflare account."
     >
@@ -104,7 +104,7 @@ function Join({ joined }: { joined: () => void }) {
           </Empty>
         </>
       )}
-    </Part>
+    </Page>
   );
 }
 
@@ -155,7 +155,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
     });
 
   return (
-    <Part
+    <Page
       title="Team"
       intro={
         <>
@@ -189,7 +189,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
         </section>
       )}
 
-      <h3 className="mb-2.5 font-semibold">Members</h3>
+      <h2 className="mb-2.5 font-semibold">Members</h2>
       {!members.data && !members.error && <Loading what="members" />}
       {members.data && (
         <div className="mb-7">
@@ -253,7 +253,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
 
       {admin && (
         <section className="mb-7">
-          <h3 className="mb-2.5 font-semibold">Invite</h3>
+          <h2 className="mb-2.5 font-semibold">Invite</h2>
           {link && (
             <div className="mb-3 rounded-xl border border-accent bg-panel px-5 py-4" role="status">
               <p>
@@ -286,7 +286,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
 
       <Machines />
       {me.data && <Usage key={me.data.role} admin={admin} />}
-    </Part>
+    </Page>
   );
 }
 
@@ -298,7 +298,7 @@ function Machines() {
   if (!data) return null;
   return (
     <section className="mb-7">
-      <h3 className="mb-2.5 font-semibold">Machines</h3>
+      <h2 className="mb-2.5 font-semibold">Machines</h2>
       <Table>
         <thead>
           <tr>
@@ -348,7 +348,7 @@ function Usage({ admin }: { admin: boolean }) {
   return (
     <section className="mb-7">
       <div className="mb-2.5 flex items-center justify-between">
-        <h3 className="font-semibold">{admin ? "Usage, last 30 days" : "Your usage, last 30 days"}</h3>
+        <h2 className="font-semibold">{admin ? "Usage, last 30 days" : "Your usage, last 30 days"}</h2>
         <Select aria-label="Group by" value={by} onChange={(event) => setBy(event.currentTarget.value as By)}>
           {(admin ? (["member", "machine", "day", "repo"] as const) : (["machine", "day", "repo"] as const)).map(
             (name) => (

@@ -48,7 +48,7 @@ export function setRules(paths: GrenierPaths, change: Record<string, unknown>): 
 export interface RoutineView {
   id: string;
   title: string;
-  space: string;
+  top: string;
   author: string;
   trigger: string;
   schedule: string | null;
@@ -65,20 +65,20 @@ export interface RoutineView {
 }
 
 export async function routineViews(store: Store): Promise<RoutineView[]> {
-  const spaces = (await store.spaces.list()).map((space) => space.id);
+  const tops = (await store.tops.list()).map((top) => top.id);
   const out: RoutineView[] = [];
-  for (const routine of await store.records.list({ spaces, type: "Routine" })) {
+  for (const routine of await store.records.list({ tops, type: "Routine" })) {
     const approval = await store.approvals.get(routine.id, "routine");
     const repo = typeof routine.fields.repo === "string" && routine.fields.repo ? routine.fields.repo : null;
     out.push({
       id: routine.id,
       title: routine.title,
-      space: routine.space,
+      top: routine.top,
       author: routine.author,
       trigger: String(routine.fields.trigger ?? "request"),
       schedule: typeof routine.fields.schedule === "string" ? routine.fields.schedule : null,
       repo,
-      repoHere: repo ? Boolean((await store.spaces.get(`repo:${repo}`))?.root) : true,
+      repoHere: repo ? Boolean((await store.tops.get(`repo:${repo}`))?.root) : true,
       agent: String(routine.fields.agent ?? "claude"),
       collector: routine.fields.collector === "yes",
       tools: Array.isArray(routine.fields.tools) ? routine.fields.tools.map(String) : [],
@@ -191,10 +191,17 @@ export function parseRoutine(text: string): { title: string; prompt: string; fie
 /** Writes a new routine, or a new testing version of the one with the same title. */
 export async function addRoutine(
   deps: StoreDeps,
-  input: { title: string; prompt: string; fields: Record<string, unknown>; repo: string | null; space: string },
+  input: {
+    title: string;
+    prompt: string;
+    fields: Record<string, unknown>;
+    repo: string | null;
+    top: string;
+    folder?: string;
+  },
 ): Promise<{ id: string; version: number }> {
-  const spaces = (await deps.store.spaces.list()).map((space) => space.id);
-  const existing = (await deps.store.records.list({ spaces, type: "Routine" })).find(
+  const tops = (await deps.store.tops.list()).map((top) => top.id);
+  const existing = (await deps.store.records.list({ tops, type: "Routine" })).find(
     (record) => record.title.toLowerCase() === input.title.toLowerCase(),
   );
   const now = Date.now();
@@ -221,11 +228,11 @@ export async function addRoutine(
   const id = newId();
   await write(deps, {
     id,
-    space: input.space,
+    top: input.top,
     type: "Routine",
     kind: null,
     title: input.title,
-    folder: "",
+    folder: input.folder ?? "",
     body: "",
     fields: {
       ...(input.fields.collector === "yes" ? { owner: deps.me.member } : {}),

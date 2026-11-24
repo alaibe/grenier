@@ -14,19 +14,19 @@ export async function newClientToken(): Promise<{ token: string; hash: string }>
   return { token, hash: await sha256(token) };
 }
 
-/** "*" for every space, or space ids and names, kept as ids. */
+/** "*" for every top folder, or top folder ids and names, kept as ids. */
 export async function resolveScopes(store: Store, scopes: readonly string[]): Promise<string[]> {
   if (scopes.includes("*")) return ["*"];
-  const spaces = await store.spaces.list();
+  const tops = await store.tops.list();
   const kept: string[] = [];
   for (const scope of scopes) {
-    const space = spaces.find((candidate) => candidate.id === scope || candidate.name === scope);
-    if (!space) {
+    const top = tops.find((candidate) => candidate.id === scope || candidate.name === scope);
+    if (!top) {
       throw new StoreUseError(
-        `unknown space ${scope}: use * for every space, or ${spaces.map((candidate) => candidate.id).join(", ")}`,
+        `unknown top folder ${scope}: use * for every one, or ${tops.map((candidate) => candidate.id).join(", ")}`,
       );
     }
-    if (!kept.includes(space.id)) kept.push(space.id);
+    if (!kept.includes(top.id)) kept.push(top.id);
   }
   return kept;
 }
@@ -35,7 +35,7 @@ export async function resolveScopes(store: Store, scopes: readonly string[]): Pr
 export async function addClient(store: Store, name: string, scopes: string[]): Promise<string> {
   if (!/^[\w.@-]{1,64}$/.test(name)) throw new StoreUseError("a client name takes letters, digits and . _ @ -");
   if ((await store.clients.list()).some((client) => client.name === name)) {
-    throw new StoreUseError(`there is already a client named ${name}; revoke it first in the app's Settings`);
+    throw new StoreUseError(`there is already a client named ${name}; revoke it first on the app's MCP screen`);
   }
   const kept = await resolveScopes(store, scopes);
   const { token, hash } = await newClientToken();

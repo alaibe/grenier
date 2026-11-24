@@ -19,8 +19,8 @@ let synced: number;
 
 beforeEach(async () => {
   store = openSqliteStore(":memory:");
-  await store.spaces.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-  await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
+  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
   dir = mkdtempSync(join(tmpdir(), "grenier-admin-"));
   team = null;
   synced = 0;
@@ -169,17 +169,17 @@ describe("the admin API", () => {
     ]);
 
     const move = (body: Record<string, unknown>) =>
-      call("/folders/move", { method: "POST", body: JSON.stringify({ space: "team", ...body }) });
+      call("/folders/move", { method: "POST", body: JSON.stringify({ top: "team", ...body }) });
     expect((await move({ from: "Ops", to: "Ops/Inner" })).status).toBe(400);
     expect(await (await move({ from: "Ops", to: "Infra/Operations" })).json()).toEqual({ moved: 2 });
     expect((await store.records.get(plan))?.folder).toBe("Infra/Operations");
     expect((await store.records.get(deep))?.folder).toBe("Infra/Operations/Deploys");
-    expect(await (await move({ from: "Infra", to: "Infra", toSpace: "me" })).json()).toEqual({ moved: 2 });
-    expect((await store.records.get(deep))?.space).toBe("me");
+    expect(await (await move({ from: "Infra", to: "Infra", toTop: "me" })).json()).toEqual({ moved: 2 });
+    expect((await store.records.get(deep))?.top).toBe("me");
     expect((await pages()).find((page) => page.title === "Elsewhere")?.folder).toBe("Opsx");
   });
 
-  it("saves straight to the team store, and hands back a teammate's version when they changed the same field", async () => {
+  it("saves straight to a team store that speaks this protocol, and hands back a teammate's version when they changed the same field", async () => {
     const sent: unknown[] = [];
     let conflict = false;
     team = {
@@ -194,6 +194,13 @@ describe("the admin API", () => {
         );
       }) as unknown as typeof fetch,
     };
+    const waiting = (await (
+      await call("/records", { method: "POST", body: JSON.stringify({ type: "Doc", title: "Before any sync" }) })
+    ).json()) as { waiting?: boolean };
+    expect(waiting.waiting).toBe(true);
+    expect(sent).toEqual([]);
+
+    await store.state.set("team_protocol", "3");
     const made = (await (
       await call("/records", { method: "POST", body: JSON.stringify({ type: "Doc", title: "Runbook" }) })
     ).json()) as { id: string };

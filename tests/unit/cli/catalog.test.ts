@@ -108,9 +108,9 @@ describe("sharing a found skill", () => {
     const share = () => route("POST", "/installs/share", { source: "acme/skills", name: "release-notes" });
     expect(await share()).toEqual({ status: 409, body: { error: "this machine is in no team: join one first" } });
 
-    await store.spaces.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
     expect(await share()).toMatchObject({ status: 200, body: { title: "release-notes", files: 2, updated: false } });
-    const [record] = await store.records.list({ spaces: ["team"], type: "Skill" });
+    const [record] = await store.records.list({ tops: ["team"], type: "Skill" });
     expect(record?.fields.files).toEqual({ "SKILL.md": REPO["skills/notes/SKILL.md"], "template.md": "## Changes\n" });
     expect((await route("GET", "/installs", undefined))?.body).toMatchObject({
       shared: [{ title: "release-notes", state: "available" }],

@@ -58,7 +58,7 @@ async function push(token: string, record: Record<string, unknown>, baseVersion 
 }
 
 async function pull(token: string, after = 0) {
-  return json<{ records: { id: string; title: string; body: string; space: string; version: number }[] }>(
+  return json<{ records: { id: string; title: string; body: string; top: string; version: number }[] }>(
     await call(`/api/changes?after=${after}`, token),
   );
 }
@@ -126,7 +126,7 @@ describe("admins", () => {
 describe("changes", () => {
   const record = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
-    space: "team",
+    top: "team",
     type: "Memory",
     kind: "fact",
     title: "Deploys on Friday",
@@ -140,7 +140,7 @@ describe("changes", () => {
   it("lists a member's records by type and words, without sealed ones", async () => {
     await push(ADA, record("t1", { type: "Task", kind: null, title: "Bump hono", fields: { status: "to-do" } }));
     await push(ADA, record("r1"));
-    await push(ADA, { id: "m1", space: "me", type: "Sealed", title: "", body: "", sealed: "c2VhbGVk", fields: {} });
+    await push(ADA, { id: "m1", top: "me", type: "Sealed", title: "", body: "", sealed: "c2VhbGVk", fields: {} });
     const list = async (query: string) =>
       (await json<{ records: { id: string }[] }>(await call(`/api/records${query}`, ADA))).records.map((r) => r.id);
     expect(await list("?type=Task")).toEqual(["t1"]);
@@ -165,7 +165,7 @@ describe("changes", () => {
           id: "same",
           recordId: "r1",
           baseVersion: 0,
-          changed: ["space", "type", "kind", "title", "fields"],
+          changed: ["top", "type", "kind", "title", "fields"],
           record: record("r1"),
         },
       ],
@@ -177,7 +177,7 @@ describe("changes", () => {
 
   it("merges two people's changes field by field, and refuses the editor's save over someone's edit", async () => {
     const bob = await join("bob");
-    await push(ADA, record("r1", { space: REPO }));
+    await push(ADA, record("r1", { top: REPO }));
     await push(bob, { id: "r1", body: "Before noon, never on a holiday." }, 1);
     await push(ADA, { id: "r1", title: "Deploys on Fridays" }, 1);
     await push(bob, { id: "r1", folder: "Releases" }, 1);
@@ -194,10 +194,15 @@ describe("changes", () => {
     ).toHaveLength(1);
   });
 
+  it("refuses a new record that names no top folder", async () => {
+    const { top: _top, ...nowhere } = record("n1");
+    expect((await push(ADA, nowhere)).refused[0]?.reason).toContain("names its top folder");
+  });
+
   it("refuses a record that breaks its type's rules or holds a key", async () => {
     const refused = await push(ADA, {
       id: "d1",
-      space: "team",
+      top: "team",
       type: "Decision",
       title: "Use SQLite",
       fields: { owner: "ada" },
@@ -218,7 +223,7 @@ describe("changes", () => {
     }
     const shown = await push(ADA, {
       id: "m2",
-      space: "me",
+      top: "me",
       type: "Sealed",
       title: "",
       body: "",
@@ -229,21 +234,21 @@ describe("changes", () => {
     expect(shown.refused[0]?.reason).toContain("keeps its folder sealed");
   });
 
-  it("keeps a member's me space to that member, and a custom space to its members", async () => {
+  it("keeps a member's me top to that member, and a custom top to its members", async () => {
     const bob = await join("bob");
-    await push(ADA, { id: "m1", space: "me", type: "Sealed", title: "", body: "", sealed: "c2VhbGVk", fields: {} });
-    expect((await pull(ADA)).records.map((entry) => entry.space)).toEqual([expect.stringMatching(/^me:/)]);
+    await push(ADA, { id: "m1", top: "me", type: "Sealed", title: "", body: "", sealed: "c2VhbGVk", fields: {} });
+    expect((await pull(ADA)).records.map((entry) => entry.top)).toEqual([expect.stringMatching(/^me:/)]);
     expect((await pull(bob)).records).toEqual([]);
-    expect((await call("/api/spaces", ADA, { body: { name: "leads", members: ["ada"] } })).status).toBe(201);
-    await push(ADA, record("l1", { space: "space:leads" }));
+    expect((await call("/api/tops", ADA, { body: { name: "leads", members: ["ada"] } })).status).toBe(201);
+    await push(ADA, record("l1", { top: "top:leads" }));
     expect((await pull(bob)).records).toEqual([]);
     const cleo = await join("cleo", "cleo-mbp", "admin");
-    expect((await push(cleo, record("l2", { space: "space:leads" }))).refused[0]?.reason).toContain("no space");
+    expect((await push(cleo, record("l2", { top: "top:leads" }))).refused[0]?.reason).toContain("no top");
   });
 
   it("keeps every version, with who made it", async () => {
     const bob = await join("bob");
-    await push(ADA, record("r1", { space: REPO }));
+    await push(ADA, record("r1", { top: REPO }));
     await push(bob, { id: "r1", body: "Changed." }, 1);
     const { history } = await json<{ history: { version: number; author: string; device: string }[] }>(
       await call("/api/records/r1/history", ADA),
@@ -258,7 +263,7 @@ describe("changes", () => {
 describe("what members write", () => {
   const record = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
-    space: "team",
+    top: "team",
     type: "Memory",
     kind: "fact",
     title: "Deploys on Friday",
@@ -272,19 +277,19 @@ describe("what members write", () => {
     const refused = async (change: Record<string, unknown>, base = 0) =>
       (await push(bob, change, base)).refused[0]?.reason;
     expect(await refused(record("t1"))).toContain("only an admin writes there");
-    expect(await refused({ id: "s1", space: "team", type: "Skill", title: "notes", fields: { files: {} } })).toContain(
+    expect(await refused({ id: "s1", top: "team", type: "Skill", title: "notes", fields: { files: {} } })).toContain(
       "only an admin writes there",
     );
-    expect((await push(bob, record("mine", { space: "me" }))).applied).toHaveLength(1);
-    expect((await push(bob, record("answer", { space: REPO }))).applied).toHaveLength(1);
-    expect(await refused({ id: "answer", space: "team" }, 1)).toContain("only an admin writes there");
-    expect(await refused(record("doc", { space: REPO, type: "Doc", kind: null, fields: {} }))).toContain(
+    expect((await push(bob, record("mine", { top: "me" }))).applied).toHaveLength(1);
+    expect((await push(bob, record("answer", { top: REPO }))).applied).toHaveLength(1);
+    expect(await refused({ id: "answer", top: "team" }, 1)).toContain("only an admin writes there");
+    expect(await refused(record("doc", { top: REPO, type: "Doc", kind: null, fields: {} }))).toContain(
       "only an admin writes there",
     );
 
     await push(ADA, {
       id: "task",
-      space: "team",
+      top: "team",
       type: "Task",
       title: "Bump hono",
       fields: { status: "to-do", routine: "r" },
@@ -302,14 +307,14 @@ describe("requests", () => {
   async function routineAndTask(token: string) {
     await push(token, {
       id: "routine",
-      space: "team",
+      top: "team",
       type: "Routine",
       title: "Update dependencies",
       fields: { versions: [{ version: 1, prompt: "Update", status: "production" }], trigger: "request", repo: "app" },
     });
     await push(token, {
       id: "task",
-      space: "team",
+      top: "team",
       type: "Task",
       title: "Bump hono",
       fields: { status: "to-do", routine: "routine" },
@@ -334,7 +339,7 @@ describe("requests", () => {
   it("takes a routine's schedule, and a change to it", async () => {
     const routine = (schedule: string) => ({
       id: "nightly",
-      space: "team",
+      top: "team",
       type: "Routine",
       title: "Nightly digest",
       fields: { versions: [{ version: 1, prompt: "Digest", status: "production" }], trigger: "schedule", schedule },
@@ -343,11 +348,11 @@ describe("requests", () => {
     expect((await push(ADA, routine("hourly"), 1)).applied).toHaveLength(1);
   });
 
-  it("offers a request in a space only to the machines of its members", async () => {
+  it("offers a request in a top only to the machines of its members", async () => {
     const bob = await join("bob");
-    await call("/api/spaces", ADA, { body: { name: "leads", members: ["ada"] } });
+    await call("/api/tops", ADA, { body: { name: "leads", members: ["ada"] } });
     await routineAndTask(ADA);
-    await push(ADA, { id: "task", space: "space:leads" }, 1);
+    await push(ADA, { id: "task", top: "top:leads" }, 1);
     await state(ADA, 0.3);
     await state(bob, 0.8);
     expect((await json<{ offer: unknown }>(await call("/api/work/claim", bob, { method: "POST" }))).offer).toBeNull();
@@ -376,7 +381,7 @@ describe("requests", () => {
     const bob = await join("bob", "bob-mbp", "admin");
     await push(bob, {
       id: "collector",
-      space: "team",
+      top: "team",
       type: "Routine",
       title: "My meetings",
       fields: {
@@ -387,7 +392,7 @@ describe("requests", () => {
     });
     await push(ADA, {
       id: "gather",
-      space: "team",
+      top: "team",
       type: "Task",
       title: "Gather today",
       fields: { status: "to-do", routine: "collector" },
@@ -442,7 +447,7 @@ describe("the remote MCP server and the web view", () => {
   it("answers recall with records marked as untrusted, and needs a token", async () => {
     await push(ADA, {
       id: "r1",
-      space: "team",
+      top: "team",
       type: "Memory",
       kind: "fact",
       title: "Deploys on Friday",

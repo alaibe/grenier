@@ -52,7 +52,7 @@ export function Requests({ go, member }: Pick<ViewProps, "go" | "member">) {
       await api("/records", {
         body: {
           type: "Task",
-          space: "team",
+          top: "team",
           title: String(data.get("title") ?? ""),
           body: String(data.get("details") ?? ""),
           fields: { status: "to-do", routine: String(data.get("routine") ?? "") },

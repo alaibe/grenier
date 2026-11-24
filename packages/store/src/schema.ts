@@ -49,17 +49,18 @@ export const events = sqliteTable(
   (table) => [index("events_session_ts").on(table.sessionId, table.ts)],
 );
 
-/** Small values this machine keeps: team cursor, last sync, member, role, `me` space, auto-install, eval scores. */
+/** Small values this machine keeps: team cursor, last sync, member, role, `me` top folder, auto-install, eval scores. */
 export const state = sqliteTable("state", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 });
 
-export const spaces = sqliteTable("spaces", {
+/** The top folders: who reads a record follows its top folder. */
+export const tops = sqliteTable("tops", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   kind: text("kind", { enum: ["me", "repo", "team", "custom"] }).notNull(),
-  /** For a repository's space: its id, the hash of its first commit. */
+  /** For a repository's top folder: its id, the hash of its first commit. */
   repoId: text("repo_id"),
   root: text("root"),
 });
@@ -70,12 +71,12 @@ export const records = sqliteTable(
   {
     seq: integer("seq").primaryKey(),
     id: text("id").notNull().unique(),
-    space: text("space").notNull(),
+    top: text("top").notNull(),
     type: text("type").notNull(),
     /** A memory's kind: answer, summary, convention or fact. */
     kind: text("kind"),
     title: text("title").notNull(),
-    /** Where the record sits in its space, as "Decisions/2026"; empty at the space's top. */
+    /** Where the record sits in its top folder, as "Decisions/2026"; empty at the top. */
     folder: text("folder").notNull().default(""),
     body: text("body").notNull().default(""),
     fields: text("fields", { mode: "json" }).$type<Record<string, unknown>>().notNull().default({}),
@@ -90,7 +91,7 @@ export const records = sqliteTable(
     /** Reuses through recall while it was a hit. */
     hits: integer("hits").notNull().default(0),
   },
-  (table) => [index("records_space_type").on(table.space, table.type), index("records_updated").on(table.updatedAt)],
+  (table) => [index("records_top_type").on(table.top, table.type), index("records_updated").on(table.updatedAt)],
 );
 
 /** What a record was worked out from, at the version read: a file and its blob hash, or an outside item. */
@@ -209,12 +210,12 @@ export const audit = sqliteTable(
   (table) => [index("audit_client_ts").on(table.clientId, table.ts)],
 );
 
-/** Tokens for the agents and apps that use the store over MCP, with the spaces each may read. */
+/** Tokens for the agents and apps that use the store over MCP, with the top folders each may read. */
 export const clients = sqliteTable("clients", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
   tokenHash: text("token_hash").notNull().unique(),
-  /** Space ids this client may read, or "*" for every space. */
+  /** The ids of the top folders this client may read, or "*" for every one. */
   scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull().default([]),
   createdAt: integer("created_at").notNull(),
   revokedAt: integer("revoked_at"),
@@ -226,7 +227,7 @@ export type Usage = typeof usage.$inferSelect;
 export type NewUsage = typeof usage.$inferInsert;
 export type Event = typeof events.$inferSelect;
 export type NewEvent = typeof events.$inferInsert;
-export type Space = typeof spaces.$inferSelect;
+export type Top = typeof tops.$inferSelect;
 export type RecordRow = typeof records.$inferSelect;
 export type Anchor = typeof anchors.$inferSelect;
 export type Link = typeof links.$inferSelect;

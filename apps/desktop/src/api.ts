@@ -113,7 +113,7 @@ export interface Overview {
   paused: number;
 }
 
-export interface Space {
+export interface Top {
   id: string;
   name: string;
   kind: "me" | "repo" | "team" | "custom";
@@ -153,7 +153,7 @@ export interface Link {
 /** A record as lists show it. */
 export interface RecordRow {
   id: string;
-  space: string;
+  top: string;
   type: string;
   kind: string | null;
   title: string;
@@ -173,7 +173,7 @@ export interface RecordRow {
 /** A page in Knowledge's tree. */
 export interface PageRow {
   id: string;
-  space: string;
+  top: string;
   folder: string;
   title: string;
   type: string;

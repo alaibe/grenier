@@ -57,11 +57,6 @@ export class TeamLink {
 
   async #round(): Promise<SyncResult | null> {
     try {
-      // The role too: an admin can change it at any time, and what this machine may write follows it.
-      const me = await teamApi<{ me: string; name: string; role: string }>(this.team, "/api/me");
-      await this.store.state.set("team_me_space", me.me);
-      await this.store.state.set("team_member", me.name);
-      await this.store.state.set("team_role", me.role);
       const result = await syncOnce({
         store: this.store,
         team: this.team,
