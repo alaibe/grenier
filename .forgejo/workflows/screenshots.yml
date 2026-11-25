@@ -1,0 +1,88 @@
+name: Screenshots
+
+# Captures grenier.laibe.cc's screenshots from the demo of main and commits those that changed to laibe.
+on:
+  schedule:
+    # Forgejo reads a bare cron as UTC.
+    - cron: "TZ=Europe/Paris 20 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: false
+
+env:
+  BROWSERS_VERSION: 3.2.6
+  CHROME_VERSION: 158.0.8127.88
+
+jobs:
+  # On the mac runner: it runs on the host, whose SSH key pushes to git.laibe.cc.
+  site:
+    runs-on: mac
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # actions/checkout adds a safe.directory to the global git config: a throwaway one, not Anthony's ~/.gitconfig.
+      - uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+        env:
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/gitconfig
+
+      - uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: JavaScript packages
+        run: pnpm install --frozen-lockfile
+
+      - name: Chrome
+        run: |
+          npx -y "@puppeteer/browsers@$BROWSERS_VERSION" install "chrome-headless-shell@$CHROME_VERSION" \
+            --path "$RUNNER_TEMP/browsers" | tee "$RUNNER_TEMP/chrome.txt"
+          echo "CHROME=$(awk 'END { print $2 }' "$RUNNER_TEMP/chrome.txt")" >> "$GITHUB_ENV"
+
+      # The host keeps running what a job leaves behind: the last step stops the demo by its pid.
+      - name: Demo
+        run: |
+          pnpm build
+          nohup node scripts/demo.mjs > "$RUNNER_TEMP/demo.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/demo.pid"
+          for _ in $(seq 1 180); do
+            if curl -fsS -o /dev/null http://localhost:1420/demo; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/demo.log"
+          exit 1
+
+      - name: Site
+        run: git clone --depth 1 ssh://git@git.laibe.cc:2222/anthony/laibe.git "$RUNNER_TEMP/laibe"
+
+      - name: Capture
+        run: SITE_CHECKOUT="$RUNNER_TEMP/laibe" screenshots/capture.sh site
+
+      - name: Commit
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          cd "$RUNNER_TEMP/laibe"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "The screenshots haven't changed."
+            exit 0
+          fi
+          git status --short
+          git add -A public/sites/grenier/screenshots
+          GIT=(git -c user.name="Grenier screenshots" -c user.email="nightly@git.laibe.cc")
+          "${GIT[@]}" commit -q -m "Screenshots of grenier $SHA"
+          for try in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            [ "$try" -eq 3 ] || "${GIT[@]}" pull --rebase origin main
+          done
+          exit 1
+
+      - name: Stop the demo
+        if: always()
+        run: |
+          [ ! -f "$RUNNER_TEMP/demo.pid" ] || kill "$(cat "$RUNNER_TEMP/demo.pid")" 2>/dev/null || true
+          [ ! -f "$RUNNER_TEMP/demo.log" ] || tail -n 20 "$RUNNER_TEMP/demo.log"

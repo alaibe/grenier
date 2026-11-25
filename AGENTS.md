@@ -33,6 +33,9 @@ A team's shared memory for people and their AI agents: a pnpm workspace in TypeS
 - Delete what is obsolete outright: no compatibility layer, fallback or migration of old data, config or formats.
 - A comment is one line, and only where the code can't say why.
 - The user guide is `../laibe/content/grenier/guide`: update it when usage changes, and give a new config key its line in `configuration.md`.
+- grenier.laibe.cc's screenshots come from `screenshots/`: the shots are listed in `site.yaml`, `capture.sh site`
+  takes them from `pnpm demo`, and the weekly `Screenshots` workflow commits them to laibe (the system's
+  `patterns/screenshots.md`). Never capture one by hand.
 - The maintainer's own material (launch posts, demo scripts, images) goes in the gitignored `priv/`.
 
 ## Design

@@ -24,6 +24,7 @@
     "apps/cli/src",
     "bench/src",
     "scripts",
+    "screenshots",
     "tests",
     "types",
     "*.config.ts"

@@ -41,9 +41,9 @@ jobs:
             exit 0
           fi
           COUNT=$(git rev-list --count "$LAST..HEAD")
-          # Commits that only touch the workflows, tests, benchmarks or the markdown make no release.
+          # Commits that only touch the workflows, tests, benchmarks, screenshots or the markdown make no release.
           APP=$(git rev-list --count "$LAST..HEAD" -- . ':(exclude).forgejo' ':(exclude)tests' \
-            ':(exclude)bench' ':(exclude,glob)*.md')
+            ':(exclude)bench' ':(exclude)screenshots' ':(exclude,glob)*.md')
           echo "$COUNT commits since $LAST, $APP of them changing the app"
           [ "$APP" -eq 0 ] || echo "due=true" >> "$GITHUB_OUTPUT"
 

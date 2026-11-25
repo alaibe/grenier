@@ -1,0 +1,22 @@
+# The shots grenier.laibe.cc shows, each in light and dark, from `pnpm demo`. The hero is at scale 2.
+- name: cost
+  path: /demo#cost
+  scale: 2
+- name: store
+  path: /demo#knowledge
+  scale: 1.25
+- name: record
+  path: /demo#knowledge/5c3f0a1e9b2d4c6e8a7f1b3d
+  scale: 1.25
+- name: team
+  path: /demo#team
+  scale: 1.25
+- name: routines
+  path: /demo#routines
+  scale: 1.25
+- name: skills
+  path: /demo#skills
+  scale: 1.25
+- name: machine
+  path: /demo#settings
+  scale: 1.25
