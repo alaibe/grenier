@@ -395,6 +395,29 @@ describe("the web view", () => {
     await expect.poll(() => admin.textContent).toContain("Not filed: it holds what looks like a key");
   });
 
+  it("goes to a place with G then its letter, the first G's time running out not cutting the next one short", async () => {
+    const timers: (() => void)[] = [];
+    const pending = new Set<number>();
+    const clock = {
+      setTimeout: (run: () => void) => {
+        timers.push(run);
+        pending.add(timers.length);
+        return timers.length;
+      },
+      clearTimeout: (timer: unknown) => pending.delete(timer as number),
+    };
+    const page = openPage(ADA, (path, init) => mf.dispatchFetch(`https://team.test${path}`, init as never), clock);
+    await expect.poll(() => page.nav.children.length).toBeGreaterThan(0);
+    const current = () => page.nav.find((node) => node.getAttribute("aria-current") === "page").textContent;
+    page.press("g");
+    page.press("r");
+    expect(current()).toBe("Requests");
+    page.press("g");
+    if (pending.has(1)) timers[0]?.();
+    page.press("m");
+    expect(current()).toBe("Team");
+  });
+
   it("signs a browser in once with a link a device made", async () => {
     const { path } = await json<{ path: string }>(await call("/api/weblinks", ADA, { method: "POST" }));
     const code = path.split("=")[1];

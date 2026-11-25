@@ -252,6 +252,7 @@ async function signIn() {
 /* The keys the system shares: / or ⌘K searches, J/K move, Enter opens, Esc goes back, G then a letter goes. */
 const keys = {};
 let chord = null;
+let chordTimer;
 document.addEventListener("keydown", (event) => {
   const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName);
   const mod = event.metaKey || event.ctrlKey;
@@ -259,8 +260,8 @@ document.addEventListener("keydown", (event) => {
   if (mod && key === "k") { event.preventDefault(); return keys.search && keys.search(); }
   if (typing) { if (key === "escape") event.target.blur(); return; }
   if (mod || event.altKey) return;
-  if (chord) { const run = keys["g " + key]; chord = null; if (run) { event.preventDefault(); run(); } return; }
-  if (key === "g") { chord = "g"; setTimeout(() => (chord = null), 1500); return; }
+  if (chord) { const run = keys["g " + key]; chord = null; clearTimeout(chordTimer); if (run) { event.preventDefault(); run(); } return; }
+  if (key === "g") { chord = "g"; chordTimer = setTimeout(() => (chord = null), 1500); return; }
   const run = { "/": keys.search, j: keys.next, arrowdown: keys.next, k: keys.previous, arrowup: keys.previous, enter: keys.open, escape: keys.back }[key];
   if (run) { event.preventDefault(); run(); }
 });

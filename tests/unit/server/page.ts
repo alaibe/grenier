@@ -3,6 +3,12 @@ import { WEB } from "../../../apps/server/src/web.ts";
 
 type Listener = (event: { target: PageNode; preventDefault: () => void }) => unknown;
 
+/** The page's timers, by default the real ones. */
+export interface Clock {
+  setTimeout: (run: () => void, ms: number) => unknown;
+  clearTimeout: (timer: never) => void;
+}
+
 /** Just enough of a DOM element for the web view's script. */
 export class PageNode {
   readonly tag: string;
@@ -97,19 +103,23 @@ export class PageNode {
 export function openPage(
   token: string,
   fetch: (path: string, init: RequestInit) => Promise<Response>,
-): { main: PageNode; nav: PageNode } {
+  clock: Clock = { setTimeout, clearTimeout },
+): { main: PageNode; nav: PageNode; press: (key: string) => void } {
   const script = /<script>([\s\S]*)<\/script>/.exec(WEB)?.[1] ?? "";
   const nodes = new Map<string, PageNode>();
   const byId = (id: string) => nodes.get(id) ?? nodes.set(id, new PageNode(id)).get(id);
   const main = byId("main") as PageNode;
   const nav = byId("nav") as PageNode;
   const storage = new Map([["grenier-token", token]]);
+  const keydowns: ((event: object) => void)[] = [];
   runInNewContext(script, {
     document: {
       getElementById: byId,
       createElement: (tag: string) => new PageNode(tag),
       createElementNS: (_: string, tag: string) => new PageNode(tag),
-      addEventListener: () => {},
+      addEventListener: (type: string, listener: (event: object) => void) => {
+        if (type === "keydown") keydowns.push(listener);
+      },
     },
     localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -121,8 +131,12 @@ export function openPage(
     fetch,
     crypto,
     URLSearchParams,
-    setTimeout,
-    clearTimeout,
+    setTimeout: clock.setTimeout,
+    clearTimeout: clock.clearTimeout,
   });
-  return { main, nav };
+  const press = (key: string) => {
+    const event = { key, target: { tagName: "BODY" }, metaKey: false, ctrlKey: false, altKey: false };
+    for (const listener of keydowns) listener({ ...event, preventDefault: () => {} });
+  };
+  return { main, nav, press };
 }
