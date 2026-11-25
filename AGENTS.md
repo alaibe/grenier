@@ -37,14 +37,14 @@ A team's shared memory for people and their AI agents: a pnpm workspace in TypeS
 
 ## Design
 
-- The desktop app follows the laibe design system v0.1.0 (`git.laibe.cc/anthony/design`) with the `gold` accent
-  (`data-accent="gold"` in `apps/desktop/index.html`). Before changing its UI, read the system's `principles.md`
-  and the `components/` pages the change touches.
+- The desktop app follows the laibe design system (`git.laibe.cc/anthony/design`) as of its 2026-11-25 changelog
+  entry, with the `gold` accent (`data-accent="gold"` in `apps/desktop/index.html`). Before changing its UI, read the
+  system's `principles.md` and the `components/` pages the change touches.
 - Grenier's icon is the system's icon template with Grenier's glyph, a roof and its lit round window:
   `apps/desktop/src-tauri/icons/icon.svg` is the source, the other sizes come from `pnpm tauri icon`, and `Mark` in
   `ui.tsx` is its flat form.
-- `apps/desktop/src/laibe/` is a copy of the system's `dist/tokens.css` and `dist/tailwind.css`: replace both files
-  from a new release, never edit them here. Biome ignores the folder so they stay byte for byte.
+- `apps/desktop/src/laibe/` is a copy of the system's `tokens/tokens.css` and `tokens/tailwind.css`: replace both
+  files when the system changes, never edit them here. Biome ignores the folder so they stay byte for byte.
 - Use the system's colour names only (`bg`, `panel`, `fg`, `muted`, `accent`, `on-accent`, `danger`, `success`…).
   The interface is in `font-mono`, content in `font-sans`. A status is a `Status` tag, never a colour alone.
 - The window is the system's app shell (`patterns/app-shell.md`) in `App.tsx`: title bar, banner, sidebar,

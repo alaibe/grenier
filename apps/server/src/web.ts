@@ -10,7 +10,6 @@ export const WEB = `<!doctype html>
 <style>
 ${TOKENS}
   * { box-sizing: border-box; }
-  html { color-scheme: light dark; }
   body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--text-md)/var(--leading-normal) var(--font-sans); background: var(--bg); color: var(--fg); }
   ::selection { background: var(--selection); }
   header { position: sticky; top: 0; z-index: 10; display: flex; gap: 16px; align-items: center; height: 48px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--side); flex-wrap: wrap; }

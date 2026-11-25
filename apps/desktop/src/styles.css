@@ -3,7 +3,7 @@
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
 @import "@fontsource/jetbrains-mono/600.css";
-/* The laibe design system, copied from git.laibe.cc/anthony/design (dist/). Don't edit these two files here. */
+/* The laibe design system, copied from git.laibe.cc/anthony/design (tokens/). Don't edit these two files here. */
 @import "./laibe/tokens.css";
 @import "./laibe/tailwind.css";
 
