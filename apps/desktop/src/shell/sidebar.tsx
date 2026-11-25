@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Mark } from "../ui.tsx";
+import { Mark } from "../ui/brand.tsx";
+import { spoken } from "../ui/keys.ts";
 import { SCREENS, type ViewName } from "../usage/screens.ts";
-import { PLACE_ICONS, PLACES } from "./places.ts";
+import { PLACE_ICONS, PLACES, placeKeys } from "./places.ts";
+import { Resizer } from "./regions.tsx";
+import { href } from "./router.ts";
 
 const SIDEBAR = { key: "grenier.sidebar", width: 232, min: 200, max: 320, folded: 48 };
 
-/** Below this width the sidebar folds to icons on its own. */
+/** Below this width the sidebar folds to icons on its own (foundations/layout.md#breakpoints). */
 const NARROW = 1100;
 
 function saved(): { width: number; collapsed: boolean } {
@@ -45,104 +48,71 @@ export function useSidebar() {
   };
 }
 
-/** The app's places: an icon and a name each, or the icon alone when folded, with what waits as a count. */
+export interface Count {
+  value: number;
+  /** What it counts, for its tooltip. */
+  title: string;
+  /** Something arrived since the person last looked: the count lights up. */
+  news?: boolean;
+}
+
+/** The app's places (components/sidebar.md): its icon and name on top, the places, Settings at the bottom. */
 export function Sidebar({
   current,
   go,
   collapsed,
+  width,
   counts,
   onResize,
   onReset,
-  ref,
 }: {
   current: ViewName;
-  go: (view: ViewName) => void;
+  go: (place: ViewName) => void;
   collapsed: boolean;
-  /** A count beside a place, with what it counts. */
-  counts: Partial<Record<ViewName, { value: number; title: string }>>;
+  width: number;
+  counts: Partial<Record<ViewName, Count>>;
   onResize: (width: number) => void;
   onReset: () => void;
-  ref: React.Ref<HTMLElement>;
 }) {
-  return (
-    <nav
-      ref={ref}
-      className="relative flex min-h-0 flex-col gap-0.5 overflow-x-hidden overflow-y-auto border-r border-line bg-side px-2 py-3"
-      aria-label="Places"
-    >
-      <p
-        className={`mb-3 flex items-center gap-2 font-mono text-sm font-semibold ${collapsed ? "justify-center" : "mx-2"}`}
+  const item = (name: ViewName) => {
+    const Icon = PLACE_ICONS[name];
+    const count = counts[name];
+    const title = SCREENS[name].title;
+    return (
+      <a
+        key={name}
+        href={href({ place: name })}
+        className={`sidebar-item${collapsed ? " justify-center" : ""}`}
+        aria-current={current === name ? "page" : undefined}
+        data-news={count?.news || undefined}
+        title={collapsed ? title : undefined}
+        data-keys={collapsed ? placeKeys(name) : undefined}
+        aria-label={collapsed ? title : undefined}
+        aria-keyshortcuts={spoken(placeKeys(name))}
+        onClick={(event) => {
+          event.preventDefault();
+          go(name);
+        }}
       >
+        <Icon className="icon" aria-hidden="true" />
+        {!collapsed && title}
+        {!collapsed && count && count.value > 0 && (
+          <span className="sidebar-count" title={count.title}>
+            {count.value}
+          </span>
+        )}
+      </a>
+    );
+  };
+  return (
+    <nav className="sidebar" aria-label="Places" data-region="sidebar" style={{ width }}>
+      <div className={`sidebar-app${collapsed ? " justify-center px-0" : ""}`}>
         <Mark />
         {!collapsed && "Grenier"}
-      </p>
-      {PLACES.map((name, index) => {
-        const Icon = PLACE_ICONS[name];
-        const count = counts[name];
-        return (
-          <button
-            type="button"
-            key={name}
-            title={collapsed ? `${SCREENS[name].title}  ⌘${index + 1}` : undefined}
-            aria-label={collapsed ? SCREENS[name].title : undefined}
-            aria-current={current === name ? "page" : undefined}
-            onClick={() => go(name)}
-            className={`flex h-7 w-full shrink-0 cursor-pointer items-center gap-2 rounded-md px-2 text-left font-mono text-sm font-medium whitespace-nowrap ${collapsed ? "justify-center" : ""} ${current === name ? "bg-accent-soft text-fg" : "text-fg hover:bg-hover"}`}
-          >
-            <Icon
-              size={16}
-              strokeWidth={1.75}
-              aria-hidden="true"
-              className={current === name ? "text-accent" : "text-muted"}
-            />
-            {!collapsed && <span className="flex-1">{SCREENS[name].title}</span>}
-            {!collapsed && count && count.value > 0 && (
-              <span className="font-mono text-xs text-accent tabular-nums" title={count.title}>
-                {count.value}
-              </span>
-            )}
-          </button>
-        );
-      })}
+      </div>
+      <div className="flex flex-col gap-0.5">{PLACES.map(item)}</div>
+      <div className="mt-auto flex flex-col gap-0.5 pt-4">{item("settings")}</div>
       {!collapsed && <Resizer min={SIDEBAR.min} max={SIDEBAR.max} onResize={onResize} onReset={onReset} />}
     </nav>
-  );
-}
-
-/** A region's right edge: drag to resize between `min` and `max`, double-click to reset. */
-export function Resizer({
-  min,
-  max,
-  onResize,
-  onReset,
-}: {
-  min: number;
-  max: number;
-  onResize: (width: number) => void;
-  onReset: () => void;
-}) {
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: a draggable edge, which an <hr> can't be
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize"
-      className="group absolute inset-y-0 right-0 w-1 cursor-col-resize"
-      onDoubleClick={onReset}
-      onPointerDown={(event) => {
-        const edge = event.currentTarget;
-        edge.setPointerCapture(event.pointerId);
-        const left = edge.parentElement?.getBoundingClientRect().left ?? 0;
-        const move = (next: PointerEvent) => onResize(Math.round(Math.max(min, Math.min(max, next.clientX - left))));
-        const stop = () => {
-          edge.removeEventListener("pointermove", move);
-          edge.removeEventListener("pointerup", stop);
-        };
-        edge.addEventListener("pointermove", move);
-        edge.addEventListener("pointerup", stop);
-      }}
-    >
-      <span className="absolute inset-y-0 right-0 w-px bg-accent opacity-0 group-hover:opacity-100" />
-    </div>
   );
 }

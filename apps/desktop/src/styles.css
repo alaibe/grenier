@@ -3,145 +3,225 @@
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
 @import "@fontsource/jetbrains-mono/600.css";
-/* The laibe design system, copied from git.laibe.cc/anthony/design (tokens/). Don't edit these two files here. */
+/* The laibe design system, copied from git.laibe.cc/anthony/design. Don't edit these three files here. */
 @import "./laibe/tokens.css";
 @import "./laibe/tailwind.css";
+@import "./laibe/components.css" layer(components);
+
+/* Below: only the shell's layout, and what Grenier draws that the system has no component for. */
 
 @theme {
-  /* The window opens 1100 wide and goes down to 720. */
   --breakpoint-*: initial;
   --breakpoint-md: 860px;
-  --breakpoint-lg: 1000px;
-
+  --breakpoint-lg: 1100px;
   --animate-*: initial;
-  --animate-appear: appear 0.2s 0.4s both;
-  --animate-draw-arc: draw-arc ease-in-out both;
-  --animate-ping: ping 0.6s ease-out both;
-  --animate-pulse: pulse 1.6s ease-in-out infinite;
-
-  @keyframes appear {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-
-  @keyframes draw-arc {
-    from {
-      stroke-dashoffset: 1;
-    }
-    to {
-      stroke-dashoffset: 0;
-    }
-  }
-
-  @keyframes ping {
-    from {
-      opacity: 0.9;
-      transform: scale(1);
-    }
-    to {
-      opacity: 0;
-      transform: scale(3);
-    }
-  }
+  --animate-pulse: pulse 1.6s var(--ease-in-out) infinite;
 
   @keyframes pulse {
-    0%,
-    100% {
+    50% {
       opacity: 0.5;
     }
-    50% {
-      opacity: 1;
-    }
   }
-}
-
-/* The label role of the type scale: mono, 11px, uppercase. */
-@utility label {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  font-weight: 500;
-  line-height: 1.2;
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-/* A primary action's chamfered corner, drawn on a layer behind the content so the focus ring isn't clipped. */
-@utility chamfer {
-  position: relative;
-  isolation: isolate;
-  &::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background: var(--chamfer-fill, var(--accent));
-    clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--chamfer-sm)), calc(100% - var(--chamfer-sm)) 100%, 0 100%);
-  }
-}
-
-/* The top-left cut of dialogs and the command palette; they hold focus inside, so clipping the box itself is fine. */
-@utility chamfer-tl {
-  clip-path: polygon(var(--chamfer-md) 0, 100% 0, 100% 100%, 0 100%, 0 var(--chamfer-md));
 }
 
 @layer base {
-  :root {
-    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23b0c0d1' stroke-width='1.5'/%3E%3C/svg%3E");
-  }
-
-  @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) {
-      --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2351576f' stroke-width='1.5'/%3E%3C/svg%3E");
-    }
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
   }
 
   body {
-    @apply bg-bg font-sans text-base text-fg antialiased;
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* Thin scrollbars in ink: each region of the shell scrolls on its own. */
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--line-strong) transparent;
   }
 
-  code {
-    @apply rounded-sm bg-hover px-1.25 py-px font-mono text-sm whitespace-nowrap;
-  }
-
-  :where(button, input, select, textarea, a, summary, [tabindex]):focus-visible {
-    outline: none;
-    box-shadow: var(--focus-ring);
-  }
-
   ::selection {
     background: var(--selection);
   }
+}
 
-  th,
-  td {
-    @apply border-b border-line px-3 py-2 text-left align-middle whitespace-nowrap max-md:px-2.25;
+@layer components {
+  /* The app shell (patterns/app-shell.md): title bar, banner, sidebar, content, status bar. */
+  .shell {
+    display: grid;
+    height: 100dvh;
+    grid-template:
+      "title title" var(--titlebar-height)
+      "banner banner" auto
+      "side main" minmax(0, 1fr)
+      "status status" var(--layout-statusbar)
+      / var(--sidebar-width) minmax(0, 1fr);
+  }
+  .shell > .titlebar-region {
+    grid-area: title;
+    z-index: var(--layer-bars);
+  }
+  .shell > .banner-region {
+    grid-area: banner;
+    z-index: var(--layer-bars);
+  }
+  .shell > .sidebar {
+    grid-area: side;
+    position: relative;
+    min-height: 0;
+    overflow: hidden auto;
+  }
+  .shell > .content {
+    grid-area: main;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  .shell > .content[data-list] {
+    grid-template-columns: var(--list-width) minmax(0, 1fr);
+  }
+  .shell > .statusbar {
+    grid-area: status;
+    z-index: var(--layer-bars);
+  }
+  .region-list {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--line);
+  }
+  .region-detail {
+    min-height: 0;
+    overflow-y: auto;
+    outline: none;
   }
 
-  th {
-    @apply label border-line-strong;
+  /* A region's right edge: a 4px hit area that shows a 1px accent line on hover. */
+  .resizer {
+    position: absolute;
+    inset: 0 calc(var(--layout-resize-handle) / -2) 0 auto;
+    z-index: var(--layer-sticky);
+    width: var(--layout-resize-handle);
+    cursor: col-resize;
+  }
+  .resizer:hover::after {
+    content: "";
+    position: absolute;
+    inset: 0 1px 0 auto;
+    width: 1px;
+    background: var(--accent);
   }
 
-  tbody tr:last-child td {
-    @apply border-b-0;
+  /* Text a person reads: the Reading role, never wider than 680. */
+  .reading {
+    max-width: var(--layout-reading);
+    font: var(--text-md) / var(--leading-normal) var(--font-sans);
+  }
+  .reading h2,
+  .reading h3,
+  .reading h4 {
+    margin: var(--space-2) 0 0;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: var(--leading-snug);
+  }
+  .reading h2 {
+    font-size: var(--text-xl);
+    letter-spacing: var(--tracking-tight);
+  }
+  .reading h3 {
+    font-size: var(--text-lg);
+  }
+  .reading h4 {
+    font-size: var(--text-md);
+  }
+  .reading a,
+  .reading .link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .reading pre {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    overflow-x: auto;
+    background: var(--side);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    font: var(--text-sm) / var(--leading-normal) var(--font-mono);
+  }
+  .reading blockquote {
+    margin: 0;
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line-strong);
+    color: var(--muted);
   }
 
-  tbody tr:hover td {
-    @apply bg-hover;
+  code {
+    padding: 1px var(--space-1);
+    background: var(--hover);
+    border-radius: var(--radius-sm);
+    font: var(--text-sm) var(--font-mono);
+  }
+  pre code {
+    padding: 0;
+    background: none;
   }
 
-  /* Figures in a table read in mono, so their digits line up. */
-  td.tabular-nums {
-    @apply font-mono text-sm;
+  /* A row's or a table row's own actions show on hover and on keyboard focus. */
+  .row-actions {
+    display: flex;
+    gap: var(--space-1);
+    opacity: 0;
+  }
+  :is(.row, tr):is(:hover, :focus-within) .row-actions,
+  .row[aria-selected="true"] .row-actions {
+    opacity: 1;
+  }
+
+  /* Loading: blocks in hover, the shape of the content, no shimmer (patterns/empty-and-loading.md). */
+  .skeleton {
+    display: block;
+    height: 12px;
+    background: var(--hover);
+    border-radius: var(--radius-xs);
+  }
+
+  /* A diff on bg, each changed line led by its + or − sign. */
+  .diff {
+    margin: 0;
+    padding: var(--space-2) 0;
+    max-height: calc(var(--space-16) * 6);
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    font: var(--text-xs) / 20px var(--font-mono);
+  }
+  .diff > div {
+    padding: 0 var(--space-3);
+    white-space: pre;
+  }
+  .diff-new {
+    color: var(--success);
+  }
+  .diff-gone {
+    color: var(--danger);
+  }
+
+  /* The cost chart's bars: the key series in the accent, the one it is compared with in muted. */
+  .chart-bar-key {
+    fill: var(--accent);
+  }
+  .chart-bar-compare {
+    fill: var(--muted);
+  }
+  .chart-hover {
+    fill: transparent;
+  }
+  .chart-hover:hover {
+    fill: color-mix(in oklab, var(--line-strong) 40%, transparent);
   }
 }

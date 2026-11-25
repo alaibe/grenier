@@ -49,5 +49,5 @@
   --tracking-caps: 0.12em;
   --shadow-glow: var(--glow);
   --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.04);
-  --shadow-dialog: 0 32px 80px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.05);
+  --shadow-dialog: 0 32px 80px rgb(0 0 0 / 0.6);
 }

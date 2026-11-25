@@ -1,10 +1,18 @@
 import type { PageRow, RecordRow, Top } from "@grenier/core/api";
 import { topName } from "@grenier/core/team";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FilePlus, FileText, FolderPlus, Pencil } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
-import { Empty, Input, Loading, Notice, useLoad } from "../ui.tsx";
-import { type FolderPath, folderPath, folderPathKey, PageEditor, type Target } from "./PageEditor.tsx";
+import { type Command, useCommands } from "../shell/commands.tsx";
+import { ListDetail } from "../shell/regions.tsx";
+import { IconButton } from "../ui/button.tsx";
+import { Empty, Skeleton } from "../ui/empty.tsx";
+import { Input, SearchField } from "../ui/field.tsx";
+import { useLoad } from "../ui/load.ts";
+import { Problem } from "../ui/notice.tsx";
+import { Tree, type TreeNode, visibleRows } from "../ui/tree.tsx";
+import { type FolderPath, folderPath, PageEditor, type Target } from "./PageEditor.tsx";
 
 const loadTops = () => api<{ tops: Top[] }>("/tops").then((answer) => answer.tops);
 const loadPages = () => api<{ pages: PageRow[] }>("/pages").then((answer) => answer.pages);
@@ -50,11 +58,14 @@ function foldersIn(folder: Folder): string[] {
 
 const FOLDING_KEY = "grenier.knowledge.folding";
 
-/** A top folder's key ends with "/": its path is empty. */
-const isTop = (key: string) => key.endsWith("/");
+/** A folder's node id; a top folder's ends with "/", as its path is empty. */
+const folderId = (top: string, path: string) => `${top}/${path}`;
+const pageId = (id: string) => `page:${id}`;
+const pageOf = (node: TreeNode) => (node.id.startsWith("page:") ? node.id.slice(5) : null);
+const isTop = (id: string) => id.endsWith("/");
 
-/** Whether a folder shows what it holds: top folders start unfolded, the rest folded. Kept in this browser only. */
-function useFolding(): [(key: string) => boolean, (key: string, open?: boolean) => void] {
+/** Whether a folder shows what it holds: top folders start open, the rest folded. Kept in this window only. */
+function useFolding(): [(id: string) => boolean, (id: string, open: boolean) => void] {
   const [flipped, setFlipped] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem(FOLDING_KEY) ?? "[]") as string[]);
@@ -62,19 +73,16 @@ function useFolding(): [(key: string) => boolean, (key: string, open?: boolean) 
       return new Set();
     }
   });
-  const unfolded = useCallback((key: string) => flipped.has(key) !== isTop(key), [flipped]);
-  const fold = useCallback((key: string, open?: boolean) => {
+  const unfolded = useCallback((id: string) => flipped.has(id) !== isTop(id), [flipped]);
+  const fold = useCallback((id: string, open: boolean) => {
     setFlipped((current) => {
+      if ((current.has(id) !== isTop(id)) === open) return current;
       const next = new Set(current);
-      const wasOpen = current.has(key) !== isTop(key);
-      if ((open ?? !wasOpen) === wasOpen) return current;
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       try {
         localStorage.setItem(FOLDING_KEY, JSON.stringify([...next]));
-      } catch {
-        // Private windows refuse storage: folders then start as they would.
-      }
+      } catch {}
       return next;
     });
   }, []);
@@ -83,110 +91,6 @@ function useFolding(): [(key: string) => boolean, (key: string, open?: boolean) 
 
 const ORDER: Record<Top["kind"], number> = { me: 0, team: 1, repo: 2, custom: 3 };
 
-const folderKey = (top: string, path: string) => `${top}/${path}`;
-
-export function Knowledge({ focus, changed, member }: ViewProps) {
-  const tops = useLoad(loadTops);
-  const pages = useLoad(loadPages);
-  const [target, setTarget] = useState<Target | null>(focus ? { id: focus } : null);
-  const [words, setWords] = useState("");
-  const [unfolded, toggle] = useFolding();
-
-  const trees = useMemo(
-    () =>
-      [...(tops.data ?? [])]
-        .sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || byName.compare(a.name, b.name))
-        .map((top) => ({
-          top,
-          tree: treeOf((pages.data ?? []).filter((page) => page.top === top.id)),
-        })),
-    [tops.data, pages.data],
-  );
-  const folderPaths: FolderPath[] = useMemo(
-    () =>
-      trees.flatMap(({ top, tree }) =>
-        ["", ...foldersIn(tree)].map((folder) => ({
-          top: top.id,
-          folder,
-          label: folderPath(tops.data ?? [], top.id, folder),
-        })),
-      ),
-    [trees, tops.data],
-  );
-
-  // A page opened from elsewhere shows where it sits.
-  const openId = target && "id" in target ? target.id : null;
-  useEffect(() => {
-    const page = pages.data?.find((entry) => entry.id === openId);
-    if (!page) return;
-    toggle(folderKey(page.top, ""), true);
-    const names = page.folder ? page.folder.split("/") : [];
-    for (let depth = 1; depth <= names.length; depth++)
-      toggle(folderKey(page.top, names.slice(0, depth).join("/")), true);
-  }, [openId, pages.data, toggle]);
-
-  const open = (id: string) => setTarget({ id });
-  const reload = () => {
-    pages.reload();
-    changed();
-  };
-
-  if (tops.error || pages.error) return <Notice message={tops.error ?? pages.error} />;
-  if (!tops.data || !pages.data) return <Loading what="Knowledge" />;
-
-  return (
-    <div className="grid grid-cols-[264px_minmax(0,1fr)] gap-8 max-md:grid-cols-1">
-      <nav aria-label="Pages" className="min-w-0">
-        <Input
-          type="search"
-          placeholder="Search"
-          aria-label="Search the pages"
-          value={words}
-          onChange={(event) => setWords(event.currentTarget.value)}
-        />
-        <div className="mt-3">
-          {words.trim().length >= 2 ? (
-            <Found words={words.trim()} pages={pages.data} tops={tops.data} open={open} current={openId} />
-          ) : (
-            trees.map(({ top, tree }) => (
-              <TopFolder
-                key={top.id}
-                top={top}
-                tree={tree}
-                name={topName(top)}
-                unfolded={unfolded}
-                toggle={toggle}
-                current={openId}
-                open={open}
-                start={!member || top.kind === "me" ? (folder) => setTarget({ top: top.id, folder }) : null}
-                moved={reload}
-              />
-            ))
-          )}
-        </div>
-      </nav>
-      <section className="min-w-0">
-        {target ? (
-          <PageEditor
-            key={"id" in target ? target.id : `new:${folderPathKey(target)}`}
-            target={target}
-            folderPaths={folderPaths}
-            tops={tops.data}
-            member={member}
-            open={open}
-            changed={reload}
-            closed={() => setTarget(null)}
-          />
-        ) : (
-          <Empty>
-            <p>Pick a page, or start one with + beside a folder.</p>
-          </Empty>
-        )}
-      </section>
-    </div>
-  );
-}
-
 const SAYS: Record<Top["kind"], string> = {
   me: "only you",
   team: "everyone",
@@ -194,337 +98,382 @@ const SAYS: Record<Top["kind"], string> = {
   custom: "some members",
 };
 
-function TopFolder({
-  top,
-  tree,
-  name,
-  unfolded,
-  toggle,
-  current,
-  open,
-  start,
-  moved,
-}: {
-  top: Top;
-  tree: Folder;
-  name: string;
-  unfolded: (key: string) => boolean;
-  toggle: (key: string, open?: boolean) => void;
-  current: string | null;
-  open: (id: string) => void;
-  /** Null where this person may not write. */
-  start: ((folder: string) => void) | null;
-  moved: () => void;
-}) {
-  const shown = unfolded(folderKey(top.id, ""));
-  return (
-    <div className="mb-1">
-      <Row
-        depth={0}
-        unfolded={shown}
-        onClick={() => toggle(folderKey(top.id, ""))}
-        actions={start && <Actions start={() => start("")} add={(child) => start(child)} />}
-      >
-        <span className="font-semibold">{name}</span>
-        <span className="ml-1.5 text-sm text-muted">{SAYS[top.kind]}</span>
-      </Row>
-      {shown && (
-        <Contents
-          top={top.id}
-          folder={tree}
-          depth={1}
-          unfolded={unfolded}
-          toggle={toggle}
-          current={current}
-          open={open}
-          start={start}
-          moved={moved}
-        />
-      )}
-    </div>
-  );
+/** Where a new page goes when nothing says: Me for a member, Team for an admin. */
+function firstFolder(tops: Top[], member: boolean): Target | null {
+  const top =
+    tops.find((entry) => entry.kind === (member ? "me" : "team")) ?? tops.find((entry) => entry.kind === "me");
+  return top ? { top: top.id, folder: "" } : null;
 }
 
-function Contents({
-  top,
-  folder,
-  depth,
-  unfolded,
-  toggle,
-  current,
-  open,
-  start,
-  moved,
-}: {
-  top: string;
-  folder: Folder;
-  depth: number;
-  unfolded: (key: string) => boolean;
-  toggle: (key: string, open?: boolean) => void;
-  current: string | null;
-  open: (id: string) => void;
-  /** Null where this person may not write. */
-  start: ((folder: string) => void) | null;
-  moved: () => void;
-}) {
-  if (folder.folders.length === 0 && folder.pages.length === 0) {
-    return (
-      <p className="py-1 text-sm text-muted" style={{ paddingLeft: `${depth * 14 + 22}px` }}>
-        Empty
-      </p>
-    );
-  }
-  return (
-    <>
-      {folder.folders.map((child) => (
-        <Subfolder
-          key={child.path}
-          top={top}
-          folder={child}
-          depth={depth}
-          unfolded={unfolded}
-          toggle={toggle}
-          current={current}
-          open={open}
-          start={start}
-          moved={moved}
-        />
-      ))}
-      {folder.pages.map((page) => (
-        <button
-          type="button"
-          key={page.id}
-          aria-current={current === page.id ? "page" : undefined}
-          className={`block w-full cursor-pointer truncate rounded-md py-1 pr-2 text-left ${current === page.id ? "bg-panel font-medium inset-ring inset-ring-line" : "hover:bg-hover"}`}
-          style={{ paddingLeft: `${depth * 14 + 22}px` }}
-          title={page.title}
-          onClick={() => open(page.id)}
-        >
-          {page.title}
-        </button>
-      ))}
-    </>
-  );
-}
-
-function Subfolder({
-  top,
-  folder,
-  depth,
-  unfolded,
-  toggle,
-  current,
-  open,
-  start,
-  moved,
-}: {
-  top: string;
-  folder: Folder;
-  depth: number;
-  unfolded: (key: string) => boolean;
-  toggle: (key: string, open?: boolean) => void;
-  current: string | null;
-  open: (id: string) => void;
-  /** Null where this person may not write. */
-  start: ((folder: string) => void) | null;
-  moved: () => void;
-}) {
-  const key = folderKey(top, folder.path);
-  const shown = unfolded(key);
-  const [renaming, setRenaming] = useState(false);
+export function Knowledge({ item, go, changed, member }: ViewProps) {
+  const tops = useLoad(loadTops);
+  const pages = useLoad(loadPages);
+  const [unfolded, fold] = useFolding();
+  const [words, setWords] = useState("");
+  const [cursor, setCursor] = useState<string | null>(item && item !== "new" ? pageId(item) : null);
+  const [newIn, setNewIn] = useState<Target | null>(null);
+  const [editing, setEditing] = useState<{ id: string; kind: "rename" | "folder" } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const parent = folder.path.slice(0, Math.max(0, folder.path.length - folder.name.length - 1));
+  const search = useRef<HTMLInputElement>(null);
+  const searching = words.trim().length >= 2;
 
-  const rename = async (event: FormEvent<HTMLFormElement>) => {
+  const open = useCallback((id: string) => go("knowledge", id), [go]);
+  const reload = () => {
+    pages.reload();
+    changed();
+  };
+
+  const sorted = useMemo(
+    () =>
+      [...(tops.data ?? [])]
+        .sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || byName.compare(a.name, b.name))
+        .map((top) => ({ top, tree: treeOf((pages.data ?? []).filter((page) => page.top === top.id)) })),
+    [tops.data, pages.data],
+  );
+  const folderPaths: FolderPath[] = useMemo(
+    () =>
+      sorted.flatMap(({ top, tree }) =>
+        ["", ...foldersIn(tree)].map((folder) => ({
+          top: top.id,
+          folder,
+          label: folderPath(tops.data ?? [], top.id, folder),
+        })),
+      ),
+    [sorted, tops.data],
+  );
+
+  const writes = (top: Top) => !member || top.kind === "me";
+  const startPage = useCallback(
+    (target: Target) => {
+      setNewIn(target);
+      go("knowledge", "new");
+    },
+    [go],
+  );
+
+  // A page opened from elsewhere shows where it sits, and is the selected row.
+  useEffect(() => {
+    if (!item || item === "new") return;
+    setCursor(pageId(item));
+    const page = pages.data?.find((entry) => entry.id === item);
+    if (!page) return;
+    fold(folderId(page.top, ""), true);
+    const names = page.folder ? page.folder.split("/") : [];
+    for (let depth = 1; depth <= names.length; depth++) fold(folderId(page.top, names.slice(0, depth).join("/")), true);
+  }, [item, pages.data, fold]);
+
+  const rename = async (top: string, from: Folder, event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = String(new FormData(event.currentTarget).get("name") ?? "").trim();
-    if (!name || name === folder.name) return setRenaming(false);
-    if (name.includes("/")) return setProblem("A folder's name has no /.");
+    setEditing(null);
+    if (!name || name === from.name) return;
+    if (name.includes("/")) return setProblem("A folder's name has no /. Name it again without one.");
+    const parent = from.path.slice(0, Math.max(0, from.path.length - from.name.length - 1));
     const to = parent ? `${parent}/${name}` : name;
     try {
-      await api("/folders/move", { body: { top, from: folder.path, to } });
-      setRenaming(false);
+      await api("/folders/move", { body: { top, from: from.path, to } });
       setProblem(null);
-      toggle(folderKey(top, to), shown);
-      moved();
+      fold(folderId(top, to), unfolded(folderId(top, from.path)));
+      reload();
     } catch (error) {
       setProblem((error as Error).message);
     }
   };
 
-  return (
-    <>
-      {renaming ? (
-        <form onSubmit={rename} className="py-0.5" style={{ paddingLeft: `${depth * 14 + 8}px` }}>
-          <Input
-            name="name"
-            defaultValue={folder.name}
-            aria-label={`New name for ${folder.name}`}
-            ref={(element) => element?.focus()}
-            onBlur={() => setRenaming(false)}
-            onKeyDown={(event) => event.key === "Escape" && setRenaming(false)}
-          />
-        </form>
-      ) : (
-        <Row
-          depth={depth}
-          unfolded={shown}
-          onClick={() => toggle(key)}
-          actions={
-            start && (
-              <Actions
-                start={() => start(folder.path)}
-                add={(child) => start(`${folder.path}/${child}`)}
-                rename={() => setRenaming(true)}
-              />
-            )
-          }
-        >
-          {folder.name}
-        </Row>
-      )}
-      {problem && (
-        <p className="text-sm text-danger" style={{ paddingLeft: `${depth * 14 + 22}px` }}>
-          {problem}
-        </p>
-      )}
-      {shown && (
-        <Contents
-          top={top}
-          folder={folder}
-          depth={depth + 1}
-          unfolded={unfolded}
-          toggle={toggle}
-          current={current}
-          open={open}
-          start={start}
-          moved={moved}
-        />
-      )}
-    </>
-  );
-}
-
-function Row({
-  depth,
-  unfolded,
-  onClick,
-  actions,
-  children,
-}: {
-  depth: number;
-  unfolded: boolean;
-  onClick: () => void;
-  actions: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="group flex items-center rounded-md hover:bg-hover">
-      <button
-        type="button"
-        aria-expanded={unfolded}
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 truncate py-1 text-left"
-        style={{ paddingLeft: `${depth * 14 + 6}px` }}
-        onClick={onClick}
-      >
-        <span aria-hidden="true" className="w-2.5 text-xs text-muted">
-          {unfolded ? "▾" : "▸"}
-        </span>
-        <span className="truncate">{children}</span>
-      </button>
-      <div className="flex shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">{actions}</div>
-    </div>
-  );
-}
-
-/** A folder's buttons: a new page in it, a new folder in it, and renaming it. */
-function Actions({ start, add, rename }: { start: () => void; add: (name: string) => void; rename?: () => void }) {
-  const [naming, setNaming] = useState(false);
-  const small = "h-6 cursor-pointer rounded px-1.5 text-sm text-muted hover:bg-line hover:text-fg";
-  if (naming) {
-    return (
-      <form
-        onSubmit={(event) => {
+  const naming = (
+    id: string,
+    defaultValue: string,
+    label: string,
+    done: (event: FormEvent<HTMLFormElement>) => void,
+  ) => (
+    <form onSubmit={done}>
+      <Input
+        name="name"
+        defaultValue={defaultValue}
+        aria-label={label}
+        placeholder="Folder name"
+        ref={(element) => element?.focus()}
+        onBlur={() => setEditing(null)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
           event.preventDefault();
-          const name = String(new FormData(event.currentTarget).get("name") ?? "").trim();
-          setNaming(false);
-          if (name && !name.includes("/")) add(name);
+          setEditing(null);
+          document.getElementById(`tree-${id}`)?.closest<HTMLElement>("[role=tree]")?.focus();
         }}
-      >
-        <input
-          name="name"
-          className="h-6 w-28 rounded border border-line-strong bg-panel px-1.5 text-sm"
-          placeholder="Folder name"
-          aria-label="New folder's name"
-          ref={(element) => element?.focus()}
-          onBlur={() => setNaming(false)}
-          onKeyDown={(event) => event.key === "Escape" && setNaming(false)}
+      />
+    </form>
+  );
+
+  const folderActions = (top: Top, folder: Folder) => {
+    if (!writes(top)) return undefined;
+    const id = folderId(top.id, folder.path);
+    return (
+      <>
+        <IconButton
+          label="New page here"
+          icon={FilePlus}
+          size="sm"
+          onClick={() => startPage({ top: top.id, folder: folder.path })}
         />
-      </form>
+        <IconButton
+          label="New folder here: it holds its first page once saved"
+          icon={FolderPlus}
+          size="sm"
+          onClick={() => {
+            fold(id, true);
+            setEditing({ id, kind: "folder" });
+          }}
+        />
+        {folder.path && (
+          <IconButton label="Rename" icon={Pencil} size="sm" onClick={() => setEditing({ id, kind: "rename" })} />
+        )}
+      </>
     );
-  }
-  return (
+  };
+
+  const nodesOf = (top: Top, folder: Folder): TreeNode[] => {
+    const id = folderId(top.id, folder.path);
+    const adding: TreeNode[] =
+      editing?.id === id && editing.kind === "folder"
+        ? [
+            {
+              id: `${id}+`,
+              name: "",
+              icon: FolderPlus,
+              title: naming(id, "", "New folder's name", (event) => {
+                event.preventDefault();
+                const name = String(new FormData(event.currentTarget).get("name") ?? "").trim();
+                setEditing(null);
+                if (name && !name.includes("/"))
+                  startPage({ top: top.id, folder: folder.path ? `${folder.path}/${name}` : name });
+              }),
+            },
+          ]
+        : [];
+    return [
+      ...adding,
+      ...folder.folders.map((child) => {
+        const childId = folderId(top.id, child.path);
+        const renaming = editing?.id === childId && editing.kind === "rename";
+        return {
+          id: childId,
+          name: child.name,
+          ...(renaming
+            ? {
+                title: naming(childId, child.name, `New name for ${child.name}`, (event) => {
+                  void rename(top.id, child, event);
+                }),
+              }
+            : {}),
+          actions: folderActions(top, child),
+          children: nodesOf(top, child),
+        };
+      }),
+      ...folder.pages.map((page) => ({ id: pageId(page.id), name: page.title, icon: FileText })),
+    ];
+  };
+
+  const nodes: TreeNode[] = sorted.map(({ top, tree }) => ({
+    id: folderId(top.id, ""),
+    name: topName(top),
+    group: true,
+    meta: SAYS[top.kind],
+    actions: folderActions(top, tree),
+    children: nodesOf(top, tree),
+  }));
+
+  const rows = visibleRows(nodes, unfolded);
+  const fallback = firstFolder(tops.data ?? [], member);
+  const commands = useMemo<Command[]>(() => {
+    const move = (by: number) => {
+      const at = rows.findIndex((row) => row.node.id === cursor);
+      const next = rows[Math.max(0, Math.min(rows.length - 1, at < 0 ? 0 : at + by))];
+      if (!next) return;
+      setCursor(next.node.id);
+      const page = pageOf(next.node);
+      if (page) open(page);
+    };
+    return [
+      {
+        id: "knowledge.search",
+        label: "Search the pages",
+        keys: "/",
+        also: ["mod+f"],
+        hint: { in: "list", says: "search", order: 30 },
+        run: () => search.current?.focus(),
+      },
+      ...(fallback
+        ? [
+            {
+              id: "new-page",
+              label: "New page",
+              icon: FilePlus,
+              keys: "n",
+              also: ["mod+n"],
+              hint: { in: "list" as const, says: "new", order: 20 },
+              run: () => startPage(fallback),
+            },
+          ]
+        : []),
+      {
+        id: "knowledge.next",
+        label: "Next page",
+        keys: "j",
+        also: ["arrowdown"],
+        hidden: true,
+        hint: { in: "list", says: "move", keys: "j+k", order: 10 },
+        run: () => move(1),
+      },
+      {
+        id: "knowledge.previous",
+        label: "Previous page",
+        keys: "k",
+        also: ["arrowup"],
+        hidden: true,
+        run: () => move(-1),
+      },
+      ...(item
+        ? [
+            {
+              id: "knowledge.close",
+              label: "Close the page",
+              keys: "escape",
+              hidden: true,
+              hint: { in: "item" as const, says: "close", order: 40 },
+              run: () => go("knowledge"),
+            },
+          ]
+        : []),
+    ];
+  }, [rows, cursor, open, fallback, item, startPage, go]);
+  useCommands(commands);
+
+  const target: Target | null = item === "new" ? (newIn ?? fallback) : item ? { id: item } : null;
+
+  const list = (
     <>
-      <button type="button" className={small} title="New page here" aria-label="New page here" onClick={start}>
-        +
-      </button>
-      <button
-        type="button"
-        className={small}
-        title="New folder here: it holds its first page once saved"
-        aria-label="New folder here"
-        onClick={() => setNaming(true)}
-      >
-        ⊞
-      </button>
-      {rename && (
-        <button type="button" className={small} title="Rename" aria-label="Rename the folder" onClick={rename}>
-          ✎
-        </button>
-      )}
+      <div className="border-b border-line p-3">
+        <SearchField
+          ref={search}
+          label="Search the pages"
+          placeholder="Search pages"
+          live
+          value={words}
+          onChange={(event) => setWords(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowDown") return;
+            event.preventDefault();
+            event.currentTarget
+              .closest("[data-region]")
+              ?.querySelector<HTMLElement>("[role=tree], [role=listbox]")
+              ?.focus();
+          }}
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Problem error={tops.error ?? pages.error ?? problem} />
+        {!tops.data || !pages.data ? (
+          <Skeleton rows={8} />
+        ) : searching ? (
+          <Found words={words.trim()} pages={pages.data} tops={tops.data} current={item ?? null} open={open} />
+        ) : (
+          <Tree
+            label="Pages"
+            nodes={nodes}
+            selected={cursor}
+            open={unfolded}
+            onSelect={(node) => {
+              setCursor(node.id);
+              const page = pageOf(node);
+              if (page) open(page);
+            }}
+            onToggle={fold}
+            onOpen={(node) => {
+              const page = pageOf(node);
+              if (page) open(page);
+            }}
+          />
+        )}
+      </div>
     </>
+  );
+
+  return (
+    <ListDetail title="Knowledge" list={list}>
+      {target && tops.data ? (
+        <PageEditor
+          key={"id" in target ? target.id : `new:${target.top}:${target.folder}`}
+          target={target}
+          folderPaths={folderPaths}
+          tops={tops.data}
+          member={member}
+          open={open}
+          changed={reload}
+          closed={() => go("knowledge")}
+        />
+      ) : (
+        <Empty boot={pages.data?.length === 0 ? "no pages yet" : "pick a page"}>
+          {pages.data?.length === 0
+            ? "What you and your agents learn lands here. Start a page with N."
+            : "Open one from the list, or start a page with N."}
+        </Empty>
+      )}
+    </ListDetail>
   );
 }
 
-/** Pages matching the words, by meaning as well as by title, with where each sits. */
+/** Pages matching the words, by meaning as well as by title, each with where it sits. */
 function Found({
   words,
   pages,
   tops,
-  open,
   current,
+  open,
 }: {
   words: string;
   pages: PageRow[];
   tops: Top[];
-  open: (id: string) => void;
   current: string | null;
+  open: (id: string) => void;
 }) {
   const load = useCallback(
     () => api<{ records: RecordRow[] }>(`/records?q=${encodeURIComponent(words)}`).then((answer) => answer.records),
     [words],
   );
   const { data, error } = useLoad(load);
+  const [cursor, setCursor] = useState<string | null>(current ? pageId(current) : null);
+  if (error) return <Problem error={error} />;
+  if (!data) return <Skeleton rows={4} />;
   const shown = new Map(pages.map((page) => [page.id, page]));
-  if (error) return <Notice message={error} />;
-  if (!data) return <Loading what="pages" />;
   const found = data.map((record) => shown.get(record.id)).filter((page): page is PageRow => page !== undefined);
-  if (found.length === 0) return <Empty>No page matches.</Empty>;
+  if (found.length === 0) {
+    return (
+      <Empty boot="no match" match>
+        No page holds “{words}”. Try fewer words, or other ones.
+      </Empty>
+    );
+  }
   return (
-    <ul>
-      {found.map((page) => (
-        <li key={page.id}>
-          <button
-            type="button"
-            aria-current={current === page.id ? "page" : undefined}
-            className={`block w-full cursor-pointer rounded-md px-2 py-1 text-left ${current === page.id ? "bg-panel inset-ring inset-ring-line" : "hover:bg-hover"}`}
-            onClick={() => open(page.id)}
-          >
-            <span className={`block truncate ${current === page.id ? "font-medium" : ""}`}>{page.title}</span>
-            <span className="block truncate text-sm text-muted">{folderPath(tops, page.top, page.folder)}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
+    <Tree
+      label="Pages found"
+      nodes={found.map((page) => ({
+        id: pageId(page.id),
+        name: page.title,
+        icon: FileText,
+        preview: folderPath(tops, page.top, page.folder),
+      }))}
+      selected={cursor}
+      open={() => false}
+      onSelect={(node) => {
+        setCursor(node.id);
+        const page = pageOf(node);
+        if (page) open(page);
+      }}
+      onToggle={() => {}}
+      onOpen={(node) => {
+        const page = pageOf(node);
+        if (page) open(page);
+      }}
+    />
   );
 }

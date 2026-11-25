@@ -1,49 +1,123 @@
 import type { Overview } from "@grenier/core/api";
-import type { ReactNode } from "react";
-import { ago, Kbd, Status, times } from "../ui.tsx";
+import { Fragment, type ReactNode } from "react";
+import { useActivity } from "../activity.tsx";
+import { since, times } from "../format.ts";
+import { Keys } from "../ui/keycap.tsx";
+import { Status } from "../ui/tag.tsx";
+import type { ViewName } from "../usage/screens.ts";
+import { hintsFor, useRegistryState } from "./commands.tsx";
+import { usePrefs } from "./prefs.ts";
 
-/** The bar along the bottom of every laibe app: is it working, what is waiting, what can I press. */
-export function StatusBar({ overview, error }: { overview: Overview | null; error: string | null }) {
-  const parts: ReactNode[] = [];
-  if (error) parts.push(<Status key="error" kind="err" />, "Daemon unreachable");
-  else if (overview) {
+interface Segment {
+  key: string;
+  content: ReactNode;
+  /** Where clicking it goes: the matching details or settings. */
+  open?: () => void;
+  title?: string;
+}
+
+/**
+ * The bar along the bottom (components/status-bar.md): the lit point, the app, what is going on, each segment opening
+ * its details; then the keys that matter for what has the person's attention, unless Quick tips are off.
+ */
+export function StatusBar({
+  overview,
+  error,
+  go,
+  retry,
+}: {
+  overview: Overview | null;
+  error: string | null;
+  go: (place: ViewName) => void;
+  retry: () => void;
+}) {
+  const { working, saved } = useActivity();
+  const [prefs] = usePrefs();
+  const { registry } = useRegistryState();
+  const { hints, tries } = hintsFor(registry);
+
+  const segments: Segment[] = [];
+  if (error) {
+    segments.push({
+      key: "daemon",
+      content: [<Status key="tag" kind="err" />, "Daemon unreachable"],
+      open: retry,
+      title: "Try again",
+    });
+  } else if (overview) {
     if (overview.team) {
-      parts.push(overview.team.lastSync ? `Synced ${ago(overview.team.lastSync)}` : "Not synced yet");
-      if (overview.outdated) parts.push(<Status key="outdated" kind="warn" />, "Team store outdated");
-      if (overview.waiting > 0) parts.push(`${overview.waiting} to sync`);
-      if (overview.role) parts.push(overview.role);
-    } else parts.push("This machine only");
-    if (overview.paused > 0) parts.push(`${times(overview.paused, "session")} paused`);
+      segments.push({
+        key: "sync",
+        content: overview.team.lastSync ? `Synced ${since(overview.team.lastSync)}` : "Not synced yet",
+        open: () => go("team"),
+      });
+      if (overview.outdated) {
+        segments.push({
+          key: "outdated",
+          content: [<Status key="tag" kind="warn" />, "Team store outdated"],
+          open: () => go("team"),
+        });
+      }
+      if (overview.waiting > 0) {
+        segments.push({
+          key: "waiting",
+          content: `${overview.waiting} to sync`,
+          open: () => go("knowledge"),
+          title: `${times(overview.waiting, "record")} not sent to the team yet`,
+        });
+      }
+    } else segments.push({ key: "alone", content: "This machine only", open: () => go("team") });
+    if (overview.paused > 0) {
+      segments.push({
+        key: "paused",
+        content: [<Status key="tag" kind="warn" />, `${times(overview.paused, "session")} paused`],
+        open: () => go("cost"),
+      });
+    }
   }
-  const busy = !error && (overview?.waiting ?? 0) > 0;
+  const busy = working.find((what) => what !== null);
+
   return (
-    <footer className="z-(--layer-bars) flex items-center gap-2.5 overflow-hidden border-t border-line bg-void px-3 font-mono text-2xs font-medium tracking-label whitespace-nowrap text-muted uppercase">
-      <span
-        className={`size-1.5 shrink-0 rounded-full ${error ? "bg-danger" : "bg-accent shadow-[0_0_8px_var(--accent)]"} ${busy ? "motion-safe:animate-pulse" : ""}`}
-      />
-      <span className="text-fg">Grenier</span>
-      <span aria-live="polite" className="flex items-center gap-2.5">
-        {parts.map((part, index) =>
-          typeof part === "string" ? (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the parts are rebuilt on every render, in a fixed order
-            <span key={index} className="flex items-center gap-2.5">
-              <span className="text-subtle">·</span>
-              {part}
+    <footer className="statusbar" data-state={working.length > 0 ? "working" : undefined}>
+      <i className="statusbar-dot" aria-hidden="true" />
+      <span className="statusbar-app">Grenier</span>
+      <span aria-live="polite" className="contents">
+        {busy && <span className="statusbar-busy">{busy}</span>}
+        {saved && <span className="statusbar-busy">Saved</span>}
+        {segments.map((segment, index) => (
+          <Fragment key={segment.key}>
+            {(index > 0 || busy || saved) && <span className="statusbar-sep">·</span>}
+            {segment.open ? (
+              <button type="button" className="statusbar-segment" title={segment.title} onClick={segment.open}>
+                {segment.content}
+              </button>
+            ) : (
+              <span title={segment.title}>{segment.content}</span>
+            )}
+          </Fragment>
+        ))}
+      </span>
+      {prefs.tips && (
+        <span className="statusbar-hints">
+          {tries.length > 0 ? (
+            <span className="statusbar-hint">
+              <span className="text-muted">try</span>
+              {tries.map((phrase, index) => (
+                <Fragment key={phrase}>
+                  {index > 0 && <span className="statusbar-sep">·</span>}“{phrase}”
+                </Fragment>
+              ))}
             </span>
           ) : (
-            part
-          ),
-        )}
-      </span>
-      <span className="ml-auto flex items-center gap-3 tracking-normal normal-case">
-        <span className="flex items-center gap-1">
-          <Kbd>⌘K</Kbd> commands
+            hints.map((hint) => (
+              <span key={`${hint.keys}:${hint.says}`} className="statusbar-hint">
+                <Keys shortcut={hint.keys} />
+                {hint.says}
+              </span>
+            ))
+          )}
         </span>
-        <span className="flex items-center gap-1">
-          <Kbd>⌘,</Kbd> settings
-        </span>
-        {overview && <span>v{overview.version}</span>}
-      </span>
+      )}
     </footer>
   );
 }

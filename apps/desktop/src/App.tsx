@@ -1,15 +1,33 @@
-import type { Overview } from "@grenier/core/api";
-import { ArrowLeft, ArrowRight, PanelLeft, RefreshCw } from "lucide-react";
+import type { Overview, Synced } from "@grenier/core/api";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CircleHelp,
+  Command as CommandIcon,
+  FilePlus,
+  PanelLeft,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityProvider } from "./activity.tsx";
 import { api, sendPageView } from "./api.ts";
-import { type Command, Palette } from "./palette.tsx";
 import { Banner } from "./shell/banner.tsx";
-import { linked, useHistory } from "./shell/history.ts";
-import { PLACES } from "./shell/places.ts";
+import { type Command, CommandProvider, useCommands } from "./shell/commands.tsx";
+import { Palette } from "./shell/palette.tsx";
+import { goLetters, PLACE_ICONS, PLACES, placeKeys } from "./shell/places.ts";
+import { usePrefs } from "./shell/prefs.ts";
+import { ItemTitleProvider, type RegionName } from "./shell/regions.tsx";
+import { useRouter } from "./shell/router.ts";
+import { Shortcuts } from "./shell/shortcuts.tsx";
 import { Sidebar, useSidebar } from "./shell/sidebar.tsx";
 import { StatusBar } from "./shell/status-bar.tsx";
-import { mac, TitleBar } from "./shell/title-bar.tsx";
-import { LitPoint, ToastProvider, TooltipLayer, useLoad } from "./ui.tsx";
+import { TitleBar } from "./shell/title-bar.tsx";
+import { LitPoint } from "./ui/brand.tsx";
+import { mac } from "./ui/keys.ts";
+import { useAction, useLoad } from "./ui/load.ts";
+import { ToastProvider } from "./ui/toast.tsx";
+import { TooltipLayer } from "./ui/tooltip.tsx";
 import { SCREENS, type ViewName } from "./usage/screens.ts";
 import { useUsage } from "./usage/use-usage.ts";
 import { Cost } from "./views/Cost.tsx";
@@ -21,13 +39,16 @@ import { Skills } from "./views/Skills.tsx";
 import { Team } from "./views/Team.tsx";
 
 export interface ViewProps {
-  /** Shows another view; `focus` names what to show first in it: a record in Knowledge. */
-  go: (view: ViewName, focus?: string) => void;
-  focus?: string;
-  /** Tells the shell that something it shows (the changes waiting to sync) may have changed. */
+  /** What the route names in this place: a record, or `new` for the form that makes one. */
+  item: string | undefined;
+  /** Goes to a place, and to an item in it. */
+  go: (place: ViewName, item?: string) => void;
+  /** Tells the shell that something it shows (the records waiting to sync) may have changed. */
   changed: () => void;
   /** A member, not an admin: they read the team's pages, write in Me, and run what an admin shares. */
   member: boolean;
+  /** The team this machine is in, null in none, undefined while the shell doesn't know yet. */
+  team: Overview["team"] | undefined;
 }
 
 export type { ViewName };
@@ -46,85 +67,133 @@ const loadOverview = () => api<Overview>("/overview");
 
 export function App() {
   return (
-    <ToastProvider>
-      <Shell />
-      <TooltipLayer />
-    </ToastProvider>
+    <CommandProvider>
+      <ActivityProvider>
+        <ToastProvider>
+          <Shell />
+          <TooltipLayer />
+        </ToastProvider>
+      </ActivityProvider>
+    </CommandProvider>
   );
+}
+
+const REGIONS: RegionName[] = ["sidebar", "list", "detail"];
+
+/** Moves focus to the next region that is there (F6), or back (⇧F6): its selected row first, else its first control. */
+function cycleRegions(by: 1 | -1) {
+  const regions = REGIONS.map((name) => document.querySelector<HTMLElement>(`[data-region="${name}"]`)).filter(
+    (region): region is HTMLElement => region !== null,
+  );
+  const at = regions.findIndex((region) => region.contains(document.activeElement));
+  const next = regions[(at + by + regions.length) % regions.length];
+  const inside = next?.querySelector<HTMLElement>(
+    '[aria-current="page"], [role="tree"], [role="listbox"], button, a, input',
+  );
+  (inside ?? next)?.focus();
+}
+
+/** Focus starts in the list, or in the detail when there is none, never in the sidebar (app-shell.md#focus). */
+function focusContent() {
+  const list = document.querySelector<HTMLElement>(
+    '[data-region="list"] [role="tree"], [data-region="list"] [role="listbox"]',
+  );
+  (list ?? document.querySelector<HTMLElement>('[data-region="detail"]'))?.focus({ preventScroll: true });
 }
 
 /** The laibe design system's app shell (patterns/app-shell.md): title bar, banner, sidebar, content, status bar. */
 function Shell() {
-  const history = useHistory(linked());
-  const { view: current, focus } = history.place;
+  const router = useRouter();
+  const { route, navigate, back, forward } = router;
   const overview = useLoad(loadOverview);
   const sidebar = useSidebar();
   const [palette, setPalette] = useState(false);
-  const nav = useRef<HTMLElement>(null);
-  const main = useRef<HTMLElement>(null);
-  const { push, move } = history;
+  const [shortcuts, setShortcuts] = useState(false);
+  const [item, setItem] = useState<string | null>(null);
+  usePrefs();
   const reloadOverview = overview.reload;
+  const sync = useAction(reloadOverview);
+  const syncRun = useRef(sync.run);
+  syncRun.current = sync.run;
 
   const go = useCallback(
-    (name: ViewName, next?: string) => {
-      push({ view: name, ...(next ? { focus: next } : {}) });
+    (place: ViewName, next?: string) => {
+      navigate({ place, ...(next ? { item: next } : {}) });
       reloadOverview();
     },
-    [push, reloadOverview],
+    [navigate, reloadOverview],
   );
 
+  const place = SCREENS[route.place].title;
   useEffect(() => {
-    const follow = () => push(linked());
-    window.addEventListener("hashchange", follow);
-    return () => window.removeEventListener("hashchange", follow);
-  }, [push]);
+    document.title = `${item ?? place} — Grenier`;
+  }, [item, place]);
 
+  const ready = overview.data !== null || overview.error !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on each new place, once the shell is drawn
   useEffect(() => {
-    document.title = `${SCREENS[current].title} — Grenier`;
-    main.current?.scrollTo({ top: 0 });
-  }, [current]);
+    if (ready) requestAnimationFrame(focusContent);
+  }, [route.place, ready]);
 
-  // The keys every app on the laibe design system shares (patterns/keyboard.md).
-  useEffect(() => {
-    const keys = (event: KeyboardEvent) => {
-      const mod = event.metaKey || event.ctrlKey;
-      const place = /^[1-9]$/.test(event.key) ? PLACES[Number(event.key) - 1] : undefined;
-      if (mod && event.key.toLowerCase() === "k") setPalette((open) => !open);
-      else if (palette) return;
-      else if (mod && event.key === ",") go("settings");
-      else if (mod && event.key === "\\") sidebar.toggle();
-      else if (mod && event.key === "[") move(-1);
-      else if (mod && event.key === "]") move(1);
-      else if (mod && place) go(place);
-      else if (event.key === "F6") {
-        const regions = [nav.current, main.current].filter((region): region is HTMLElement => region !== null);
-        const at = regions.findIndex((region) => region.contains(document.activeElement));
-        const next = regions[(at + (event.shiftKey ? -1 : 1) + regions.length) % regions.length];
-        (next?.querySelector<HTMLElement>('[aria-current="page"], button, a, input') ?? next)?.focus();
-      } else return;
-      event.preventDefault();
-    };
-    window.addEventListener("keydown", keys);
-    return () => window.removeEventListener("keydown", keys);
-  }, [palette, go, sidebar.toggle, move]);
+  useUsage(SCREENS[route.place].url, sendPageView);
 
-  useUsage(SCREENS[current].url, sendPageView);
-
-  const commands: Command[] = useMemo(
-    () => [
-      { label: "Back", icon: ArrowLeft, keys: ["⌘", "["], run: () => move(-1) },
-      { label: "Forward", icon: ArrowRight, keys: ["⌘", "]"], run: () => move(1) },
-      { label: "Show or hide the sidebar", icon: PanelLeft, keys: ["⌘", "\\"], run: sidebar.toggle },
-      { label: "Reload this view", icon: RefreshCw, run: () => window.location.reload() },
-    ],
-    [move, sidebar.toggle],
-  );
+  const team = overview.data?.team ?? null;
+  const commands = useMemo<Command[]>(() => {
+    const names = [...PLACES, "settings" as const];
+    const letters = goLetters(names);
+    const places = names.flatMap((name): Command[] => {
+      const letter = letters[name];
+      const to = { label: SCREENS[name].title, icon: PLACE_ICONS[name], group: "Go to" as const, run: () => go(name) };
+      return [
+        { id: `go:${name}`, keys: placeKeys(name), ...to },
+        ...(letter ? [{ id: `chord:${name}`, keys: `g ${letter}`, hidden: true, ...to }] : []),
+      ];
+    });
+    return [
+      ...places,
+      {
+        id: "palette",
+        label: "Commands",
+        icon: CommandIcon,
+        keys: "mod+k",
+        hidden: true,
+        run: () => setPalette((open) => !open),
+      },
+      { id: "new-page", label: "New page", icon: FilePlus, run: () => go("knowledge", "new") },
+      { id: "new-routine", label: "New routine", icon: Plus, run: () => go("routines", "new") },
+      ...(team
+        ? [
+            {
+              id: "sync",
+              label: "Sync now",
+              icon: RefreshCw,
+              run: () =>
+                void syncRun.current(
+                  "sync",
+                  async () => {
+                    const done = await api<Synced>("/sync", { method: "POST" });
+                    return `Synced: sent ${done.pushed}, took ${done.pulled}`;
+                  },
+                  "Syncing",
+                ),
+            },
+          ]
+        : []),
+      { id: "back", label: "Back", icon: ArrowLeft, keys: "mod+[", run: back },
+      { id: "forward", label: "Forward", icon: ArrowRight, keys: "mod+]", run: forward },
+      { id: "sidebar", label: "Show or hide the sidebar", icon: PanelLeft, keys: "mod+\\", run: sidebar.toggle },
+      { id: "region-next", label: "Next region", keys: "f6", run: () => cycleRegions(1) },
+      { id: "region-back", label: "Previous region", keys: "shift+f6", run: () => cycleRegions(-1) },
+      { id: "shortcuts", label: "Keyboard shortcuts", icon: CircleHelp, keys: "?", run: () => setShortcuts(true) },
+    ];
+  }, [go, back, forward, sidebar.toggle, team]);
+  useCommands(commands);
 
   // The splash: the attic window on the dark, until the daemon first answers.
-  if (!overview.data && !overview.error) {
+  if (!ready) {
     return (
       <div className="grid h-dvh place-items-center bg-void">
-        <div className="grid animate-appear justify-items-center gap-4">
+        <div className="grid justify-items-center gap-4">
           <span className="motion-safe:animate-pulse">
             <LitPoint size={64} />
           </span>
@@ -134,33 +203,37 @@ function Shell() {
     );
   }
 
-  const View = VIEWS[current];
+  const View = VIEWS[route.place];
   const waiting = overview.error ? 0 : (overview.data?.waiting ?? 0);
-  const titleHeight = mac ? "var(--layout-titlebar-mac)" : "var(--layout-titlebar)";
 
   return (
-    <div
-      className="grid h-dvh overflow-hidden"
-      style={{ gridTemplateRows: `${titleHeight} auto minmax(0, 1fr) var(--layout-statusbar)` }}
-    >
-      <TitleBar
-        place={SCREENS[current].title}
-        collapsed={sidebar.collapsed}
-        canBack={history.canBack}
-        canForward={history.canForward}
-        onToggleSidebar={sidebar.toggle}
-        onMove={move}
-        onCommands={() => setPalette(true)}
-      />
-      <div>
-        <Banner overview={overview.data} error={overview.error} retry={overview.reload} />
-      </div>
-      <div className="grid min-h-0" style={{ gridTemplateColumns: `${sidebar.width}px minmax(0, 1fr)` }}>
+    <ItemTitleProvider value={setItem}>
+      <div
+        className="shell"
+        style={
+          {
+            "--titlebar-height": mac ? "var(--layout-titlebar-mac)" : "var(--layout-titlebar)",
+            "--sidebar-width": `${sidebar.width}px`,
+          } as React.CSSProperties
+        }
+      >
+        <TitleBar
+          place={place}
+          item={item}
+          collapsed={sidebar.collapsed}
+          canBack={router.canBack}
+          canForward={router.canForward}
+          onToggleSidebar={sidebar.toggle}
+          onBack={back}
+          onForward={forward}
+          onCommands={() => setPalette(true)}
+        />
+        <Banner overview={overview.data} error={overview.error} retry={reloadOverview} toTeam={() => go("team")} />
         <Sidebar
-          ref={nav}
-          current={current}
+          current={route.place}
           go={go}
           collapsed={sidebar.collapsed}
+          width={sidebar.width}
           counts={{
             knowledge: {
               value: waiting,
@@ -170,22 +243,18 @@ function Shell() {
           onResize={sidebar.resize}
           onReset={sidebar.reset}
         />
-        <main ref={main} tabIndex={-1} className="min-h-0 overflow-y-auto outline-none">
-          <div className="px-8 pt-7 pb-12 max-md:px-5 max-md:pt-5.5 max-md:pb-10">
-            <div className={current === "knowledge" ? "max-w-320" : "max-w-220"}>
-              <View
-                key={`${current}:${focus ?? ""}`}
-                go={go}
-                changed={overview.reload}
-                member={overview.data?.role === "member"}
-                {...(focus ? { focus } : {})}
-              />
-            </div>
-          </div>
-        </main>
+        <View
+          key={route.place}
+          item={route.item}
+          go={go}
+          changed={reloadOverview}
+          member={overview.data?.role === "member"}
+          team={overview.data ? team : undefined}
+        />
+        <StatusBar overview={overview.data} error={overview.error} go={go} retry={reloadOverview} />
+        {palette && <Palette openPage={(id) => go("knowledge", id)} onClose={() => setPalette(false)} />}
+        {shortcuts && <Shortcuts onClose={() => setShortcuts(false)} />}
       </div>
-      <StatusBar overview={overview.data} error={overview.error} />
-      {palette && <Palette go={go} commands={commands} onClose={() => setPalette(false)} />}
-    </div>
+    </ItemTitleProvider>
   );
 }

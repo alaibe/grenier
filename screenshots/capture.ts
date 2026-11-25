@@ -158,6 +158,12 @@ async function capture(page: Session, url: string, shot: Shot, mode: (typeof MOD
   await page.send("Runtime.evaluate", { expression: "document.fonts.ready.then(() => true)", awaitPromise: true });
   // The views fetch their data from the demo's daemon after the page has loaded.
   await new Promise((resolve) => setTimeout(resolve, 2_000));
+  // The system's rule, checked on every shot: one primary button per screen, and one per dialog over it.
+  const { result } = await page.send<{ result: { value: number } }>("Runtime.evaluate", {
+    expression: `Math.max(document.querySelectorAll(".btn-primary:not([role=dialog] *)").length, ...[...document.querySelectorAll("[role=dialog]")].map((dialog) => dialog.querySelectorAll(".btn-primary").length))`,
+    returnByValue: true,
+  });
+  if (result.value > 1) throw new Error(`${shot.name}-${mode} shows ${result.value} primary buttons in one place`);
   const { data } = await page.send<{ data: string }>("Page.captureScreenshot", { format: "webp", quality: 82 });
   const image = Buffer.from(data, "base64");
   const size = webpSize(image);

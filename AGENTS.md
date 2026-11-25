@@ -45,13 +45,25 @@ A team's shared memory for people and their AI agents: a pnpm workspace in TypeS
   system's `principles.md` and the `components/` pages the change touches.
 - Grenier's icon is the system's icon template with Grenier's glyph, a roof and its lit round window:
   `apps/desktop/src-tauri/icons/icon.svg` is the source, the other sizes come from `pnpm tauri icon`, and `Mark` in
-  `ui.tsx` is its flat form.
-- `apps/desktop/src/laibe/` is a copy of the system's `tokens/tokens.css` and `tokens/tailwind.css`: replace both
-  files when the system changes, never edit them here. Biome ignores the folder so they stay byte for byte.
+  `ui/brand.tsx` is its flat form.
+- `apps/desktop/src/laibe/` is a copy of the system's `tokens/tokens.css`, `tokens/tailwind.css` and
+  `components/components.css`: replace the three files when the system changes, never edit them here. Biome ignores
+  the folder so they stay byte for byte. The team store's web view (`apps/server/src/web.ts`) imports the same
+  `tokens.css` and `components.css` as text.
+- Components live in `apps/desktop/src/ui/`, one file per system page, as thin wrappers that emit the system's
+  classes; `styles.css` only lays out the shell and draws what the system has no component for. No colour, radius or
+  type override on a component class.
 - Use the system's colour names only (`bg`, `panel`, `fg`, `muted`, `accent`, `on-accent`, `danger`, `success`…).
-  The interface is in `font-mono`, content in `font-sans`. A status is a `Status` tag, never a colour alone.
-- The window is the system's app shell (`patterns/app-shell.md`) in `App.tsx`: title bar, banner, sidebar,
-  content and status bar, each scrolling on its own. A new place gets an icon in `PLACE_ICONS` (`palette.tsx`) and
-  shows in the ⌘K palette with its ⌘ number; an app-wide command goes in `commands` in `App.tsx`.
-- Success after an action is a toast (`Notice` sends it); a problem stays on the page. Anything irreversible asks
-  through `ConfirmButton`, which opens a `Dialog`. Buttons take their icon by the system's label-and-icon rule.
+  The interface is in `font-mono`, content in `font-sans`. A status is a `Status` tag (`states.ts` maps Grenier's
+  states to tags), never a colour alone.
+- `Button` is secondary unless asked. A screen has at most one `Primary`, in its `Page`'s `primary` slot or its
+  form, and a dialog one: `capture.sh` refuses a shot with two.
+- The window is the system's app shell (`patterns/app-shell.md`) in `App.tsx` and `shell/`: title bar, banner,
+  sidebar, list, detail and status bar, each scrolling on its own. Places and items are in the URL's hash
+  (`shell/router.ts`): `#knowledge/<record>`, and `#<place>/new` for a place's form.
+- Every action is a command in the registry (`shell/commands.tsx`): views register theirs with `useCommands`. The
+  registry drives the keys (the system's shared keys, never reassigned), the ⌘K palette, the status bar's hints and
+  the `?` overlay. A new place gets an icon in `PLACE_ICONS` (`shell/places.ts`).
+- Success after an action is a toast (`useAction` returns its text, with `undo` where it can be undone); what lasts
+  is a `Notice`; a problem stays on the page. A removal that can't be undone asks through `ConfirmButton` or
+  `useConfirm`, which open a `Dialog`. Buttons take their icon by the system's label-and-icon rule.
