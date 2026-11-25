@@ -46,6 +46,7 @@ export async function startWorker(options: { listen?: boolean; clock?: boolean }
     external: ["cloudflare:workers"],
     conditions: ["workerd", "worker", "browser"],
     mainFields: ["module", "main"],
+    loader: { ".css": "text" },
     logLevel: "silent",
   });
   const mf = new Miniflare(

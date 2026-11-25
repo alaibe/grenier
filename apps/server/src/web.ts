@@ -1,35 +1,56 @@
-/** The web view. Text from records is only ever set as text, never as HTML. */
+import TOKENS from "../../desktop/src/laibe/tokens.css";
+
+/** The web view, on the laibe design system with the gold accent. Text from records is only ever set as text, never as HTML. */
 export const WEB = `<!doctype html>
-<html lang="en">
+<html lang="en" data-accent="gold">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Grenier</title>
 <style>
-  :root { color-scheme: light dark; --bg: #faf8f5; --fg: #1d1b19; --muted: #6b645c; --line: #e4ded6; --accent: #7a4b2a; --card: #fff; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #171513; --fg: #ede8e2; --muted: #a39b91; --line: #2e2a26; --card: #1f1c19; --accent: #d9a273; } }
+${TOKENS}
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
-  header { display: flex; gap: 1rem; align-items: center; padding: .75rem 1rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  header strong { margin-right: auto; }
-  nav button, button { font: inherit; background: none; border: 1px solid var(--line); border-radius: 6px; padding: .3rem .7rem; color: var(--fg); cursor: pointer; }
-  nav button[aria-current="page"] { border-color: var(--accent); color: var(--accent); }
-  main { max-width: 960px; margin: 0 auto; padding: 1rem; }
-  input, select, textarea { font: inherit; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
-  .row { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; margin-bottom: .5rem; }
-  .card h3 { margin: 0 0 .25rem; font-size: 1rem; }
-  .muted { color: var(--muted); font-size: .85rem; }
-  pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.5 ui-monospace, monospace; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
-  td.n { text-align: right; font-variant-numeric: tabular-nums; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  html { color-scheme: light dark; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--text-md)/var(--leading-normal) var(--font-sans); background: var(--bg); color: var(--fg); }
+  ::selection { background: var(--selection); }
+  header { position: sticky; top: 0; z-index: 10; display: flex; gap: 16px; align-items: center; height: 48px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--side); flex-wrap: wrap; }
+  header .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; font: 600 var(--text-sm) var(--font-mono); }
+  nav { display: flex; gap: 2px; }
+  button { font: 500 var(--text-sm) var(--font-mono); height: var(--control-md); padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel); color: var(--fg); cursor: pointer; transition: background var(--duration-instant); }
+  button:hover { background: var(--hover); }
+  nav button { border-color: transparent; background: none; color: var(--muted); }
+  nav button:hover { color: var(--fg); background: var(--hover); }
+  nav button[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
+  button.primary { border: 0; background: var(--accent); color: var(--on-accent); clip-path: polygon(0 0, calc(100% - var(--chamfer-sm)) 0, 100% var(--chamfer-sm), 100% 100%, 0 100%); }
+  button.primary:hover { background: var(--accent-strong); }
+  main { flex: 1; width: 100%; max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  input, select, textarea { font: var(--text-sm) var(--font-sans); height: var(--control-md); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel); color: var(--fg); }
+  input { flex: 1; min-width: 200px; }
+  input::placeholder { color: var(--subtle); }
+  a { color: var(--fg); text-decoration: none; }
+  a:hover { color: var(--accent); }
+  h2 { margin: 16px 0 4px; font: 600 var(--text-xl)/var(--leading-tight) var(--font-mono); letter-spacing: var(--tracking-tight); }
+  h3 { margin: 24px 0 8px; font: 500 var(--text-xs) var(--font-mono); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 8px; }
+  .card h3 { margin: 0 0 4px; font: 500 var(--text-md) var(--font-sans); letter-spacing: normal; text-transform: none; color: var(--fg); }
+  .muted { color: var(--muted); font: var(--text-xs) var(--font-mono); }
+  p { color: var(--muted); }
+  [role="alert"] { color: var(--danger); }
+  pre { white-space: pre-wrap; word-break: break-word; margin: 0; padding: 12px 16px; font: var(--text-sm)/1.6 var(--font-mono); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
+  th { font: 500 var(--text-xs) var(--font-mono); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--muted); }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); }
+  td.n { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  footer { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; height: var(--layout-statusbar); padding: 0 12px; border-top: 1px solid var(--line); background: var(--side); font: var(--text-xs) var(--font-mono); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--muted); }
+  footer i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: var(--glow); }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 </style>
 </head>
 <body>
-<header><strong>Grenier</strong><nav id="nav"></nav></header>
+<header><span class="brand"><svg width="20" height="20" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="115" fill="#04050d"/><g fill="none" stroke="#fec000" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"><path d="M108 294 L256 166 L404 294"/><circle cx="256" cy="320" r="50" fill="#fff4de" stroke="none"/><path d="M256 284 V356 M220 320 H292" stroke="#04050d" stroke-width="12"/></g></svg>Grenier</span><nav id="nav"></nav></header>
 <main id="main"><p>Loading…</p></main>
+<footer><i></i>Grenier · team store</footer>
 <script>
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
@@ -111,7 +132,7 @@ async function requests() {
   const routine = el("select", { "aria-label": "Routine" }, ...routineList.map((r) => el("option", { value: r.id, text: r.title })));
   const title = el("input", { placeholder: "What to do", "aria-label": "Request" });
   const said = el("p", { role: "alert" });
-  const file = el("button", { text: "File the request", onclick: async () => {
+  const file = el("button", { class: "primary", text: "File the request", onclick: async () => {
     if (!title.value.trim() || !routine.value) return;
     said.textContent = "";
     const id = crypto.randomUUID().replace(/-/g, "");
