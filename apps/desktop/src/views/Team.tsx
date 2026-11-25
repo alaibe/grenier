@@ -12,11 +12,13 @@ import type {
   TeamTop,
   TeamUsage,
 } from "@grenier/core/api";
+import { Link, RefreshCw, UserCog } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import {
   Actions,
+  Avatar,
   ago,
   Button,
   Card,
@@ -30,6 +32,7 @@ import {
   money,
   Notice,
   Page,
+  Presence,
   Row,
   Secret,
   Section,
@@ -270,6 +273,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
       action={
         <div className="flex gap-2">
           <Button
+            icon={Link}
             quiet
             disabled={action.busy !== null}
             title="Sign a browser in to the team's web view, once, within 10 minutes"
@@ -283,6 +287,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
             Web link
           </Button>
           <Button
+            icon={RefreshCw}
             quiet
             disabled={action.busy !== null}
             onClick={() =>
@@ -342,15 +347,17 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
             <tbody>
               {members.data.map((member) => (
                 <tr key={member.name}>
-                  <td className="font-medium">{member.name}</td>
+                  <td className="font-medium">
+                    <span className="flex items-center gap-2">
+                      <Avatar name={member.name} />
+                      {member.name}
+                    </span>
+                  </td>
                   <td>{member.role}</td>
                   <td>
                     {member.devices.map((device) => (
                       <span key={device.id} className="mr-3 inline-flex items-center gap-1.5 whitespace-nowrap">
-                        <span
-                          className={`size-2 rounded-full ${device.state === "offline" ? "bg-line-strong" : device.state === "available" ? "bg-success" : "bg-accent"}`}
-                          title={device.state}
-                        />
+                        <Presence state={device.state} />
                         {device.name}
                       </span>
                     ))}
@@ -358,6 +365,7 @@ function Members({ url, lastSync }: { url: string; lastSync: number | null }) {
                   {admin && (
                     <td className="text-right whitespace-nowrap">
                       <Button
+                        icon={UserCog}
                         quiet
                         className="mr-2"
                         disabled={action.busy !== null}

@@ -47,3 +47,8 @@ A team's shared memory for people and their AI agents: a pnpm workspace in TypeS
   from a new release, never edit them here. Biome ignores the folder so they stay byte for byte.
 - Use the system's colour names only (`bg`, `panel`, `fg`, `muted`, `accent`, `on-accent`, `danger`, `success`…).
   The interface is in `font-mono`, content in `font-sans`. A status is a `Status` tag, never a colour alone.
+- The window is the system's app shell (`patterns/app-shell.md`) in `App.tsx`: title bar, banner, sidebar,
+  content and status bar, each scrolling on its own. A new place gets an icon in `PLACE_ICONS` (`palette.tsx`) and
+  shows in the ⌘K palette with its ⌘ number; an app-wide command goes in `commands` in `App.tsx`.
+- Success after an action is a toast (`Notice` sends it); a problem stays on the page. Anything irreversible asks
+  through `ConfirmButton`, which opens a `Dialog`. Buttons take their icon by the system's label-and-icon rule.

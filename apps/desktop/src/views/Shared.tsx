@@ -1,4 +1,5 @@
 import type { SharedState } from "@grenier/core/api";
+import { Check, Download, Trash, Undo2 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
@@ -94,6 +95,7 @@ export function Shared({ type, none, go }: { type: SharedState["type"]; none: Re
                   <div className="flex justify-end gap-1.5">
                     {entry.state !== "installed" && asking !== entry.id && (
                       <Button
+                        icon={entry.state === "update" ? Check : Download}
                         disabled={action.busy !== null}
                         onClick={() =>
                           entry.state === "available" && entry.credentials.length > 0
@@ -106,6 +108,7 @@ export function Shared({ type, none, go }: { type: SharedState["type"]; none: Re
                     )}
                     {entry.canRollBack && (
                       <Button
+                        icon={Undo2}
                         quiet
                         disabled={action.busy !== null}
                         onClick={() => call(`rollback:${entry.id}`, `/installs/${entry.id}/rollback`, "POST")}
@@ -115,6 +118,7 @@ export function Shared({ type, none, go }: { type: SharedState["type"]; none: Re
                     )}
                     {entry.state !== "available" && (
                       <Button
+                        icon={Trash}
                         quiet
                         disabled={action.busy !== null}
                         onClick={() => call(`remove:${entry.id}`, `/installs/${entry.id}`, "DELETE")}

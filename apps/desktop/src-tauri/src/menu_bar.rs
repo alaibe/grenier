@@ -33,9 +33,9 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             "quit" => app.exit(0),
             _ => {}
         });
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
-    }
+    // Grenier's glyph alone, as a template the menu bar tints for light and dark (icons/tray.svg).
+    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+    builder = builder.icon(icon).icon_as_template(true);
     builder.build(app)?;
 
     let app = app.clone();

@@ -1,5 +1,6 @@
 import type { LocalRun, MadeLink, Overview, RoutineView, Top } from "@grenier/core/api";
 import type { RoutineMode } from "@grenier/core/routines";
+import { Check, Link, Pencil, Play, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
@@ -163,6 +164,7 @@ function Webhook({ routine }: { routine: RoutineView }) {
   return (
     <>
       <Button
+        icon={Link}
         quiet
         disabled={action.busy !== null}
         onClick={() =>
@@ -227,11 +229,12 @@ export function Routines({ go, member }: ViewProps) {
       {adding && routines.data && editing === "new" && <RoutineForm done={saved} cancel={() => setEditing(null)} />}
       {adding && routines.data && editing !== "new" && (
         <div className="mb-5 flex gap-2">
-          <Button quiet onClick={() => setEditing("new")}>
+          <Button quiet icon={Plus} onClick={() => setEditing("new")}>
             New routine
           </Button>
           {!routines.data.some((routine) => routine.title === "Librarian") && (
             <Button
+              icon={Plus}
               quiet
               disabled={action.busy !== null}
               title="A built-in routine that looks through the store each day and suggests fixes"
@@ -289,6 +292,7 @@ export function Routines({ go, member }: ViewProps) {
                   ))}
                 </Select>
                 <Button
+                  icon={Check}
                   disabled={action.busy !== null || !routine.prompt.trim()}
                   onClick={() =>
                     call(
@@ -320,6 +324,7 @@ export function Routines({ go, member }: ViewProps) {
             )}
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
+                icon={Play}
                 quiet
                 disabled={action.busy !== null || going || !routine.prompt.trim() || !routine.approval?.current}
                 title={routine.approval?.current ? undefined : "Approve it as it is now to run it here"}
@@ -330,7 +335,7 @@ export function Routines({ go, member }: ViewProps) {
                 Run now
               </Button>
               {!member && (
-                <Button quiet onClick={() => setEditing(routine.id)}>
+                <Button quiet icon={Pencil} onClick={() => setEditing(routine.id)}>
                   Edit
                 </Button>
               )}

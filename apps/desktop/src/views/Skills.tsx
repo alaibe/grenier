@@ -1,4 +1,5 @@
 import type { FoundSkill, SharedNow } from "@grenier/core/api";
+import { Share2 } from "lucide-react";
 import { useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
@@ -77,7 +78,7 @@ function FindSkills({ shared }: { shared: () => void }) {
                 <td className="text-right tabular-nums">{skill.installs.toLocaleString()}</td>
                 <td>
                   <div className="flex justify-end">
-                    <Button quiet disabled={action.busy !== null} onClick={() => add(skill)}>
+                    <Button quiet icon={Share2} disabled={action.busy !== null} onClick={() => add(skill)}>
                       {action.busy === `share:${skill.id}` ? "Sharing…" : "Share with the team"}
                     </Button>
                   </div>

@@ -1,7 +1,15 @@
 import type { Overview } from "@grenier/core/api";
-import { type ComponentType, type ReactNode, useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, PanelLeft, RefreshCw } from "lucide-react";
+import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, sendPageView } from "./api.ts";
-import { ago, Mark, Status, times, useLoad } from "./ui.tsx";
+import { type Command, Palette } from "./palette.tsx";
+import { Banner } from "./shell/banner.tsx";
+import { linked, useHistory } from "./shell/history.ts";
+import { PLACES } from "./shell/places.ts";
+import { Sidebar, useSidebar } from "./shell/sidebar.tsx";
+import { StatusBar } from "./shell/status-bar.tsx";
+import { mac, TitleBar } from "./shell/title-bar.tsx";
+import { LitPoint, ToastProvider, TooltipLayer, useLoad } from "./ui.tsx";
 import { SCREENS, type ViewName } from "./usage/screens.ts";
 import { useUsage } from "./usage/use-usage.ts";
 import { Cost } from "./views/Cost.tsx";
@@ -36,113 +44,148 @@ const VIEWS: Record<ViewName, ComponentType<ViewProps>> = {
 
 const loadOverview = () => api<Overview>("/overview");
 
-/** The screen a link names, as #knowledge or #knowledge/<record>, for the app opened in a browser. */
-function linked(): { view: ViewName; focus?: string } {
-  const [view = "", focus] = window.location.hash.slice(1).split("/");
-  if (!(view in SCREENS)) return { view: "knowledge" };
-  return { view: view as ViewName, ...(focus ? { focus: decodeURIComponent(focus) } : {}) };
-}
-
 export function App() {
-  const [current, setCurrent] = useState<ViewName>(() => linked().view);
-  const [focus, setFocus] = useState<string | undefined>(() => linked().focus);
-  const overview = useLoad(loadOverview);
-  const go = (name: ViewName, next?: string) => {
-    setCurrent(name);
-    setFocus(next);
-    overview.reload();
-  };
-  useEffect(() => {
-    const follow = () => {
-      const next = linked();
-      setCurrent(next.view);
-      setFocus(next.focus);
-    };
-    window.addEventListener("hashchange", follow);
-    return () => window.removeEventListener("hashchange", follow);
-  }, []);
-  useUsage(SCREENS[current].url, sendPageView);
-  const View = VIEWS[current];
-  const waiting = overview.error ? 0 : (overview.data?.waiting ?? 0);
-
   return (
-    <div className="grid min-h-screen grid-cols-[232px_minmax(0,1fr)] max-md:grid-cols-[176px_minmax(0,1fr)]">
-      <nav
-        className="sticky top-0 flex h-[calc(100vh-24px)] flex-col gap-0.5 border-r border-line bg-side px-2 py-3.5"
-        aria-label="Sections"
-      >
-        <p className="mx-2 mb-4 flex items-center gap-2 font-mono text-sm font-semibold">
-          <Mark />
-          Grenier
-        </p>
-        {(Object.keys(SCREENS) as ViewName[]).map((name) => (
-          <button
-            type="button"
-            key={name}
-            className={`flex h-7 w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-left font-mono text-sm font-medium whitespace-nowrap ${current === name ? "bg-accent-soft text-fg" : "text-fg hover:bg-hover"}`}
-            aria-current={current === name ? "page" : undefined}
-            onClick={() => go(name)}
-          >
-            {SCREENS[name].title}
-            {name === "knowledge" && waiting > 0 && (
-              <span
-                className="font-mono text-xs text-accent tabular-nums"
-                title={`${waiting === 1 ? "1 record" : `${waiting} records`} not sent to the team yet`}
-              >
-                {waiting}
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
-      <main className="px-8 pt-7 pb-16 max-md:px-5 max-md:pt-5.5 max-md:pb-14">
-        <div className={current === "knowledge" ? "max-w-320" : "max-w-220"}>
-          <View
-            key={`${current}:${focus ?? ""}`}
-            go={go}
-            changed={overview.reload}
-            member={overview.data?.role === "member"}
-            {...(focus ? { focus } : {})}
-          />
-        </div>
-      </main>
-      <StatusBar overview={overview.data} error={overview.error} />
-    </div>
+    <ToastProvider>
+      <Shell />
+      <TooltipLayer />
+    </ToastProvider>
   );
 }
 
-/** The bar along the bottom of every laibe app: is it working, and what is waiting. */
-function StatusBar({ overview, error }: { overview: Overview | null; error: string | null }) {
-  const parts: ReactNode[] = [];
-  if (error) parts.push(<Status key="error" kind="err" />, "Daemon unreachable");
-  else if (overview) {
-    if (overview.team) {
-      parts.push(overview.team.lastSync ? `Synced ${ago(overview.team.lastSync)}` : "Not synced yet");
-      if (overview.outdated) parts.push(<Status key="outdated" kind="warn" />, "Team store outdated");
-      if (overview.waiting > 0) parts.push(`${overview.waiting} to sync`);
-      if (overview.role) parts.push(overview.role);
-    } else parts.push("This machine only");
-    if (overview.paused > 0) parts.push(`${times(overview.paused, "session")} paused`);
-  }
-  const busy = !error && (overview?.waiting ?? 0) > 0;
-  return (
-    <footer className="fixed inset-x-0 bottom-0 z-10 flex h-6 items-center gap-2.5 overflow-hidden border-t border-line bg-void px-3 font-mono text-2xs font-medium tracking-label whitespace-nowrap text-muted uppercase">
-      <span
-        className={`size-1.5 shrink-0 rounded-full ${error ? "bg-danger" : "bg-accent shadow-[0_0_8px_var(--accent)]"} ${busy ? "motion-safe:animate-pulse" : ""}`}
-      />
-      <span className="text-fg">Grenier</span>
-      {parts.map((part, index) =>
-        typeof part === "string" ? (
-          // biome-ignore lint/suspicious/noArrayIndexKey: the parts are rebuilt on every render, in a fixed order
-          <span key={index} className="flex items-center gap-2.5">
-            <span className="text-subtle">·</span>
-            {part}
+/** The laibe design system's app shell (patterns/app-shell.md): title bar, banner, sidebar, content, status bar. */
+function Shell() {
+  const history = useHistory(linked());
+  const { view: current, focus } = history.place;
+  const overview = useLoad(loadOverview);
+  const sidebar = useSidebar();
+  const [palette, setPalette] = useState(false);
+  const nav = useRef<HTMLElement>(null);
+  const main = useRef<HTMLElement>(null);
+  const { push, move } = history;
+  const reloadOverview = overview.reload;
+
+  const go = useCallback(
+    (name: ViewName, next?: string) => {
+      push({ view: name, ...(next ? { focus: next } : {}) });
+      reloadOverview();
+    },
+    [push, reloadOverview],
+  );
+
+  useEffect(() => {
+    const follow = () => push(linked());
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, [push]);
+
+  useEffect(() => {
+    document.title = `${SCREENS[current].title} — Grenier`;
+    main.current?.scrollTo({ top: 0 });
+  }, [current]);
+
+  // The keys every app on the laibe design system shares (patterns/keyboard.md).
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      const mod = event.metaKey || event.ctrlKey;
+      const place = /^[1-9]$/.test(event.key) ? PLACES[Number(event.key) - 1] : undefined;
+      if (mod && event.key.toLowerCase() === "k") setPalette((open) => !open);
+      else if (palette) return;
+      else if (mod && event.key === ",") go("settings");
+      else if (mod && event.key === "\\") sidebar.toggle();
+      else if (mod && event.key === "[") move(-1);
+      else if (mod && event.key === "]") move(1);
+      else if (mod && place) go(place);
+      else if (event.key === "F6") {
+        const regions = [nav.current, main.current].filter((region): region is HTMLElement => region !== null);
+        const at = regions.findIndex((region) => region.contains(document.activeElement));
+        const next = regions[(at + (event.shiftKey ? -1 : 1) + regions.length) % regions.length];
+        (next?.querySelector<HTMLElement>('[aria-current="page"], button, a, input') ?? next)?.focus();
+      } else return;
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", keys);
+    return () => window.removeEventListener("keydown", keys);
+  }, [palette, go, sidebar.toggle, move]);
+
+  useUsage(SCREENS[current].url, sendPageView);
+
+  const commands: Command[] = useMemo(
+    () => [
+      { label: "Back", icon: ArrowLeft, keys: ["⌘", "["], run: () => move(-1) },
+      { label: "Forward", icon: ArrowRight, keys: ["⌘", "]"], run: () => move(1) },
+      { label: "Show or hide the sidebar", icon: PanelLeft, keys: ["⌘", "\\"], run: sidebar.toggle },
+      { label: "Reload this view", icon: RefreshCw, run: () => window.location.reload() },
+    ],
+    [move, sidebar.toggle],
+  );
+
+  // The splash: the attic window on the dark, until the daemon first answers.
+  if (!overview.data && !overview.error) {
+    return (
+      <div className="grid h-dvh place-items-center bg-void">
+        <div className="grid animate-appear justify-items-center gap-4">
+          <span className="motion-safe:animate-pulse">
+            <LitPoint size={64} />
           </span>
-        ) : (
-          part
-        ),
-      )}
-      {overview && <span className="ml-auto normal-case">v{overview.version}</span>}
-    </footer>
+          <p className="font-mono text-xs text-muted">&gt; opening the store…</p>
+        </div>
+      </div>
+    );
+  }
+
+  const View = VIEWS[current];
+  const waiting = overview.error ? 0 : (overview.data?.waiting ?? 0);
+  const titleHeight = mac ? "var(--layout-titlebar-mac)" : "var(--layout-titlebar)";
+
+  return (
+    <div
+      className="grid h-dvh overflow-hidden"
+      style={{ gridTemplateRows: `${titleHeight} auto minmax(0, 1fr) var(--layout-statusbar)` }}
+    >
+      <TitleBar
+        place={SCREENS[current].title}
+        collapsed={sidebar.collapsed}
+        canBack={history.canBack}
+        canForward={history.canForward}
+        onToggleSidebar={sidebar.toggle}
+        onMove={move}
+        onCommands={() => setPalette(true)}
+      />
+      <div>
+        <Banner overview={overview.data} error={overview.error} retry={overview.reload} />
+      </div>
+      <div className="grid min-h-0" style={{ gridTemplateColumns: `${sidebar.width}px minmax(0, 1fr)` }}>
+        <Sidebar
+          ref={nav}
+          current={current}
+          go={go}
+          collapsed={sidebar.collapsed}
+          counts={{
+            knowledge: {
+              value: waiting,
+              title: `${waiting === 1 ? "1 record" : `${waiting} records`} not sent to the team yet`,
+            },
+          }}
+          onResize={sidebar.resize}
+          onReset={sidebar.reset}
+        />
+        <main ref={main} tabIndex={-1} className="min-h-0 overflow-y-auto outline-none">
+          <div className="px-8 pt-7 pb-12 max-md:px-5 max-md:pt-5.5 max-md:pb-10">
+            <div className={current === "knowledge" ? "max-w-320" : "max-w-220"}>
+              <View
+                key={`${current}:${focus ?? ""}`}
+                go={go}
+                changed={overview.reload}
+                member={overview.data?.role === "member"}
+                {...(focus ? { focus } : {})}
+              />
+            </div>
+          </div>
+        </main>
+      </div>
+      <StatusBar overview={overview.data} error={overview.error} />
+      {palette && <Palette go={go} commands={commands} onClose={() => setPalette(false)} />}
+    </div>
   );
 }

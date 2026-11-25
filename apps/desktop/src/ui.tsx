@@ -1,3 +1,4 @@
+import { Copy, type LucideIcon, Plus, Search, Trash } from "lucide-react";
 import {
   type ComponentProps,
   createContext,
@@ -5,9 +6,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { ApiError } from "./api.ts";
 
 /** Dollars with cents, or with the two digits that matter below ten cents, as the CLI writes them. */
@@ -193,16 +196,20 @@ const TONES: Record<Tone, string> = {
   problem: "border-danger/50 bg-panel shadow-[inset_2px_0_0_var(--danger)]",
 };
 
-/** A panel's frame: accent for something to act on, soft for something asking you, or a problem. */
+/** A raised panel's frame: accent for something to act on, soft for something asking you, or a problem. */
 export const panel = (tone: Tone = "plain") => `rounded-lg border ${TONES[tone]}`;
 
+/** Lines, not boxes: a plain block sits on the page under a line; only a tone raises it into a panel. */
+const sectionBlock = "border-t border-line pt-4";
+
 export function Card({ tone, className = "", ...props }: ComponentProps<"section"> & { tone?: Tone }) {
-  return <section className={`mb-6 ${panel(tone)} px-5 py-4 ${className}`} {...props} />;
+  const look = tone && tone !== "plain" ? `${panel(tone)} px-5 py-4` : sectionBlock;
+  return <section className={`mb-6 ${look} ${className}`} {...props} />;
 }
 
-/** A form in a panel, its fields one under another unless `className` gives it columns. */
+/** A form's fields, one under another unless `className` gives it columns, under a line. */
 export function FormCard({ className = "", ...props }: ComponentProps<"form">) {
-  return <form className={`mb-6 grid gap-3 ${panel()} px-5 py-4 ${className}`} {...props} />;
+  return <form className={`mb-6 grid gap-3 ${sectionBlock} ${className}`} {...props} />;
 }
 
 /** A row of buttons, as under a form. */
@@ -218,7 +225,7 @@ export function useAdding(label: string): { open: boolean; done: () => void; but
     open,
     done,
     button: (
-      <Button quiet onClick={() => setOpen(true)}>
+      <Button quiet icon={Plus} onClick={() => setOpen(true)}>
         {label}
       </Button>
     ),
@@ -264,7 +271,7 @@ export function SearchBox({
         autoComplete="off"
         className="flex-1"
       />
-      <Button type="submit" disabled={busy || disabled}>
+      <Button type="submit" icon={Search} disabled={busy || disabled}>
         {busy ? "Searching…" : "Search"}
       </Button>
     </InlineForm>
@@ -307,7 +314,9 @@ export function Secret({
         {value}
       </code>
       <Actions>
-        <Button onClick={() => void write()}>{done ? "Copied" : copy}</Button>
+        <Button icon={Copy} onClick={() => void write()}>
+          {done ? "Copied" : copy}
+        </Button>
         {children}
         {done === false && <span className="text-sm text-muted">It is selected: press ⌘C or Ctrl+C to copy it.</span>}
       </Actions>
@@ -315,9 +324,9 @@ export function Secret({
   );
 }
 
-/** Entries in a panel, a line between each. */
+/** Entries between two lines, a line between each. */
 export function List({ className = "", ...props }: ComponentProps<"ul">) {
-  return <ul className={`${panel()} ${className}`} {...props} />;
+  return <ul className={`border-y border-line ${className}`} {...props} />;
 }
 
 /** One entry of a List: its name, what is known of it, its buttons, and what it unfolds below. */
@@ -405,17 +414,230 @@ export function Toggle<T extends string>({
   );
 }
 
+/** An action's outcome: a problem stays on the page until the next action, a success is a toast. */
 export function Notice({ message }: { message: Message | string | null }) {
-  if (!message) return null;
-  const { text, problem } = typeof message === "string" ? { text: message, problem: true } : message;
+  const toast = useToast();
+  const success = message && typeof message !== "string" && !message.problem ? message : null;
+  useEffect(() => {
+    if (success) toast(success.text);
+  }, [success, toast]);
+  if (!message || success) return null;
+  const text = typeof message === "string" ? message : message.text;
   return (
     <p
-      className={`mb-4 flex items-start gap-2.5 rounded-md border border-line bg-panel px-3 py-2.5 text-sm ${problem ? "shadow-[inset_2px_0_0_var(--danger)]" : "shadow-[inset_2px_0_0_var(--success)]"}`}
-      role={problem ? "alert" : "status"}
+      className="mb-4 flex items-start gap-2.5 rounded-md border border-line bg-panel px-3 py-2.5 text-sm shadow-[inset_2px_0_0_var(--danger)]"
+      role="alert"
     >
-      <Status kind={problem ? "err" : "ok"} />
+      <Status kind="err" />
       <span>{text}</span>
     </p>
+  );
+}
+
+interface Toast {
+  id: number;
+  text: string;
+}
+
+const Toasts = createContext<(text: string) => void>(() => {});
+
+/** Shows a success briefly in the corner, above the status bar. */
+export const useToast = () => useContext(Toasts);
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const next = useRef(0);
+  const push = useCallback((text: string) => {
+    next.current += 1;
+    const id = next.current;
+    setToasts((all) => [...all.slice(-2), { id, text }]);
+    setTimeout(() => setToasts((all) => all.filter((toast) => toast.id !== id)), 4000);
+  }, []);
+  return (
+    <Toasts value={push}>
+      {children}
+      <div className="pointer-events-none fixed right-4 bottom-10 z-(--layer-toast) flex flex-col items-end gap-2">
+        {toasts.map((toast) => (
+          <p
+            key={toast.id}
+            role="status"
+            className="pointer-events-auto flex max-w-105 animate-[appear_0.24s_both] items-center gap-2.5 rounded-lg border border-line-strong bg-panel px-3 py-2.5 text-sm shadow-(--shadow-popover)"
+          >
+            <Status kind="ok" />
+            {toast.text}
+          </p>
+        ))}
+      </div>
+    </Toasts>
+  );
+}
+
+/** A person, as their initials in ink: a circle, so it is never mistaken for an agent or a machine. */
+export function Avatar({ name, size = 20 }: { name: string; size?: number }) {
+  const initials = name
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  return (
+    <span
+      aria-hidden="true"
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.4) }}
+      className="inline-grid shrink-0 place-items-center rounded-full bg-hover font-mono font-semibold text-muted"
+    >
+      {initials}
+    </span>
+  );
+}
+
+const PRESENCE: Record<string, string> = {
+  available: "bg-success",
+  busy: "bg-accent shadow-[0_0_6px_var(--accent)]",
+  away: "bg-subtle",
+};
+
+/** A machine's or a person's state as a dot, with the state's name for the tooltip and screen readers. */
+export function Presence({ state }: { state: string }) {
+  return (
+    <span title={state} className="inline-flex">
+      <span aria-hidden="true" className={`size-2 rounded-full ${PRESENCE[state] ?? "border border-line-strong"}`} />
+      <span className="sr-only">{state}</span>
+    </span>
+  );
+}
+
+/** A key of a shortcut, as on the keyboard. */
+export function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="inline-grid h-4 min-w-4 place-items-center rounded-sm border border-b-2 border-line-strong bg-bg px-1 font-mono text-2xs leading-none font-medium text-muted">
+      {children}
+    </kbd>
+  );
+}
+
+/** A modal decision: the page behind is dimmed and inert until it is answered. */
+export function Dialog({
+  title,
+  label,
+  children,
+  actions,
+  onClose,
+}: {
+  title: string;
+  label?: string;
+  children?: ReactNode;
+  actions: ReactNode;
+  onClose: () => void;
+}) {
+  const heading = useId();
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    box.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    return () => previous?.focus();
+  }, []);
+  return createPortal(
+    <div className="fixed inset-0 z-(--layer-dialog) grid place-items-center bg-void/70 p-6">
+      <div
+        ref={box}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={heading}
+        className="chamfer-tl w-110 max-w-full border border-line-strong bg-panel shadow-(--shadow-dialog)"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+          if (event.key !== "Tab" || !box.current) return;
+          const focusable = [...box.current.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href]")];
+          const first = focusable[0];
+          const last = focusable.at(-1);
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }}
+      >
+        <header className="px-5 pt-5 pb-2">
+          {label && <p className="label mb-1.5">{label}</p>}
+          <h2 id={heading} className="font-mono text-xl leading-[1.2] font-semibold tracking-tight">
+            {title}
+          </h2>
+        </header>
+        {children && <div className="px-5 text-muted">{children}</div>}
+        <Actions className="justify-end px-5 pt-4 pb-5">{actions}</Actions>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Styles every `title` in the app as the system's tooltip: shown after a pause, at once on keyboard focus. */
+export function TooltipLayer() {
+  const [tip, setTip] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let owner: HTMLElement | null = null;
+    const hide = () => {
+      clearTimeout(timer);
+      if (owner?.dataset.tip) {
+        owner.setAttribute("title", owner.dataset.tip);
+        delete owner.dataset.tip;
+      }
+      owner = null;
+      setTip(null);
+    };
+    const show = (event: Event, delay: number) => {
+      const element = (event.target as HTMLElement | null)?.closest<HTMLElement>("[title]");
+      if (!element || element === owner) return;
+      hide();
+      const text = element.getAttribute("title") ?? "";
+      if (!text) return;
+      owner = element;
+      element.dataset.tip = text;
+      element.removeAttribute("title");
+      if (!element.getAttribute("aria-label") && !element.textContent?.trim()) element.setAttribute("aria-label", text);
+      timer = setTimeout(() => {
+        const box = element.getBoundingClientRect();
+        const below = box.top < 40;
+        setTip({ text, x: box.left + box.width / 2, y: below ? box.bottom + 6 : box.top - 6, below });
+      }, delay);
+    };
+    const over = (event: Event) => show(event, 500);
+    const focus = (event: Event) => {
+      if ((event.target as HTMLElement).matches(":focus-visible")) show(event, 0);
+    };
+    const out = (event: Event) => {
+      if (owner && !owner.contains((event as PointerEvent).relatedTarget as Node | null)) hide();
+    };
+    document.addEventListener("pointerover", over);
+    document.addEventListener("pointerout", out);
+    document.addEventListener("focusin", focus);
+    document.addEventListener("focusout", hide);
+    document.addEventListener("pointerdown", hide);
+    window.addEventListener("scroll", hide, true);
+    return () => {
+      hide();
+      document.removeEventListener("pointerover", over);
+      document.removeEventListener("pointerout", out);
+      document.removeEventListener("focusin", focus);
+      document.removeEventListener("focusout", hide);
+      document.removeEventListener("pointerdown", hide);
+      window.removeEventListener("scroll", hide, true);
+    };
+  }, []);
+  if (!tip) return null;
+  return createPortal(
+    <div
+      role="tooltip"
+      style={{ left: tip.x, top: tip.y }}
+      className={`pointer-events-none fixed z-(--layer-popover) max-w-70 -translate-x-1/2 animate-[appear_0.12s_both] rounded-sm border border-line-strong bg-void px-2 py-1 text-xs text-fg ${tip.below ? "" : "-translate-y-full"}`}
+    >
+      {tip.text}
+    </div>,
+    document.body,
   );
 }
 
@@ -468,27 +690,53 @@ export function Empty({ children }: { children: ReactNode }) {
   );
 }
 
-/** Filled with the accent, or quiet; a square one holds a single glyph. */
+const LOOKS = {
+  primary:
+    "chamfer text-on-accent enabled:hover:[--chamfer-fill:var(--accent-strong)] enabled:hover:drop-shadow-[0_0_10px_color-mix(in_oklab,var(--accent)_55%,transparent)]",
+  quiet: "rounded-md border border-line-strong bg-panel text-fg enabled:hover:bg-hover",
+  danger: "rounded-md border border-danger text-danger enabled:hover:bg-danger/12",
+  destroy: "rounded-md border border-danger bg-danger text-on-accent enabled:hover:brightness-110",
+};
+
+/**
+ * Filled with the accent, or quiet. The icon follows the system's rule: `trailing` when it opens options or goes
+ * somewhere, `icon` (leading) for a familiar symbol or a button in a group, none otherwise.
+ */
 export function Button({
   quiet = false,
+  danger = false,
+  destroy = false,
   square = false,
+  icon: Icon,
+  trailing: Trailing,
   type = "button",
   className = "",
+  children,
   ...props
-}: ComponentProps<"button"> & { quiet?: boolean; square?: boolean }) {
-  const look = quiet
-    ? "rounded-md border border-line-strong bg-panel text-fg enabled:hover:bg-hover"
-    : "chamfer text-on-accent enabled:hover:[--chamfer-fill:var(--accent-strong)] enabled:hover:drop-shadow-[0_0_10px_color-mix(in_oklab,var(--accent)_55%,transparent)]";
+}: ComponentProps<"button"> & {
+  quiet?: boolean;
+  danger?: boolean;
+  /** Filled with danger: only the answer of a confirmation dialog. */
+  destroy?: boolean;
+  square?: boolean;
+  icon?: LucideIcon | undefined;
+  trailing?: LucideIcon | undefined;
+}) {
+  const look = LOOKS[destroy ? "destroy" : danger ? "danger" : quiet ? "quiet" : "primary"];
   return (
     <button
       type={type}
-      className={`h-8 cursor-pointer font-mono text-sm font-medium whitespace-nowrap transition-[filter] duration-120 disabled:cursor-default disabled:opacity-55 ${look} ${square ? "w-9 text-lg leading-none" : "px-3"} ${className}`}
+      className={`inline-flex h-8 cursor-pointer items-center justify-center gap-2 font-mono text-sm font-medium whitespace-nowrap transition-[filter] duration-120 disabled:cursor-default disabled:opacity-55 ${look} ${square ? "w-9 text-lg leading-none" : "px-3"} ${className}`}
       {...props}
-    />
+    >
+      {Icon && <Icon size={14} strokeWidth={1.75} aria-hidden="true" />}
+      {children}
+      {Trailing && <Trailing size={14} strokeWidth={1.75} aria-hidden="true" />}
+    </button>
   );
 }
 
-/** Asks in the page: the window's own confirm() does not wait for an answer in the app. */
+/** Asks in a dialog before an action that can't be undone: the window's own confirm() doesn't wait in the app. */
 export function ConfirmButton({
   label,
   question,
@@ -501,37 +749,36 @@ export function ConfirmButton({
   disabled?: boolean;
 }) {
   const [asking, setAsking] = useState(false);
-  const yes = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (asking) yes.current?.focus();
-  }, [asking]);
-  if (!asking) {
-    return (
-      <Button quiet disabled={disabled} onClick={() => setAsking(true)}>
-        {label}
-      </Button>
-    );
-  }
+  const removes = /^(remove|delete)\b/i.test(label);
   return (
-    <fieldset className="inline-flex items-center gap-1.5">
-      <legend className="sr-only">{question}</legend>
-      <span className="text-sm text-muted" aria-hidden="true">
-        {question}
-      </span>
-      <Button
-        ref={yes}
-        disabled={disabled}
-        onClick={() => {
-          setAsking(false);
-          onConfirm();
-        }}
-      >
-        Yes, {label.toLowerCase()}
+    <>
+      <Button quiet icon={removes ? Trash : undefined} disabled={disabled} onClick={() => setAsking(true)}>
+        {removes ? label : `${label}…`}
       </Button>
-      <Button quiet onClick={() => setAsking(false)}>
-        Cancel
-      </Button>
-    </fieldset>
+      {asking && (
+        <Dialog
+          title={question}
+          onClose={() => setAsking(false)}
+          actions={
+            <>
+              <Button quiet data-autofocus onClick={() => setAsking(false)}>
+                Cancel
+              </Button>
+              <Button
+                destroy
+                disabled={disabled}
+                onClick={() => {
+                  setAsking(false);
+                  onConfirm();
+                }}
+              >
+                {label}
+              </Button>
+            </>
+          }
+        />
+      )}
+    </>
   );
 }
 
@@ -591,7 +838,7 @@ export function Field({ className = "", children }: { className?: string; childr
 
 export function Table({ children }: { children: ReactNode }) {
   return (
-    <div className={`overflow-x-auto ${panel()}`}>
+    <div className="overflow-x-auto border-y border-line">
       <table className="w-full">{children}</table>
     </div>
   );

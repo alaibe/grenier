@@ -1,4 +1,5 @@
 import type { AppView, ClientMade, Clients } from "@grenier/core/api";
+import { Check, Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { api } from "../api.ts";
 import {
@@ -37,6 +38,7 @@ function Connect({ added }: { added: () => void }) {
       <div className="flex flex-wrap gap-2">
         {(apps.data ?? []).map((entry) => (
           <Button
+            icon={entry.connected ? Check : Plus}
             key={entry.app}
             quiet={entry.connected}
             disabled={action.busy !== null}
@@ -48,7 +50,7 @@ function Connect({ added }: { added: () => void }) {
               })
             }
           >
-            {entry.connected ? `${entry.label} ✓` : `Add to ${entry.label}`}
+            {entry.connected ? entry.label : `Add to ${entry.label}`}
           </Button>
         ))}
       </div>

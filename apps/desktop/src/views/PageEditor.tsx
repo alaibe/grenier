@@ -13,6 +13,7 @@ import type {
   Top,
 } from "@grenier/core/api";
 import { topName } from "@grenier/core/team";
+import { Check, Undo2, X } from "lucide-react";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api.ts";
 import { hunks, lineDiff } from "../diff.ts";
@@ -516,6 +517,7 @@ function History({ id, restore }: { id: string; restore: (draft: Partial<Draft>)
                 {entry.snapshot.title ? ` — ${entry.snapshot.title}` : ""}
               </span>
               <Button
+                icon={Undo2}
                 quiet
                 onClick={() =>
                   restore({
@@ -598,10 +600,10 @@ function SuggestionActions({ record, back }: { record: RecordFull; back: () => v
       <pre className="mt-2 overflow-x-auto font-mono text-xs">{JSON.stringify(change, null, 2)}</pre>
       <Notice message={action.message} />
       <Actions className="mt-2.5">
-        <Button disabled={action.busy !== null} onClick={() => decide(true)}>
+        <Button icon={Check} disabled={action.busy !== null} onClick={() => decide(true)}>
           Accept
         </Button>
-        <Button quiet disabled={action.busy !== null} onClick={() => decide(false)}>
+        <Button quiet icon={X} disabled={action.busy !== null} onClick={() => decide(false)}>
           Dismiss
         </Button>
       </Actions>

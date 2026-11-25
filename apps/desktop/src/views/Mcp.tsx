@@ -1,4 +1,5 @@
 import type { FoundServer } from "@grenier/core/api";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
@@ -141,6 +142,7 @@ function AddServer({ added }: { added: () => void }) {
                   }
                   actions={
                     <Button
+                      icon={Plus}
                       disabled={action.busy !== null}
                       onClick={() =>
                         share({

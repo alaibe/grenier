@@ -50,6 +50,18 @@
   --layout-list: 360px;
   --layout-reading: 680px;
   --layout-statusbar: 24px;
+  --layout-titlebar: 32px;
+  --layout-titlebar-mac: 38px;
+  --layout-tabbar: 54px;
+  --layout-header-phone: 52px;
+  --layer-content: 0;
+  --layer-sticky: 10;
+  --layer-bars: 20;
+  --layer-drawer: 30;
+  --layer-popover: 40;
+  --layer-toast: 50;
+  --layer-dialog: 60;
+  --layer-palette: 70;
   --duration-instant: 80ms;
   --duration-fast: 120ms;
   --duration-base: 160ms;

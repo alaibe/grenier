@@ -1,4 +1,5 @@
 import type { Overview, PausedSession, ReportRow, SessionRow } from "@grenier/core/api";
+import { Play } from "lucide-react";
 import { useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
@@ -162,6 +163,7 @@ function Paused({ changed }: { changed: () => void }) {
             {session.pausedAt ? `, ${ago(session.pausedAt)}` : ""}. Its requests wait until you resume it.
           </p>
           <Button
+            icon={Play}
             disabled={action.busy !== null}
             onClick={() =>
               void action.run(`resume:${session.id}`, async () => {
