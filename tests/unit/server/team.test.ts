@@ -385,7 +385,7 @@ describe("the web view", () => {
       const page = openPage(token, (path, init) => mf.dispatchFetch(`https://team.test${path}`, init as never));
       await expect.poll(() => page.nav.children.length).toBeGreaterThan(0);
       page.nav.find((node) => node.textContent === "Requests").click();
-      await expect.poll(() => page.main.textContent).toContain("to-do");
+      await expect.poll(() => page.main.textContent).toContain("What the team asked its routines for");
       return page.main;
     };
     expect((await requests(bob)).textContent).not.toContain("File the request");

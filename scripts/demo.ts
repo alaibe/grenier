@@ -488,8 +488,10 @@ process.on("exit", () => {
   daemon.kill();
   rmSync(dir, { recursive: true, force: true });
 });
+// The team store's web view, served by the same Worker build, signed in once as marie.
+const weblink = await teamApi<{ path: string }>(marie, "/api/weblinks", { method: "POST" });
 process.stdout.write(
-  `Grenier's demo: http://localhost:1420/demo#knowledge (or #knowledge/${project}, #cost, #routines, #skills, #mcp, #team, #settings). Ctrl-C stops it.\n`,
+  `Grenier's demo: http://localhost:1420/demo#knowledge (or #knowledge/${project}, #cost, #routines, #skills, #mcp, #team, #settings), and the team store's web view at ${teamUrl}${weblink.path}. Ctrl-C stops it.\n`,
 );
 await new Promise<void>((resolve) => {
   process.once("SIGINT", () => resolve());

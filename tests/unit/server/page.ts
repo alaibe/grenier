@@ -42,6 +42,10 @@ export class PageNode {
     this.attributes.set(name, String(value));
   }
 
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+
   removeAttribute(name: string): void {
     this.attributes.delete(name);
   }
@@ -95,20 +99,24 @@ export function openPage(
   fetch: (path: string, init: RequestInit) => Promise<Response>,
 ): { main: PageNode; nav: PageNode } {
   const script = /<script>([\s\S]*)<\/script>/.exec(WEB)?.[1] ?? "";
-  const main = new PageNode("main");
-  const nav = new PageNode("nav");
+  const nodes = new Map<string, PageNode>();
+  const byId = (id: string) => nodes.get(id) ?? nodes.set(id, new PageNode(id)).get(id);
+  const main = byId("main") as PageNode;
+  const nav = byId("nav") as PageNode;
   const storage = new Map([["grenier-token", token]]);
   runInNewContext(script, {
     document: {
-      getElementById: (id: string) => (id === "main" ? main : nav),
+      getElementById: byId,
       createElement: (tag: string) => new PageNode(tag),
+      createElementNS: (_: string, tag: string) => new PageNode(tag),
+      addEventListener: () => {},
     },
     localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key),
     },
-    location: { hash: "" },
+    location: { hash: "", pathname: "/" },
     history: { replaceState: () => {} },
     fetch,
     crypto,
