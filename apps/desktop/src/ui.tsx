@@ -429,7 +429,7 @@ export function Loading({ what }: { what: string }) {
   );
 }
 
-/** Grenier's icon, flat, as brand/icons/grenier-flat.svg in the laibe design system draws it. */
+/** Grenier's icon (src-tauri/icons/icon.svg), flat: no gradient, glow or frame, for small sizes. */
 export function Mark({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden="true">
