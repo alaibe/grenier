@@ -89,7 +89,7 @@ export function withinHours(hours: string, hour: number): boolean {
 
 /** Whether every rule the person set holds now, and how much room there is. */
 export async function availability(rules: Config["machine"], probes: Probes, running: boolean): Promise<Availability> {
-  const reasons: string[] = [];
+  const reasons: string[] = rules.workdir ? [] : ["no work folder: set it in Settings"];
   const [plugged, idle, memory] = await Promise.all([probes.pluggedIn(), probes.idleSeconds(), probes.memory()]);
   const load = probes.load();
   const percent = (share: number) => `${Math.round(share * 100)}%`;

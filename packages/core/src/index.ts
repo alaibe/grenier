@@ -36,7 +36,7 @@ export {
   type TypeDef,
 } from "./records.ts";
 export {
-  allowedTools,
+  acts,
   hasPrompt,
   isAction,
   mayCall,
@@ -49,7 +49,6 @@ export {
   STORE_TOOLS,
   sharedHash,
   taskFor,
-  toolsOf,
 } from "./routines.ts";
 export { RECORD_PARTS, SEALED_PARTS, TEAM_PROTOCOL, topName } from "./team.ts";
 export { newVaultKey, open, seal, VaultError } from "./vault.ts";

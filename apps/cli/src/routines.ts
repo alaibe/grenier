@@ -10,7 +10,6 @@ export async function routineViews(store: Store): Promise<RoutineView[]> {
   const out: RoutineView[] = [];
   for (const routine of await store.records.list({ tops, type: "Routine" })) {
     const approval = await store.approvals.get(routine.id, "routine");
-    const repo = typeof routine.fields.repo === "string" && routine.fields.repo ? routine.fields.repo : null;
     out.push({
       id: routine.id,
       title: routine.title,
@@ -18,11 +17,8 @@ export async function routineViews(store: Store): Promise<RoutineView[]> {
       author: routine.author,
       trigger: String(routine.fields.trigger ?? "request"),
       schedule: typeof routine.fields.schedule === "string" ? routine.fields.schedule : null,
-      repo,
-      repoHere: repo ? Boolean((await store.tops.get(`repo:${repo}`))?.root) : true,
       agent: String(routine.fields.agent ?? "claude"),
       collector: routine.fields.collector === "yes",
-      tools: Array.isArray(routine.fields.tools) ? routine.fields.tools.map(String) : [],
       prompt: routine.body,
       approval: approval
         ? {
@@ -64,18 +60,16 @@ export async function addLibrarian(deps: StoreDeps): Promise<{ id: string; added
     prompt:
       "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned requests, and suggests fixes.",
     fields: { trigger: "schedule", schedule: "daily 05:00", builtin: LIBRARIAN },
-    repo: null,
     top: "team",
   });
   return { id: added.id, added: true };
 }
 
-/** A routine as the app's form gives it: what it does, when, with which tools and agent, in which repository. */
+/** A routine as the app's form gives it: what it does, when, and with which agent. */
 export function routineFromForm(input: Record<string, unknown>): {
   title: string;
   prompt: string;
   fields: Record<string, unknown>;
-  repo: string | null;
 } {
   const title = String(input.title ?? "").trim();
   const prompt = String(input.prompt ?? "").trim();
@@ -85,18 +79,12 @@ export function routineFromForm(input: Record<string, unknown>): {
   if (trigger === "schedule" && nextDue(schedule, Date.now()) === null) {
     throw new Refusal('a schedule reads "hourly", "daily 05:00", "weekdays 09:00" or "mon 09:00"');
   }
-  const tools = (Array.isArray(input.tools) ? input.tools : String(input.tools ?? "").split(","))
-    .map((tool) => String(tool).trim())
-    .filter(Boolean);
-  const repo = typeof input.repo === "string" && input.repo ? input.repo : null;
   return {
     title,
     prompt,
-    repo,
     fields: {
       trigger,
       ...(trigger === "schedule" ? { schedule } : {}),
-      ...(tools.length > 0 ? { tools } : {}),
       ...(input.agent === "codex" ? { agent: "codex" } : {}),
       ...(input.collector === true ? { collector: "yes" } : {}),
     },
@@ -106,13 +94,12 @@ export function routineFromForm(input: Record<string, unknown>): {
 /** The fields a routine keeps, from the form: what the form leaves out goes, but a built-in stays built in. */
 function routineFields(
   deps: StoreDeps,
-  input: { fields: Record<string, unknown>; repo: string | null },
+  input: { fields: Record<string, unknown> },
   before?: FullRecord,
 ): Record<string, unknown> {
   const owner = before?.fields.collector === "yes" ? before.fields.owner : deps.me.member;
   return {
     ...input.fields,
-    ...(input.repo ? { repo: input.repo } : {}),
     ...(input.fields.collector === "yes" ? { owner } : {}),
     ...(before?.fields.builtin ? { builtin: before.fields.builtin } : {}),
   };
@@ -125,7 +112,6 @@ export async function addRoutine(
     title: string;
     prompt: string;
     fields: Record<string, unknown>;
-    repo: string | null;
     top: string;
     folder?: string;
   },
@@ -151,7 +137,7 @@ export async function addRoutine(
 export async function editRoutine(
   deps: StoreDeps,
   routine: FullRecord,
-  input: { title: string; prompt: string; fields: Record<string, unknown>; repo: string | null },
+  input: { title: string; prompt: string; fields: Record<string, unknown> },
 ): Promise<void> {
   const { seq: _seq, hits: _hits, ...rest } = routine;
   await write(

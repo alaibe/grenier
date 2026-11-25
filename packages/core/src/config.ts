@@ -85,6 +85,8 @@ const configSchema = z.strictObject({
         .string()
         .regex(/^[\w.-]{1,40}$/, "takes letters, digits and . _ -")
         .optional(),
+      /** The folder that holds this person's projects: every routine runs in it. */
+      workdir: z.string().default(""),
       /** Whether this machine takes the team's routine runs. */
       routines: z.boolean().default(false),
       /** Runs only on mains power. */

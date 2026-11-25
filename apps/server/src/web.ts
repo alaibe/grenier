@@ -128,7 +128,7 @@ async function requests() {
 async function routines() {
   const [{ records }, { runs }] = await Promise.all([api("/api/records?type=Routine"), api("/api/runs")]);
   show(...records.map((r) => el("div", { class: "card" }, el("h3", { text: r.title }),
-    el("div", { class: "muted", text: (r.fields.trigger || "request") + (r.fields.repo ? " · " + r.fields.repo : "") }),
+    el("div", { class: "muted", text: r.fields.trigger || "request" }),
     el("table", {}, el("tbody", {}, ...runs.filter((run) => run.routine_id === r.id).slice(0, 10).map((run) => el("tr", {}, el("td", { text: run.machine }), el("td", { text: run.status }), el("td", { class: "n", text: "$" + Number(run.cost).toFixed(2) }), el("td", { text: new Date(run.started_at).toLocaleString() })))))))
     , ...(records.length ? [] : [el("p", { class: "muted", text: "No routine yet." })]));
 }

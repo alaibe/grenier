@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { allowedTools, mayCall, type RoutineMode } from "@grenier/core";
+import { mayCall, type RoutineMode } from "@grenier/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeUpstream, sse, type TestGateway, testGateway } from "../../support/gateway.ts";
 
@@ -91,14 +91,13 @@ describe("a Codex routine's run", () => {
     const asked: string[] = [];
     const cut: string[] = [];
     const upstream = fakeUpstream(respond);
-    const allowed = allowedTools(mode, [], "codex");
     gateway = testGateway(upstream, () => {}, {
       runGuard: async (session) =>
         session.id === "run1"
           ? {
               allows: (tool) => {
                 asked.push(tool);
-                return mayCall("codex", allowed, tool);
+                return mayCall("codex", mode, tool);
               },
               cut: (tool) => cut.push(tool),
               hold: async () => cut.length === 0,
@@ -130,13 +129,13 @@ describe("a Codex routine's run", () => {
     expect(cut).toEqual([]);
   });
 
-  it("holds a shadow run to its mode in a whole answer too, and any MCP tool it was not given", async () => {
+  it("holds a shadow run to its mode in a whole answer too, MCP tools included", async () => {
     const whole = (item: Record<string, unknown>) => () => Response.json({ object: "response", output: [item] });
     const patch = { type: "custom_tool_call", call_id: "c1", name: "apply_patch", input: "*** Begin Patch" };
     codexRun("shadow", whole(patch));
     expect((await send()).status).toBe(403);
     const linear = { type: "function_call", call_id: "c2", namespace: "mcp__linear", name: "update_issue" };
-    const { cut } = codexRun("on", whole(linear));
+    const { cut } = codexRun("shadow", whole(linear));
     expect((await send()).status).toBe(403);
     expect(cut).toEqual(["mcp__linear__update_issue"]);
   });

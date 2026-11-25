@@ -19,22 +19,19 @@ afterEach(async () => {
 });
 
 describe("a routine written in the app", () => {
-  it("takes what it does, when, its tools, its agent and its repository", () => {
+  it("takes what it does, when, and its agent", () => {
     expect(
       routineFromForm({
         title: " Update dependencies ",
         prompt: "Bump them and run the tests.",
         trigger: "schedule",
         schedule: "daily 06:30",
-        tools: "Edit, Bash(pnpm test:*)",
         agent: "codex",
-        repo: "abc",
       }),
     ).toEqual({
       title: "Update dependencies",
       prompt: "Bump them and run the tests.",
-      repo: "abc",
-      fields: { trigger: "schedule", schedule: "daily 06:30", tools: ["Edit", "Bash(pnpm test:*)"], agent: "codex" },
+      fields: { trigger: "schedule", schedule: "daily 06:30", agent: "codex" },
     });
     expect(routineFromForm({ title: "Ask", prompt: "Answer.", collector: true })).toMatchObject({
       fields: { trigger: "request", collector: "yes" },
@@ -52,11 +49,11 @@ describe("a routine written in the app", () => {
   });
 
   it("keeps one text per routine, changed in place, and adds the librarian once", async () => {
-    const form = routineFromForm({ title: "Tidy", prompt: "Tidy up.", tools: "Edit" });
+    const form = routineFromForm({ title: "Tidy", prompt: "Tidy up.", agent: "codex" });
     const first = await addRoutine(deps, { ...form, top: "team" });
-    expect(await store.records.get(first.id)).toMatchObject({ body: "Tidy up.", fields: { tools: ["Edit"] } });
+    expect(await store.records.get(first.id)).toMatchObject({ body: "Tidy up.", fields: { agent: "codex" } });
     await expect(addRoutine(deps, { ...form, top: "team" })).rejects.toThrow("edit it");
-    const old = { ...(await store.records.get(first.id)), fields: { tools: ["Edit"], versions: [], evals: [] } };
+    const old = { ...(await store.records.get(first.id)), fields: { agent: "codex", versions: [], evals: [] } };
     await store.records.put(old as Parameters<typeof store.records.put>[0]);
     await editRoutine(
       deps,

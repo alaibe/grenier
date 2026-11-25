@@ -54,7 +54,6 @@ describe("the routines' admin routes", () => {
       title: "Tidy",
       prompt: "Tidy up.",
       fields: { trigger: "request" },
-      repo: null,
       top: "team",
     });
     const run = () => route()("POST", `/routines/${id}/run`, {});
@@ -67,7 +66,6 @@ describe("the routines' admin routes", () => {
       title: "Tidy",
       prompt: "Tidy up, and delete what is old.",
       fields: { trigger: "request" },
-      repo: null,
     });
     expect((await run())?.status).toBe(409);
     expect(runs).toHaveLength(1);

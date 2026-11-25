@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { type Config, ConfigError, defaultConfig, parseConfig } from "./config.ts";
 
 export interface GrenierPaths {
@@ -85,7 +85,17 @@ export function withTomlValue(text: string, table: string, key: string, value: s
 }
 
 /** The rules a person sets for this machine, as config.toml's [machine] table takes them. */
-const RULES = ["routines", "plugged_in", "idle_minutes", "cpu_max", "memory_max", "hours", "agent", "name"] as const;
+const RULES = [
+  "workdir",
+  "routines",
+  "plugged_in",
+  "idle_minutes",
+  "cpu_max",
+  "memory_max",
+  "hours",
+  "agent",
+  "name",
+] as const;
 
 /** Writes rules into config.toml, keeping everything else, once the whole file still reads as a valid config. */
 export function setRules(paths: GrenierPaths, change: Record<string, unknown>): Config {
@@ -94,6 +104,9 @@ export function setRules(paths: GrenierPaths, change: Record<string, unknown>): 
     if (!(RULES as readonly string[]).includes(key)) throw new ConfigError(`[machine] has no ${key}`);
     if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
       throw new ConfigError(`${key} takes a value`);
+    }
+    if (key === "workdir" && !(isAbsolute(String(value)) && existsSync(String(value)))) {
+      throw new ConfigError("the work folder is a full path to a folder on this machine, as /home/me/Work");
     }
     text = withTomlValue(text, "machine", key, value);
   }

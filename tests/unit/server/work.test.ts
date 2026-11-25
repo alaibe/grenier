@@ -9,7 +9,7 @@ describe("requests", () => {
       type: "Routine",
       title: "Update dependencies",
       body: "Update",
-      fields: { trigger: "request", repo: "app" },
+      fields: { trigger: "request" },
     });
     await push(token, {
       id: "task",
@@ -19,10 +19,10 @@ describe("requests", () => {
       fields: { status: "to-do", routine: "routine" },
     });
   }
-  const state = (token: string, room: number, repos = ["app"]) =>
-    call("/api/machines/me", token, { method: "PUT", body: { state: "available", room, repos, agents: ["claude"] } });
+  const state = (token: string, room: number, agents = ["claude"]) =>
+    call("/api/machines/me", token, { method: "PUT", body: { state: "available", room, agents } });
 
-  it("offers a request to the available machine with the most room that has its repo, and to one at a time", async () => {
+  it("offers a request to the available machine with the most room, and to one at a time", async () => {
     const bob = await join("bob");
     await routineAndTask(ADA);
     await state(ADA, 0.3);
@@ -62,11 +62,11 @@ describe("requests", () => {
     expect(offer.offer.task.id).toBe("task");
   });
 
-  it("goes to the next machine when one declines, and to none without its repo", async () => {
+  it("goes to the next machine when one declines, and to none without its agent", async () => {
     const bob = await join("bob");
     await routineAndTask(ADA);
     await state(ADA, 0.3);
-    await state(bob, 0.8, ["other"]);
+    await state(bob, 0.8, ["codex"]);
     expect((await json<{ offer: unknown }>(await call("/api/work/claim", bob, { method: "POST" }))).offer).toBeNull();
     await state(bob, 0.8);
     await call("/api/work/claim", bob, { method: "POST" });
@@ -107,8 +107,8 @@ describe("requests", () => {
       title: "Gather today",
       fields: { status: "to-do", routine: "collector" },
     });
-    await state(ADA, 0.9, []);
-    await state(bob, 0.1, []);
+    await state(ADA, 0.9);
+    await state(bob, 0.1);
     expect((await json<{ offer: unknown }>(await call("/api/work/claim", ADA, { method: "POST" }))).offer).toBeNull();
     const offer = await json<{ offer: { task: { id: string } } | null }>(
       await call("/api/work/claim", bob, { method: "POST" }),

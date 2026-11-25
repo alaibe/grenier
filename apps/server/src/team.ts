@@ -358,10 +358,9 @@ export class TeamStore extends DurableObject<Env> {
     const allowed = ["available", "busy", "away", "offline"];
     if (!allowed.includes(state.state)) return;
     this.#sql(
-      "UPDATE devices SET state = ?, room = ?, repos = ?, agents = ?, state_at = ? WHERE id = ?",
+      "UPDATE devices SET state = ?, room = ?, agents = ?, state_at = ? WHERE id = ?",
       state.state,
       Number.isFinite(state.room) ? Math.max(0, Math.min(1, state.room)) : 0,
-      JSON.stringify(Array.isArray(state.repos) ? state.repos.slice(0, 200).map(String) : []),
       JSON.stringify(Array.isArray(state.agents) ? state.agents.slice(0, 10).map(String) : []),
       Date.now(),
       deviceId,
@@ -877,7 +876,6 @@ export class TeamStore extends DurableObject<Env> {
 export interface MachineState {
   state: "available" | "busy" | "away" | "offline";
   room: number;
-  repos: string[];
   agents: string[];
 }
 

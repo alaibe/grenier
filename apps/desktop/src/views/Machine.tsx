@@ -71,6 +71,31 @@ export function Machine() {
       {!data && !error && <Loading what="this machine" />}
       {data && (
         <>
+          <FormCard
+            key={`workdir:${data.rules.workdir}`}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const workdir = String(new FormData(event.currentTarget).get("workdir") ?? "").trim();
+              save({ workdir }, "Saved. Every routine on this machine runs in this folder.");
+            }}
+          >
+            <Field>
+              Work folder: the folder that holds your projects, where every routine runs
+              <Input
+                name="workdir"
+                defaultValue={data.rules.workdir}
+                placeholder="/home/me/Work"
+                required
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Field>
+            <Actions>
+              <Button type="submit" disabled={action.busy !== null}>
+                Save the folder
+              </Button>
+            </Actions>
+          </FormCard>
           <Card>
             <Checkbox
               label="Take the team's routine runs"

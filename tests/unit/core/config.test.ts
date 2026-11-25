@@ -48,6 +48,7 @@ describe("defaultConfig", () => {
       store: { embeddings: "local" },
       team: { url: "", token_env: "GRENIER_TEAM_TOKEN", sync_interval: 20 },
       machine: {
+        workdir: "",
         routines: false,
         plugged_in: true,
         idle_minutes: 10,

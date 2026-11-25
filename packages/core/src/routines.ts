@@ -30,18 +30,20 @@ function sandboxed(agent: string, tool: string): boolean {
   return agent === "codex" && tool !== CODEX_PATCH && !tool.startsWith("mcp__");
 }
 
-/** What a run may call in a mode: reading always; the routine's other tools only once its machine lets it act. */
-export function allowedTools(mode: RoutineMode, routineTools: readonly string[], agent = "claude"): string[] {
-  const reads = routineTools.filter(readsByName);
-  const acting = mode === "limited" || mode === "on";
-  const acts = acting ? [...routineTools, ...(agent === "codex" ? [CODEX_PATCH] : [])] : [];
-  return [...new Set([...READ_TOOLS, ...STORE_TOOLS, ...reads, ...acts])];
+/** Whether a mode lets a run act: then Claude Code's auto mode, or Codex's sandbox, judges each call. */
+export function acts(mode: RoutineMode): boolean {
+  return mode === "limited" || mode === "on";
 }
 
-/** Whether a run may call a tool: Codex's own tools stay in its sandbox, the rest are held to the list. */
-export function mayCall(agent: string, allowed: readonly string[], tool: string): boolean {
-  if (allowed.includes(tool) || allowed.some((entry) => entry.startsWith(`${tool}(`))) return true;
-  return sandboxed(agent, tool);
+/** Whether a run may call a tool: anything once it acts, else reading, the store, and Codex's sandboxed tools. */
+export function mayCall(agent: string, mode: RoutineMode, tool: string): boolean {
+  if (acts(mode)) return true;
+  return (
+    (READ_TOOLS as readonly string[]).includes(tool) ||
+    (STORE_TOOLS as readonly string[]).includes(tool) ||
+    readsByName(tool) ||
+    sandboxed(agent, tool)
+  );
 }
 
 /** Whether a tool call counts as an action, against `limited`'s daily allowance; Codex reads with its shell too. */
@@ -59,10 +61,6 @@ export interface RoutineShape {
   fields: Record<string, unknown>;
 }
 
-export function toolsOf(routine: RoutineShape): string[] {
-  return Array.isArray(routine.fields.tools) ? routine.fields.tools.map(String) : [];
-}
-
 /** Whether the routine says what to do: the page's text is its prompt, which a run cannot do without. */
 export function hasPrompt(routine: RoutineShape): boolean {
   return routine.body.trim() !== "";
@@ -74,8 +72,6 @@ export async function routineHash(routine: RoutineShape): Promise<string> {
   return sha256(
     JSON.stringify({
       prompt: routine.body,
-      tools: toolsOf(routine),
-      repo: fields.repo ?? "",
       agent: fields.agent ?? "claude",
       collector: fields.collector ?? "no",
       owner: fields.collector === "yes" ? (fields.owner ?? "") : "",

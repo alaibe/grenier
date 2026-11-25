@@ -125,10 +125,9 @@ export const BUILTIN_TYPES: readonly TypeDef[] = [
   },
   {
     name: "Routine",
-    description: "One kind of task the team's machines run: its prompt as the page's text, a repo, allowed tools.",
+    description:
+      "One kind of task the team's machines run, in each machine's work folder: its prompt as the page's text.",
     fields: [
-      { name: "repo", kind: "text" },
-      { name: "tools", kind: "list" },
       { name: "trigger", kind: "select", options: ["request", "schedule"], required: true },
       { name: "schedule", kind: "text" },
       { name: "collector", kind: "select", options: ["yes", "no"] },

@@ -69,4 +69,8 @@ export const SCHEMA_STEPS: readonly string[] = [
   ALTER TABLE declines ADD COLUMN at INTEGER NOT NULL DEFAULT 0;
   UPDATE meta SET value = '5' WHERE key = 'schema';
 `,
+  `
+  ALTER TABLE devices DROP COLUMN repos;
+  UPDATE meta SET value = '6' WHERE key = 'schema';
+`,
 ];

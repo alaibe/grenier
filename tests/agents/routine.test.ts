@@ -7,8 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePaths } from "@grenier/core/node";
-import { repoId } from "@grenier/git";
-import { ensureRepoTop } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addRoutine, routineFromForm } from "../../apps/cli/src/routines.ts";
@@ -123,7 +121,7 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
       [
         `[proxy]\nport = ${port}\nupstream_anthropic = "http://127.0.0.1:${(upstream.address() as AddressInfo).port}"`,
         `[store]\nembeddings = "off"`,
-        `[machine]\nroutines = true\nidle_minutes = 0\nplugged_in = false\ncpu_max = 1\nmemory_max = 1`,
+        `[machine]\nworkdir = ${JSON.stringify(dir)}\nroutines = true\nidle_minutes = 0\nplugged_in = false\ncpu_max = 1\nmemory_max = 1`,
       ].join("\n\n"),
     );
     daemon = await startDaemon(BINARY, env(), dir);
@@ -138,9 +136,7 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
   it("offers the agent read tools only, and cuts the run off at an edit", async () => {
     // Written as the app's New routine form writes it, in Me since this machine has no team.
     const store = openSqliteStore(resolvePaths(env()).db);
-    const repoIdentity = (await repoId(repo)) as string;
-    await ensureRepoTop(store, { root: repo, id: repoIdentity });
-    const form = routineFromForm({ title: "Tidy", prompt: "Tidy app.ts.", tools: "Edit", repo: repoIdentity });
+    const form = routineFromForm({ title: "Tidy", prompt: "Tidy app.ts." });
     const { id } = await addRoutine(await storeDeps(store), { ...form, top: "me" });
     await store.close();
     await admin(`/routines/${id}/approve`, { mode: "read-only" });

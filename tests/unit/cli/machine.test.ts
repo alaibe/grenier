@@ -15,7 +15,7 @@ function probes(
   };
 }
 
-const rules = { ...defaultConfig().machine, routines: true };
+const rules = { ...defaultConfig().machine, routines: true, workdir: "/home/ada/Work" };
 
 describe("whether the machine is available", () => {
   it("is available when every rule holds, with room from what is free", async () => {
@@ -33,6 +33,12 @@ describe("whether the machine is available", () => {
     ]);
     expect((await availability(rules, probes({ idle: null }), false)).state).toBe("away");
     expect((await availability({ ...rules, idle_minutes: 0 }, probes({ idle: null }), false)).state).toBe("available");
+  });
+
+  it("is away without a work folder to run in", async () => {
+    expect((await availability({ ...rules, workdir: "" }, probes(), false)).reasons).toEqual([
+      "no work folder: set it in Settings",
+    ]);
   });
 
   it("is busy while a run is going", async () => {

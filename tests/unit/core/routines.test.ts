@@ -1,4 +1,4 @@
-import { allowedTools, isAction, mayCall, nextDue, READ_TOOLS, readsByName, routineHash } from "@grenier/core";
+import { acts, isAction, mayCall, nextDue, READ_TOOLS, readsByName, routineHash } from "@grenier/core";
 import { describe, expect, it } from "vitest";
 
 const routine = (fields: Record<string, unknown>, body = "Update, then test.") => ({
@@ -8,32 +8,31 @@ const routine = (fields: Record<string, unknown>, body = "Update, then test.") =
 });
 
 describe("what a routine's run may call", () => {
-  it("reads only, until its machine lets it act", () => {
-    const tools = ["Edit", "Bash(pnpm test:*)", "mcp__linear__create_issue", "mcp__linear__list_issues"];
-    const readOnly = allowedTools("read-only", tools);
-    expect(readOnly).toEqual(
-      expect.arrayContaining([...READ_TOOLS, "mcp__grenier__recall", "mcp__linear__list_issues"]),
-    );
-    expect(readOnly).not.toContain("Edit");
-    expect(readOnly).not.toContain("mcp__linear__create_issue");
-    expect(allowedTools("shadow", tools)).toEqual(readOnly);
-    expect(allowedTools("limited", tools)).toEqual(expect.arrayContaining(["Edit", "mcp__linear__create_issue"]));
-    expect(allowedTools("on", tools)).toEqual(allowedTools("limited", tools));
+  it("reads only, until its machine lets it act; then anything, auto mode judging each call", () => {
+    for (const mode of ["read-only", "shadow"] as const) {
+      for (const tool of [...READ_TOOLS, "mcp__grenier__recall", "mcp__linear__list_issues"]) {
+        expect(mayCall("claude", mode, tool)).toBe(true);
+      }
+      expect(mayCall("claude", mode, "Edit")).toBe(false);
+      expect(mayCall("claude", mode, "mcp__linear__create_issue")).toBe(false);
+      expect(mayCall("claude", mode, "exec_command")).toBe(false);
+    }
+    for (const mode of ["limited", "on"] as const) {
+      expect(acts(mode)).toBe(true);
+      expect(mayCall("claude", mode, "Edit")).toBe(true);
+      expect(mayCall("claude", mode, "mcp__linear__create_issue")).toBe(true);
+    }
+    expect(acts("shadow")).toBe(false);
   });
 
   it("leaves Codex its own tools, inside its sandbox, and holds its patch tool and MCP tools to the mode", () => {
-    const readOnly = allowedTools("read-only", ["mcp__linear__update_issue"], "codex");
     for (const tool of ["exec_command", "write_stdin", "update_plan", "local_shell", "mcp__grenier__recall"]) {
-      expect(mayCall("codex", readOnly, tool)).toBe(true);
+      expect(mayCall("codex", "read-only", tool)).toBe(true);
     }
-    expect(mayCall("codex", readOnly, "apply_patch")).toBe(false);
-    expect(mayCall("codex", readOnly, "mcp__linear__update_issue")).toBe(false);
-    const on = allowedTools("on", ["mcp__linear__update_issue"], "codex");
-    expect(mayCall("codex", on, "apply_patch")).toBe(true);
-    expect(mayCall("codex", on, "mcp__linear__update_issue")).toBe(true);
-    expect(mayCall("codex", on, "mcp__github__merge_pull_request")).toBe(false);
-    expect(mayCall("claude", allowedTools("on", ["Edit"]), "exec_command")).toBe(false);
-    expect(allowedTools("on", ["Edit"])).not.toContain("apply_patch");
+    expect(mayCall("codex", "read-only", "apply_patch")).toBe(false);
+    expect(mayCall("codex", "read-only", "mcp__linear__update_issue")).toBe(false);
+    expect(mayCall("codex", "on", "apply_patch")).toBe(true);
+    expect(mayCall("codex", "on", "mcp__linear__update_issue")).toBe(true);
   });
 
   it("tells reading tools from actions by their names", () => {
@@ -51,12 +50,11 @@ describe("what a routine's run may call", () => {
 });
 
 describe("approving a routine", () => {
-  it("is needed again when its text, a tool or the repo changes, not when its schedule does", async () => {
-    const approved = await routineHash(routine({ tools: ["Edit"], repo: "r1", trigger: "request" }));
-    expect(await routineHash(routine({ tools: ["Edit"], repo: "r1", trigger: "schedule" }))).toBe(approved);
-    expect(await routineHash(routine({ tools: ["Edit", "Bash"], repo: "r1" }))).not.toBe(approved);
-    expect(await routineHash(routine({ tools: ["Edit"], repo: "r2" }))).not.toBe(approved);
-    expect(await routineHash(routine({ tools: ["Edit"], repo: "r1" }, "Update everything."))).not.toBe(approved);
+  it("is needed again when its text or its agent changes, not when its schedule does", async () => {
+    const approved = await routineHash(routine({ trigger: "request" }));
+    expect(await routineHash(routine({ trigger: "schedule" }))).toBe(approved);
+    expect(await routineHash(routine({ agent: "codex" }))).not.toBe(approved);
+    expect(await routineHash(routine({}, "Update everything."))).not.toBe(approved);
   });
 });
 

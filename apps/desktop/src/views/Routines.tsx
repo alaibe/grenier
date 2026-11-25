@@ -1,6 +1,6 @@
-import type { LocalRun, MadeLink, Overview, RoutineView, Top } from "@grenier/core/api";
+import type { LocalRun, MachineState, MadeLink, Overview, RoutineView } from "@grenier/core/api";
 import type { RoutineMode } from "@grenier/core/routines";
-import { Check, Link, Pencil, Play, Plus } from "lucide-react";
+import { Check, FolderOpen, Link, Pencil, Play, Plus, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
@@ -28,15 +28,14 @@ const MODE_SAYS: Record<RoutineMode, string> = {
   "read-only": "reads only",
   shadow: "says what it would do",
   limited: "acts, a set number of times a day",
-  on: "acts within its tools",
+  on: "acts, auto mode judging each step",
 };
 
 const load = () => api<{ routines: RoutineView[] }>("/routines").then((answer) => answer.routines);
 const loadRuns = () => api<{ runs: LocalRun[] }>("/runs").then((answer) => answer.runs);
-const loadRepos = () =>
-  api<{ tops: Top[] }>("/tops").then((answer) => answer.tops.filter((top) => top.kind === "repo"));
 /** In an object, so a machine in no team (`team: null`) is told apart from one still loading. */
 const loadTeam = () => api<Overview>("/overview").then((overview) => ({ team: overview.team }));
+const loadWorkdir = () => api<MachineState>("/machine").then((machine) => machine.rules.workdir);
 
 const WHEN: [string, string][] = [
   ["request", "When someone asks it"],
@@ -52,11 +51,10 @@ const WHEN: [string, string][] = [
   ["sun", "Every Sunday"],
 ];
 
-/** A routine's name, text, schedule, repository, agent and tools: a new one, or one changed in place. */
+/** A routine's name, text, schedule and agent: a new one, or one changed in place. */
 function RoutineForm({ routine, done, cancel }: { routine?: RoutineView; done: () => void; cancel: () => void }) {
   const [day, time] = routine?.trigger === "schedule" ? (routine.schedule ?? "").split(" ") : [];
   const [when, setWhen] = useState(routine?.trigger === "schedule" ? (day ?? "daily") : "request");
-  const repos = useLoad(loadRepos);
   const action = useAction(() => {});
   return (
     <FormCard
@@ -72,9 +70,7 @@ function RoutineForm({ routine, done, cancel }: { routine?: RoutineView; done: (
                 prompt: String(form.get("prompt") ?? ""),
                 trigger: when === "request" ? "request" : "schedule",
                 schedule: when === "hourly" ? "hourly" : `${when} ${String(form.get("time") ?? "05:00")}`,
-                tools: String(form.get("tools") ?? ""),
                 agent: String(form.get("agent") ?? "claude"),
-                repo: String(form.get("repo") ?? ""),
                 collector: form.get("collector") === "on",
               },
             });
@@ -116,18 +112,6 @@ function RoutineForm({ routine, done, cancel }: { routine?: RoutineView; done: (
           </Field>
         )}
         <Field>
-          Repository
-          {/* Remounted once the repositories arrive, so the routine's own is picked. */}
-          <Select key={repos.data ? "loaded" : "loading"} name="repo" defaultValue={routine?.repo ?? ""}>
-            <option value="">None</option>
-            {(repos.data ?? []).map((repo) => (
-              <option key={repo.id} value={repo.repoId ?? ""}>
-                {repo.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field>
           Agent
           <Select name="agent" defaultValue={routine?.agent ?? "claude"}>
             <option value="claude">Claude Code</option>
@@ -135,16 +119,12 @@ function RoutineForm({ routine, done, cancel }: { routine?: RoutineView; done: (
           </Select>
         </Field>
       </div>
-      <Field>
-        Tools it may use beyond reading, comma-separated (optional)
-        <Input name="tools" placeholder="Edit, Bash(pnpm test:*)" defaultValue={routine?.tools.join(", ")} />
-      </Field>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="collector" className="accent-accent" defaultChecked={routine?.collector} />
         Each person's own: it runs on their machines and writes to their Me
       </label>
       <div className="flex gap-2">
-        <Button type="submit" disabled={action.busy !== null || !repos.data}>
+        <Button type="submit" disabled={action.busy !== null}>
           {routine ? "Save" : "Add the routine"}
         </Button>
         <Button quiet onClick={cancel}>
@@ -194,6 +174,7 @@ export function Routines({ go, member }: ViewProps) {
   const routines = useLoad(load);
   const runs = useLoad(loadRuns);
   const team = useLoad(loadTeam);
+  const workdir = useLoad(loadWorkdir);
   // Routines run on the team's machines: without a team there is nowhere to add one.
   const adding = !member && Boolean(team.data?.team);
   const [modes, setModes] = useState<Record<string, RoutineMode>>({});
@@ -225,6 +206,14 @@ export function Routines({ go, member }: ViewProps) {
       intro="Tasks the team's machines run, each from its text. This machine runs one only once you approve it as it is, and only as far as its mode lets it: read-only first."
     >
       <Notice message={routines.error ?? action.message} />
+      {workdir.data === "" && (
+        <Card tone="accent" className="mb-5">
+          <p>Routines run in this machine's work folder, the one that holds your projects. Set it first.</p>
+          <Button className="mt-3" icon={FolderOpen} onClick={() => go("settings")}>
+            Set the work folder
+          </Button>
+        </Card>
+      )}
       {!routines.data && !routines.error && <Loading what="routines" />}
       {adding && routines.data && editing === "new" && <RoutineForm done={saved} cancel={() => setEditing(null)} />}
       {adding && routines.data && editing !== "new" && (
@@ -249,13 +238,20 @@ export function Routines({ go, member }: ViewProps) {
       )}
       {routines.data?.length === 0 && (
         <Empty>
-          <p>
-            {member
-              ? "The team has no routine yet."
-              : team.data?.team
-                ? "No routine yet: start with New routine."
-                : team.data && "Routines run on the team's machines: start or join a team on the Team screen first."}
-          </p>
+          {(member || team.data?.team) && (
+            <p>{member ? "The team has no routine yet." : "No routine yet: start with New routine."}</p>
+          )}
+          {!member && team.data && !team.data.team && (
+            <>
+              <p>
+                Routines run through a team's store, which hands their work to its machines. A team can be just you:
+                create one in your own Cloudflare account, and this machine runs your routines.
+              </p>
+              <Button className="mt-3" icon={Users} onClick={() => go("team")}>
+                Create a team
+              </Button>
+            </>
+          )}
         </Empty>
       )}
       {routines.data?.map((routine) => {
@@ -273,11 +269,7 @@ export function Routines({ go, member }: ViewProps) {
                   {routine.trigger === "schedule" ? `on a schedule, ${routine.schedule}` : `on ${routine.trigger}`} ·{" "}
                   {routine.agent} · by {routine.author}
                   {routine.collector && " · collector: runs on its person's machines, writes to their me"}
-                  {!routine.repoHere && " · its repository is not on this machine"}
                 </p>
-                {routine.tools.length > 0 && (
-                  <p className="mt-0.5 text-sm text-muted">Tools: {routine.tools.join(", ")}</p>
-                )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Select

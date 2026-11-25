@@ -138,10 +138,10 @@ function offer(team: TeamData, device: Device): { task: StoredRecord; routine: S
   const now = Date.now();
   team.sql("DELETE FROM claims WHERE leased_until < ?", now);
   team.sql("DELETE FROM declines WHERE at < ?", now - DECLINE_LIFE);
-  const me = team.one("SELECT state, room, repos, agents, member_id FROM devices WHERE id = ?", device.id);
+  const me = team.one("SELECT state, room, agents, member_id FROM devices WHERE id = ?", device.id);
   if (me?.state !== "available") return null;
   const machines = team.sql(
-    "SELECT id, room, repos, agents, member_id FROM devices WHERE state = 'available' AND revoked_at IS NULL AND state_at > ?",
+    "SELECT id, room, agents, member_id FROM devices WHERE state = 'available' AND revoked_at IS NULL AND state_at > ?",
     now - SEEN,
   );
   const tasks = team
@@ -178,11 +178,9 @@ function offer(team: TeamData, device: Device): { task: StoredRecord; routine: S
       if (owner !== undefined && machine.member_id !== owner) return false;
       const member = machine.member_id as string;
       if (!reads(member, task.top) || !reads(member, routine.top)) return false;
-      const repos = JSON.parse(machine.repos as string) as string[];
       const agents = JSON.parse(machine.agents as string) as string[];
-      const repo = typeof routine.fields.repo === "string" ? routine.fields.repo : "";
       const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : "claude";
-      return (!repo || repos.includes(repo)) && agents.includes(agent);
+      return agents.includes(agent);
     };
     if (!can(me)) continue;
     const declined = new Set(

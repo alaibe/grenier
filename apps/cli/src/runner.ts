@@ -1,18 +1,16 @@
-import { execFile, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { setPriority, tmpdir } from "node:os";
-import { basename, join } from "node:path";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { setPriority } from "node:os";
 import {
-  allowedTools,
+  acts,
   type Config,
   hasPrompt,
   isAction,
   mayCall,
+  READ_TOOLS,
   type RoutineMode,
-  repoTop,
   routineHash,
-  toolsOf,
+  STORE_TOOLS,
 } from "@grenier/core";
 import type { Availability } from "@grenier/core/api";
 import type { RunGuard } from "@grenier/gateway";
@@ -20,7 +18,7 @@ import { newId, refusal, type StoreDeps, type TeamClient, teamApi, write } from 
 import type { FullRecord, RecordInput, Session, Store } from "@grenier/store";
 import { LIBRARIAN, librarian } from "./librarian.ts";
 import { availability, type Probes, systemProbes } from "./machine.ts";
-import { newSessionId } from "./runtime.ts";
+import { newSessionId, repoResolver } from "./runtime.ts";
 
 export interface AgentResult {
   code: number;
@@ -56,7 +54,6 @@ interface Current {
   sessionId: string;
   routineId: string;
   agent: string;
-  allowed: string[];
   mode: RoutineMode;
   limit: number;
   /** Actions of this routine's earlier runs today, against `limited`'s daily allowance. */
@@ -81,19 +78,8 @@ const LEASE_RENEW = 2 * 60 * 1000;
 const CHECK_EVERY = 60 * 1000;
 const CLAIM_EVERY = 5 * 60 * 1000;
 const MAX_RESULT = 20_000;
-/** Claude Code's built-in tools a routine may be given; `--tools` makes only these available. */
-const CLAUDE_TOOLS = [
-  "Read",
-  "Grep",
-  "Glob",
-  "Edit",
-  "MultiEdit",
-  "Write",
-  "Bash",
-  "WebFetch",
-  "WebSearch",
-  "NotebookEdit",
-];
+/** Claude Code's built-in tools that only read: `--tools` makes only these available to a run that may not act. */
+const CLAUDE_READS = ["Read", "Grep", "Glob"];
 
 /** Spawns an agent at the lowest priority and collects what it prints. */
 export const spawnAgent: Spawner = (command, args, options) =>
@@ -128,10 +114,7 @@ export const spawnAgent: Spawner = (command, args, options) =>
     child.once("exit", (code) => resolve({ code: code ?? 1, text: code === 0 ? out : `${out}\n${err}`.trim() }));
   });
 
-const git = async (root: string, args: string[]) =>
-  (await promisify(execFile)("git", ["-C", root, ...args], { encoding: "utf8" })).stdout;
-
-/** This machine's part in the team's routines: takes the work offered and runs it in a clean checkout. */
+/** This machine's part in the team's routines: takes the work offered and runs it in its work folder. */
 export class Runner {
   #current: Current | null = null;
   #last: Availability | null = null;
@@ -178,18 +161,11 @@ export class Runner {
       await this.deps.tell({
         state: now.state,
         room: now.room,
-        repos: await this.#repos(),
         agents: [this.deps.config().machine.agent],
       });
     }
     if (now.state !== "available" || this.running) return;
     if (force || changed || this.now() - this.#lastClaim >= CLAIM_EVERY) await this.claim();
-  }
-
-  async #repos(): Promise<string[]> {
-    return (await this.deps.store.tops.list())
-      .filter((top) => top.kind === "repo" && top.root && top.repoId)
-      .map((top) => top.repoId as string);
   }
 
   /** Asks the team store for a task, and runs it if this machine's person approved its routine as it is now. */
@@ -240,7 +216,7 @@ export class Runner {
     if (!current || session.runId !== current.runId) return null;
     return {
       allows: (tool) => {
-        if (!mayCall(current.agent, current.allowed, tool)) return false;
+        if (!mayCall(current.agent, current.mode, tool)) return false;
         if (isAction(tool, current.agent)) {
           if (current.mode === "limited" && current.usedToday + current.actions >= current.limit) return false;
           current.actions++;
@@ -281,8 +257,7 @@ export class Runner {
     const store = this.deps.store;
     const config = this.deps.config();
     const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : config.machine.agent;
-    const repoId = typeof routine.fields.repo === "string" && routine.fields.repo ? routine.fields.repo : null;
-    const root = repoId ? (await store.tops.get(repoTop(repoId)))?.root : null;
+    const cwd = config.machine.workdir;
     const runId = newId();
     const sessionId = newSessionId();
     const startedAt = this.now();
@@ -313,16 +288,14 @@ export class Runner {
       actions: 0,
       result: null,
     });
-    if (repoId && !root) {
+    if (!cwd || !existsSync(cwd)) {
       return this.#finish(
         runId,
-        { status: "failed", result: "the routine's repository is not on this machine", cost: 0, actions: 0 },
+        { status: "failed", result: "this machine has no work folder: set it in Settings", cost: 0, actions: 0 },
         report,
         task,
       );
     }
-    const folder = mkdtempSync(join(tmpdir(), "grenier-run-"));
-    const checkout = root ? join(folder, basename(root)) : folder;
     const midnight = new Date(startedAt).setHours(0, 0, 0, 0);
     const usedToday = (await store.runs.list({ routineId: routine.id, since: midnight })).reduce(
       (total, run) => total + run.actions,
@@ -333,7 +306,6 @@ export class Runner {
       sessionId,
       routineId: routine.id,
       agent,
-      allowed: allowedTools(mode, toolsOf(routine), agent),
       mode,
       limit: Number((await store.approvals.get(routine.id, "routine"))?.settings.limit ?? 10),
       usedToday,
@@ -343,13 +315,13 @@ export class Runner {
     };
     let renew: ReturnType<typeof setInterval> | undefined;
     try {
-      if (root) await git(root, ["worktree", "add", "--detach", checkout, "HEAD"]);
+      const repo = await repoResolver(cwd)(undefined).catch(() => null);
       await store.sessions.create({
         id: sessionId,
         client: agent,
-        cwd: checkout,
-        repoRoot: root ? checkout : null,
-        repoId,
+        cwd,
+        repoRoot: repo?.root ?? null,
+        repoId: repo?.id ?? null,
         startedAt,
         runId,
       });
@@ -396,10 +368,10 @@ export class Runner {
         GRENIER_SESSION: sessionId,
         GRENIER_RUN_TOP: routine.fields.collector === "yes" ? "me" : routine.top === "me" ? "me" : "team",
       };
-      const allowed = [...this.#current.allowed];
-      const builtIn = [
-        ...new Set(allowed.filter((tool) => !tool.startsWith("mcp__")).map((tool) => tool.replace(/\(.*$/, ""))),
-      ].filter((tool) => CLAUDE_TOOLS.includes(tool));
+      // Acting, Claude Code's auto mode judges each call; reading, it gets the reading tools alone.
+      const claudeMode = acts(mode)
+        ? ["--permission-mode", "auto", "--allowedTools", STORE_TOOLS.join(",")]
+        : ["--tools", CLAUDE_READS.join(","), "--allowedTools", [...READ_TOOLS, ...STORE_TOOLS].join(",")];
       const signal = this.#current.stop.signal;
       const outcome =
         agent === "codex"
@@ -408,27 +380,18 @@ export class Runner {
               [
                 "exec",
                 "--sandbox",
-                mode === "limited" || mode === "on" ? "workspace-write" : "read-only",
+                acts(mode) ? "workspace-write" : "read-only",
                 "-c",
                 `openai_base_url=${JSON.stringify(`${base}/openai/v1`)}`,
                 prompt,
               ],
-              { cwd: checkout, env, signal },
+              { cwd, env, signal },
             )
-          : await this.spawner(
-              "claude",
-              [
-                "-p",
-                prompt,
-                "--output-format",
-                "json",
-                "--tools",
-                builtIn.join(","),
-                "--allowedTools",
-                allowed.join(","),
-              ],
-              { cwd: checkout, env, signal },
-            );
+          : await this.spawner("claude", ["-p", prompt, "--output-format", "json", ...claudeMode], {
+              cwd,
+              env,
+              signal,
+            });
       const cut = this.#current.cut;
       const collector = routine.fields.collector === "yes";
       const result = cut
@@ -454,8 +417,6 @@ export class Runner {
       if (renew) clearInterval(renew);
       this.#current = null;
       await store.sessions.end(sessionId, this.now()).catch(() => undefined);
-      if (root) await git(root, ["worktree", "remove", "--force", checkout]).catch(() => undefined);
-      rmSync(folder, { recursive: true, force: true });
       void this.tick();
     }
   }

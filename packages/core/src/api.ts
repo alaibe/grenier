@@ -304,12 +304,8 @@ export interface RoutineView {
   author: string;
   trigger: string;
   schedule: string | null;
-  repo: string | null;
-  /** Whether the routine's repository is on this machine. */
-  repoHere: boolean;
   agent: string;
   collector: boolean;
-  tools: string[];
   /** What a run does: the routine's text. */
   prompt: string;
   /** How this machine's person approved it: its mode, and whether it changed since. */
