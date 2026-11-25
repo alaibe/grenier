@@ -73,12 +73,7 @@ export function Textarea({ mono = false, ...props }: Plain<"textarea"> & { mono?
 export function Select(props: Plain<"select">) {
   return (
     <span className="relative block">
-      {/* A select matches :read-only, which components.css draws borderless: it keeps the input's border and fill. */}
-      <select
-        className="input cursor-pointer appearance-none border-line-strong bg-panel pr-8 enabled:hover:border-muted focus:border-accent disabled:border-line disabled:bg-bg"
-        {...useField()}
-        {...props}
-      />
+      <select className="input cursor-pointer appearance-none pr-8" {...useField()} {...props} />
       <ChevronDown
         className="icon pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-muted"
         aria-hidden="true"

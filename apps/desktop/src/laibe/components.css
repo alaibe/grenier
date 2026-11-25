@@ -49,7 +49,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: var(--text-base
 .input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 .input[aria-invalid="true"], .input[aria-invalid="true"]:focus { border-color: var(--danger); }
 .input:disabled { background: var(--bg); border-color: var(--line); color: var(--subtle); }
-.input:read-only:not(:disabled) { background: var(--bg); border-color: transparent; }
+.input:read-only:not(:disabled, select) { background: var(--bg); border-color: transparent; }
 textarea.input { height: auto; padding: var(--space-2) var(--space-3); line-height: var(--leading-normal); resize: vertical; }
 .field-help, .field-error { display: flex; align-items: center; gap: var(--space-1); margin: 0; color: var(--muted); font: var(--text-xs)/var(--leading-snug) var(--font-sans); }
 .field-error { color: var(--danger); }

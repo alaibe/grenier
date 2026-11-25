@@ -17,8 +17,7 @@ ${COMPONENTS}
 /* The shell's layout, as in the desktop app: no title bar, the browser is the frame. */
 html, body { height: 100%; overflow: hidden; }
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
-/* A select matches :read-only, which components.css draws borderless: it keeps the input's border and fill. */
-select.input { background: var(--panel); border-color: var(--line-strong); cursor: pointer; }
+select.input { cursor: pointer; }
 ::selection { background: var(--selection); }
 .shell { display: grid; height: 100dvh; grid-template: "side main" minmax(0, 1fr) "status status" var(--layout-statusbar) / var(--layout-sidebar) minmax(0, 1fr); }
 .shell > .sidebar { grid-area: side; min-height: 0; overflow-y: auto; }
