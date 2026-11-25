@@ -55,32 +55,34 @@ export function Apps() {
         )}
         {created && <Secret label={`Key for ${created.name}`} value={created.token} />}
         {!apps.data && !apps.error && <Skeleton rows={2} />}
-        {apps.data?.map((entry) => (
-          <SectionRow
-            key={entry.app}
-            label={entry.label}
-            description={entry.connected ? "Reads Grenier, every folder." : "Doesn't read Grenier yet."}
-          >
-            <div className="flex items-center gap-3">
-              {entry.connected && <Status kind="ok" word="added" />}
-              <Button
-                size="sm"
-                icon={entry.connected ? RefreshCw : Plus}
-                disabled={action.busy !== null}
-                busy={action.busy === `app:${entry.app}`}
-                title={entry.connected ? "Adding it again gives it a new key" : undefined}
-                onClick={() =>
-                  void action.run(`app:${entry.app}`, async () => {
-                    await api(`/apps/${entry.app}`, { body: { scopes: ["*"] } });
-                    return `Added Grenier to ${entry.label}: restart it to load Grenier`;
-                  })
-                }
-              >
-                {entry.connected ? "Add again" : "Add Grenier"}
-              </Button>
-            </div>
-          </SectionRow>
-        ))}
+        <div>
+          {apps.data?.map((entry) => (
+            <SectionRow
+              key={entry.app}
+              label={entry.label}
+              description={entry.connected ? "Reads Grenier, every folder." : "Doesn't read Grenier yet."}
+            >
+              <div className="flex items-center gap-3">
+                {entry.connected && <Status kind="ok" word="added" />}
+                <Button
+                  size="sm"
+                  icon={entry.connected ? RefreshCw : Plus}
+                  disabled={action.busy !== null}
+                  busy={action.busy === `app:${entry.app}`}
+                  title={entry.connected ? "Adding it again gives it a new key" : undefined}
+                  onClick={() =>
+                    void action.run(`app:${entry.app}`, async () => {
+                      await api(`/apps/${entry.app}`, { body: { scopes: ["*"] } });
+                      return `Added Grenier to ${entry.label}: restart it to load Grenier`;
+                    })
+                  }
+                >
+                  {entry.connected ? "Add again" : "Add Grenier"}
+                </Button>
+              </div>
+            </SectionRow>
+          ))}
+        </div>
         {clients.data && clients.data.clients.length > 0 && (
           <Section title="Keys">
             <Table

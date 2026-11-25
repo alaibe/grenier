@@ -283,12 +283,12 @@ export function PageEditor({
       />
 
       {record.data && (
-        <>
+        <div className="mt-8">
           <Anchors record={record.data} />
           <Linked title="Links to" items={record.data.linksTo} open={open} />
           <Linked title="Linked from" items={record.data.linkedFrom} open={open} />
           <History id={record.data.id} restore={(snapshot) => set(snapshot)} />
-        </>
+        </div>
       )}
     </article>
   );
