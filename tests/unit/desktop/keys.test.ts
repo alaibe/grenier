@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ago, since } from "../../../apps/desktop/src/format.ts";
 import { goLetters, PLACES, placeKeys } from "../../../apps/desktop/src/shell/places.ts";
 import { type Command, hintsFor, Registry } from "../../../apps/desktop/src/shell/registry.ts";
-import { caps, chordOf, spoken } from "../../../apps/desktop/src/ui/keys.ts";
+import { anywhere, caps, chordOf, spoken } from "../../../apps/desktop/src/ui/keys.ts";
 
 const press = (key: string, mods: Partial<Record<"metaKey" | "ctrlKey" | "altKey" | "shiftKey", boolean>> = {}) => ({
   key,
@@ -39,6 +39,16 @@ describe("the shared keys", () => {
     expect(chordOf(press("Shift", { shiftKey: true }), false)).toBeNull();
   });
 
+  it("leaves a text field its own undo and redo, and lets the other ⌘ keys and F keys through", () => {
+    expect(anywhere(chordOf(press("z", { metaKey: true }), true) ?? "")).toBe(false);
+    expect(anywhere(chordOf(press("z", { metaKey: true, shiftKey: true }), true) ?? "")).toBe(false);
+    expect(anywhere(chordOf(press("y", { ctrlKey: true }), false) ?? "")).toBe(false);
+    expect(anywhere("mod+k")).toBe(true);
+    expect(anywhere("mod+enter")).toBe(true);
+    expect(anywhere("shift+f6")).toBe(true);
+    expect(anywhere("n")).toBe(false);
+  });
+
   it("gives every place ⌘ and its number, Settings ⌘, and a G letter of its own", () => {
     expect(PLACES.map(placeKeys)).toEqual(PLACES.map((_, index) => `mod+${index + 1}`));
     expect(placeKeys("settings")).toBe("mod+,");
@@ -60,6 +70,23 @@ describe("the command registry", () => {
     expect(registry.find("escape")?.id).toBe("toast.dismiss");
     registry.delete(toast);
     expect(registry.find("escape")?.id).toBe("later.close");
+  });
+
+  it("lets the screen's command win over the shell's of the same id, however often the shell registers again", () => {
+    const registry = new Registry();
+    const shell = Symbol();
+    const shellCommands = [{ id: "new-page", label: "New page", run: () => {} }, command("palette", "mod+k")];
+    registry.set(shell, shellCommands, "shell");
+    const screen = Symbol();
+    registry.set(screen, [command("new-page", "n")]);
+    registry.set(shell, [...shellCommands], "shell");
+    expect(registry.find("n")?.id).toBe("new-page");
+    expect(registry.commands.filter((entry) => entry.id === "new-page")).toEqual([
+      expect.objectContaining({ keys: "n" }),
+    ]);
+    registry.delete(screen);
+    expect(registry.find("n")).toBeUndefined();
+    expect(registry.commands.map((entry) => entry.id)).toEqual(["new-page", "palette"]);
   });
 
   it("hints what has attention: the list's keys, an open item's, a dialog's, a pending chord's places", () => {

@@ -187,7 +187,7 @@ function Shell() {
       { id: "shortcuts", label: "Keyboard shortcuts", icon: CircleHelp, keys: "?", run: () => setShortcuts(true) },
     ];
   }, [go, back, forward, sidebar.toggle, team]);
-  useCommands(commands);
+  useCommands(commands, "shell");
 
   // The splash: the attic window on the dark, until the daemon first answers.
   if (!ready) {

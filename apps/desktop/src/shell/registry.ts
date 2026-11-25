@@ -38,6 +38,11 @@ export type Attention =
   | { kind: "item" }
   | { kind: "list" };
 
+/** Who registered a set: the shell, for every screen, or the current screen, whose commands win on the same id. */
+export type Scope = "shell" | "screen";
+
+const SCOPES: Scope[] = ["shell", "screen"];
+
 export interface Layer {
   kind: "dialog" | "palette";
   hints: Hint[];
@@ -45,7 +50,7 @@ export interface Layer {
 
 /** One store for every command, layer and pending chord; the shell, the palette, the bar and `?` read it. */
 export class Registry {
-  #sets = new Map<symbol, Command[]>();
+  #sets = new Map<symbol, { scope: Scope; commands: Command[] }>();
   #layers: Layer[] = [];
   #listeners = new Set<() => void>();
   #commands: Command[] = [];
@@ -58,15 +63,19 @@ export class Registry {
 
   #emit() {
     const byId = new Map<string, Command>();
-    for (const commands of this.#sets.values()) for (const command of commands) byId.set(command.id, command);
+    for (const scope of SCOPES) {
+      for (const set of this.#sets.values()) {
+        if (set.scope === scope) for (const command of set.commands) byId.set(command.id, command);
+      }
+    }
     this.#commands = [...byId.values()];
     this.#state = { ...this.#state, version: this.#state.version + 1 };
     for (const listener of this.#listeners) listener();
   }
 
-  set(owner: symbol, commands: Command[]) {
-    this.#sets.delete(owner);
-    this.#sets.set(owner, commands);
+  /** Registers or replaces an owner's set, which keeps its place among the others. */
+  set(owner: symbol, commands: Command[], scope: Scope = "screen") {
+    this.#sets.set(owner, { scope, commands });
     this.#emit();
   }
 
@@ -106,7 +115,7 @@ export class Registry {
     this.#emit();
   }
 
-  /** The command a key press runs: the highest priority, then the latest registered. */
+  /** The command a key press runs: the highest priority, then the screen's over the shell's, then the latest registered. */
   find(chord: string): Command | undefined {
     let found: Command | undefined;
     for (const command of this.#commands) {

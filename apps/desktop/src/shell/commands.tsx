@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { anywhere, chordOf } from "../ui/keys.ts";
-import { type Attention, type Command, type Hint, type Layer, Registry } from "./registry.ts";
+import { type Attention, type Command, type Hint, type Layer, Registry, type Scope } from "./registry.ts";
 
 export { type Command, type Hint, hintsFor, Registry } from "./registry.ts";
 
@@ -20,13 +20,13 @@ export function useRegistryState() {
 }
 
 /** Registers a view's commands while it is mounted; pass them memoized. */
-export function useCommands(commands: Command[]) {
+export function useCommands(commands: Command[], scope: Scope = "screen") {
   const registry = useRegistry();
+  const [owner] = useState(() => Symbol("commands"));
   useEffect(() => {
-    const owner = Symbol("commands");
-    registry.set(owner, commands);
-    return () => registry.delete(owner);
-  }, [registry, commands]);
+    registry.set(owner, commands, scope);
+  }, [registry, owner, commands, scope]);
+  useEffect(() => () => registry.delete(owner), [registry, owner]);
 }
 
 /** A dialog or the palette, while it is open: global keys wait, and the status bar shows its hints. */

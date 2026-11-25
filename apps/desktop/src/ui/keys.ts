@@ -55,5 +55,9 @@ export function chordOf(
   return parts.join("+");
 }
 
-/** Whether a chord holds ⌘ (or Ctrl) or is a function key: those work while a text field has focus. */
-export const anywhere = (chord: string) => chord.includes("mod+") || /^(shift\+)?f\d+$/.test(chord);
+/** What a text field does itself with ⌘ (or Ctrl): undo and redo its typing. */
+const FIELD_CHORDS = ["mod+z", "mod+shift+z", "mod+y"];
+
+/** Whether a chord works while a text field has focus: one with ⌘ (or Ctrl) the field doesn't own, or a function key. */
+export const anywhere = (chord: string) =>
+  (chord.includes("mod+") && !FIELD_CHORDS.includes(chord)) || /^(shift\+)?f\d+$/.test(chord);
