@@ -41,18 +41,9 @@ export interface RememberInput {
   sessionId?: string;
 }
 
-/** An answer or a summary worked out from the repository's files: kept in that repository's folder. */
-export function aboutCode(record: {
-  type: string;
-  kind?: string | null;
-  anchors: readonly { kind: FullRecord["anchors"][number]["kind"] }[];
-}): boolean {
-  return (
-    record.type === "Memory" &&
-    (record.kind === "answer" || record.kind === "summary") &&
-    record.anchors.length > 0 &&
-    record.anchors.every((anchor) => anchor.kind === "git")
-  );
+/** A page worked out from the repository's files, and only from them: kept in that repository's folder. */
+export function aboutCode(record: { anchors: readonly { kind: FullRecord["anchors"][number]["kind"] }[] }): boolean {
+  return record.anchors.length > 0 && record.anchors.every((anchor) => anchor.kind === "git");
 }
 
 /** An answer to a question already answered in the same repository replaces that one. */
@@ -105,11 +96,10 @@ export async function remember(
   let existing = input.id ? await deps.store.records.get(input.id) : undefined;
   if (input.id && (!existing || (reader && existing.top !== "me" && !writable.includes(existing.top))))
     throw new StoreUseError(`there is no record ${input.id}`);
-  if (!existing && type === "Memory" && (kind === "answer" || kind === "summary")) {
-    existing = (await deps.store.records.list({ tops: [top], type: "Memory", kind })).find((record) =>
-      kind === "summary"
-        ? record.fields.path === fields.path
-        : record.title.trim().toLowerCase() === title.toLowerCase(),
+  // A page about the code with the same title replaces the one before: it is the same question, answered again.
+  if (!existing && aboutCode({ anchors })) {
+    existing = (await deps.store.records.list({ tops: [top], type })).find(
+      (record) => record.title.trim().toLowerCase() === title.toLowerCase(),
     );
   }
 

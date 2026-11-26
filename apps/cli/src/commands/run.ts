@@ -69,7 +69,7 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
   if (askFirst) io.err(ASKED_FIRST);
 
   const code = await new Promise<number>((resolve) => {
-    const prompt = askFirst ? (agentTexts(paths.home).run ?? AGENT_TEXTS.run) : null;
+    const prompt = askFirst ? (agentTexts(paths.home).mcp ?? AGENT_TEXTS.mcp) : null;
     const child = spawn(program, agentArgs(program, args, openaiBaseUrl, prompt), {
       stdio: "inherit",
       cwd: io.cwd,

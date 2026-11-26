@@ -233,7 +233,7 @@ describe("what members write", () => {
     ...extra,
   });
 
-  it("keeps a member to their me, their agents' answers in a repository's folder, and the requests they run", async () => {
+  it("keeps a member to their me, their agents' pages in a repository's folder, and the requests they run", async () => {
     const bob = await join("bob");
     const refused = async (change: Record<string, unknown>, base = 0) =>
       (await push(bob, change, base)).refused[0]?.reason;
@@ -244,9 +244,19 @@ describe("what members write", () => {
     expect((await push(bob, record("mine", { top: "me" }))).applied).toHaveLength(1);
     expect((await push(bob, record("answer", { top: REPO }))).applied).toHaveLength(1);
     expect(await refused({ id: "answer", top: "team" }, 1)).toContain("only an admin writes there");
-    expect(await refused(record("doc", { top: REPO, type: "Doc", kind: null, fields: {} }))).toContain(
-      "only an admin writes there",
+    expect((await push(bob, record("doc", { top: REPO, type: "Doc", kind: null, fields: {} }))).applied).toHaveLength(
+      1,
     );
+    expect(
+      await refused(
+        record("decision", {
+          top: REPO,
+          type: "Decision",
+          kind: null,
+          fields: { owner: "bob", date: "2026-11-26", reason: "Faster." },
+        }),
+      ),
+    ).toContain("only an admin writes there");
 
     await push(ADA, {
       id: "r",

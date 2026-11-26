@@ -22,7 +22,7 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
   const seen = new Map<string, FullRecord>();
   for (const record of records) {
     if (record.type === "Suggestion") continue;
-    if (record.type === "Memory" && record.anchors.some((anchor) => anchor.kind === "git")) {
+    if (record.anchors.some((anchor) => anchor.kind === "git")) {
       const { status, changed } = await check(deps, record);
       if (status === "stale") {
         found.push({

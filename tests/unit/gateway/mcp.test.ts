@@ -62,7 +62,34 @@ describe("the MCP server", () => {
     expect(own.getInstructions()).toBe("Our store.");
     const tools = (await own.listTools()).tools;
     expect(tools.find((tool) => tool.name === "get")?.description).toBe("Ask it first.");
-    expect(tools.find((tool) => tool.name === "set")?.description).toContain("without asking anyone");
+    expect(tools.find((tool) => tool.name === "set")?.description).toContain("Save a page");
+  });
+
+  it("follows the protocol's folders: a repository's Conventions before its first page, and Me/About", async () => {
+    const client = await connect();
+    const name = repo.dir.split("/").at(-1) as string;
+    expect(
+      structured(await client.callTool({ name: "get", arguments: { folder: `${name}/Conventions` } })),
+    ).toMatchObject({
+      records: [],
+    });
+    const rule = structured(
+      await client.callTool({
+        name: "set",
+        arguments: { title: "Tabs", body: "Indent with tabs.", folder: `${name}/Conventions` },
+      }),
+    );
+    expect(rule).toMatchObject({ top: `repo:${repo.repo.id}` });
+    const about = structured(
+      await client.callTool({
+        name: "set",
+        arguments: { title: "Ada", body: "Prefers short answers.", folder: "Me/About" },
+      }),
+    );
+    expect(about).toMatchObject({ top: "me" });
+    expect(structured(await client.callTool({ name: "get", arguments: { folder: "Me/About" } }))).toMatchObject({
+      records: [{ title: "Ada" }],
+    });
   });
 
   it("answers get from what set kept", async () => {
@@ -74,7 +101,7 @@ describe("the MCP server", () => {
     const kept = structured(
       await client.callTool({
         name: "set",
-        arguments: { kind: "answer", title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
+        arguments: { title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
       }),
     );
     expect(kept).toMatchObject({ top: `repo:${repo.repo.id}` });
@@ -91,15 +118,11 @@ describe("the MCP server", () => {
     const kept = structured(
       await client.callTool({
         name: "set",
-        arguments: {
-          type: "Decision",
-          title: "Use SQLite",
-          fields: { owner: "ada", date: "2026-11-20", reason: "One file." },
-        },
+        arguments: { title: "Use SQLite", body: "One file." },
       }),
     );
     expect(kept).toMatchObject({ top: "me" });
-    const toTeam = await client.callTool({ name: "set", arguments: { kind: "fact", title: "x", folder: "Team" } });
+    const toTeam = await client.callTool({ name: "set", arguments: { title: "x", folder: "Team" } });
     expect((toTeam as { content: { text: string }[] }).content[0]?.text).toContain("Me or a repository's folder");
     const {
       seq: _seq,
@@ -107,17 +130,17 @@ describe("the MCP server", () => {
       ...mine
     } = (await store.records.get(kept.id as string)) as NonNullable<Awaited<ReturnType<Store["records"]["get"]>>>;
     await store.records.put({ ...mine, id: "shared", top: "team", version: 1 });
-    const change = await client.callTool({ name: "set", arguments: { id: "shared", kind: "fact", title: "y" } });
+    const change = await client.callTool({ name: "set", arguments: { id: "shared", title: "y" } });
     expect((change as { content: { text: string }[] }).content[0]?.text).toContain("the team's");
   });
 
   it("keeps a run's answer about the code in its repository's folder, and a member's run's other records nowhere", async () => {
-    const about = (title: string) => ({ kind: "answer", title, body: "In proxy.ts.", files: ["proxy.ts"] });
+    const about = (title: string) => ({ title, body: "In proxy.ts.", files: ["proxy.ts"] });
     const kept = async (client: Awaited<ReturnType<typeof connect>>, args: Record<string, unknown>) =>
       structured(await client.callTool({ name: "set", arguments: args }))?.top;
     const run = await connect({ runTop: "team" });
     expect(await kept(run, about("Where is the proxy?"))).toBe(`repo:${repo.repo.id}`);
-    expect(await kept(run, { kind: "fact", title: "The proxy listens on 7788" })).toBe("team");
+    expect(await kept(run, { title: "The proxy listens on 7788" })).toBe("team");
     const collector = await connect({ runTop: "me" });
     expect(await kept(collector, about("Who calls the proxy?"))).toBe("me");
 
@@ -126,7 +149,7 @@ describe("the MCP server", () => {
     expect(await kept(member, about("What does the proxy do?"))).toBe(`repo:${repo.repo.id}`);
     const fact = await member.callTool({
       name: "set",
-      arguments: { kind: "fact", title: "It restarts at night" },
+      arguments: { title: "It restarts at night" },
     });
     expect(fact.isError).toBe(true);
     expect((fact as { content: { text: string }[] }).content[0]?.text).toContain("run on a member's machine");
@@ -136,7 +159,7 @@ describe("the MCP server", () => {
     const client = await connect();
     const outside = await client.callTool({
       name: "set",
-      arguments: { kind: "answer", title: "q", body: "a", files: ["../../etc/passwd"] },
+      arguments: { title: "q", body: "a", files: ["../../etc/passwd"] },
     });
     expect(outside.isError).toBe(true);
     expect((outside as { content: { text: string }[] }).content[0]?.text).toContain("outside the repository");

@@ -43,7 +43,6 @@ function projects(workdir: string, home: string): string[] {
 
 /** The texts Grenier gives agents, by how the list names them. */
 const GRENIER_TEXTS: Record<keyof AgentTexts, string> = {
-  run: "grenier run",
   mcp: "MCP server",
   get: "get",
   set: "set",

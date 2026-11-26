@@ -24,8 +24,8 @@ const READ_BY: Record<string, string> = {
   "CLAUDE.md": "Claude Code reads it",
   "AGENTS.md": "Codex and most other agents read it",
   "CLAUDE.local.md": "Claude Code reads it, kept out of git",
-  "grenier run": "Claude Code reads it: grenier run adds it to its system prompt, in a repository",
-  "MCP server": "Every agent connected to Grenier reads it, as the MCP server's instructions",
+  "MCP server":
+    "Every agent connected to Grenier reads it, as the MCP server's instructions; grenier run also adds it to Claude Code's system prompt, in a repository",
   get: "Every agent connected to Grenier reads it, to know when to call get",
   set: "Every agent connected to Grenier reads it, to know when to call set and where its records go",
 };

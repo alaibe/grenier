@@ -188,7 +188,7 @@ describe("grenier run", () => {
       "-p",
       "hi",
     ]);
-    expect(AGENT_TEXTS.run).toContain("mcp__grenier__get");
+    expect(AGENT_TEXTS.mcp).toContain("get with your question");
     expect(asksFirst("claude", ["-p", "hi"], false)).toBe(false);
     expect(asksFirst("codex", ["exec"], true)).toBe(false);
     for (const own of ["--append-system-prompt", "--system-prompt-file=prompt.md", "--append-system-prompt-file"]) {

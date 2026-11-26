@@ -73,7 +73,7 @@ describe("the MCP server of the built binary", () => {
       expect(structured(await client.callTool({ name: "get", arguments: { query: question } })).status).toBe("miss");
       await client.callTool({
         name: "set",
-        arguments: { kind: "answer", title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
+        arguments: { title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
       });
       expect(structured(await client.callTool({ name: "get", arguments: { query: question } }))).toMatchObject({
         status: "hit",

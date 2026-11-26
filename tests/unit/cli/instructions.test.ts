@@ -43,7 +43,6 @@ describe("the instructions files", () => {
       ["project/notes/CLAUDE.md", true],
       ["project/notes/AGENTS.md", false],
       ["project/notes/CLAUDE.local.md", false],
-      ["grenier/run", false],
       ["grenier/mcp", false],
       ["grenier/get", false],
       ["grenier/set", false],

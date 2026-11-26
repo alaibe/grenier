@@ -237,7 +237,8 @@ export function memberMay(
   ranIt: boolean,
 ): boolean {
   if (after.top === mine && (!before || before.top === mine)) return true;
-  const answer = (record: { top: string; type: string }) => record.type === "Memory" && record.top.startsWith("repo:");
+  const answer = (record: { top: string; type: string }) =>
+    (record.type === "Doc" || record.type === "Memory") && record.top.startsWith("repo:");
   if (answer(after) && (!before || answer(before))) return true;
   if (before?.type !== "Task" || after.type !== "Task" || !ranIt) return false;
   const kept = ["top", "title", "folder", "body", "retiredAt"] as const;

@@ -3,8 +3,10 @@ import { basename, delimiter, join } from "node:path";
 import { writeAtomically } from "@grenier/core/node";
 import { addClient, resolveScopes } from "@grenier/index";
 import type { Store } from "@grenier/store";
+import { writeSkill } from "./installs.ts";
 import { Refusal } from "./io.ts";
 import { ensureBaseTops } from "./runtime.ts";
+import { SETUP_SKILL } from "./setup-skill.ts";
 
 /** The apps on this computer Grenier's MCP server can be added to. */
 export const APPS = ["claude-code", "cursor", "codex", "claude-desktop"] as const;
@@ -151,5 +153,8 @@ export async function connectApp(store: Store, app: App, scopes: string[], where
   });
   await store.clients.revoke(app, Date.now());
   writeAtomically(path, configFor(await addClient(store, app, scopes)));
+  // Claude Code also gets the skill that sets up the knowledge base: Grenier's own, written again each time.
+  if (app === "claude-code")
+    writeSkill(join(where.home, ".claude", "skills", "grenier-setup"), { "SKILL.md": SETUP_SKILL });
   return path;
 }

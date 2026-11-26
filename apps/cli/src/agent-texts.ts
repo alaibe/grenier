@@ -4,7 +4,6 @@ import { AGENT_TEXTS, type AgentTexts } from "@grenier/gateway";
 
 /** Each text Grenier gives agents, by the file in ~/.grenier/instructions that holds the person's own version. */
 export const AGENT_TEXT_FILES: Record<keyof AgentTexts, string> = {
-  run: "grenier-run.md",
   mcp: "mcp-server.md",
   get: "get.md",
   set: "set.md",

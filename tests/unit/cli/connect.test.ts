@@ -41,6 +41,9 @@ describe("adding Grenier's MCP server to an app's config", () => {
       JSON.stringify({ theme: "dark", mcpServers: { other: { command: "x" } } }),
     );
     expect(await connectApp(store, "claude-code", ["*"], where)).toBe(join(home, ".claude.json"));
+    expect(readFileSync(join(home, ".claude", "skills", "grenier-setup", "SKILL.md"), "utf8")).toContain(
+      "name: grenier-setup",
+    );
     const config = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"));
     expect(config.theme).toBe("dark");
     expect(config.mcpServers.other).toEqual({ command: "x" });

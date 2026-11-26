@@ -73,7 +73,7 @@ export const BUILTINS: Record<string, Builtin> = {
     prompt: [
       "Keep the answers Grenier holds about the code current, so get keeps returning hits.",
       "",
-      'For each git repository in the work folder: call get with type "Memory", its folder set to the repository\'s folder name and limit 200. For every answer whose status is stale, read only the files listed in changed, then call set with kind "answer", the same question as title, the corrected answer as body, every file you read as files, and repo set to the repository\'s path. Leave hits and every other record alone.',
+      "For each git repository in the work folder: call get with its folder name as folder and limit 200. For every page whose status is stale, read only the files listed in changed, then call set with the same title, the corrected Markdown, every file you read as files, and repo set to the repository's path. Leave every other page alone.",
       "",
       "End with how many answers you refreshed in each repository.",
     ].join("\n"),
@@ -83,9 +83,9 @@ export const BUILTINS: Record<string, Builtin> = {
     schedule: "mon 07:00",
     collector: false,
     prompt: [
-      "Give Grenier a short summary of each part of the code, so a question about where something is finds one instead of exploring.",
+      "Give Grenier a short page on each part of the code, so a question about where something is finds one instead of exploring.",
       "",
-      "For each git repository in the work folder, and each of its top-level folders: call get with the folder's path as the question. Unless a summary of it is a hit, read enough of the folder to say what it holds and where its main pieces are, then call set with kind \"summary\", the folder's path as title, two to four lines as body, files set to [its path], and repo set to the repository's path.",
+      "For each git repository in the work folder, and each of its top-level folders: call get with the folder's path as the question. Unless a page on it is a hit, read enough of the folder to say what it holds and where its main pieces are, then call set with the folder's path as title, two to four lines of Markdown, files set to [its path], and repo set to the repository's path.",
       "",
       "End with the summaries you wrote or rewrote.",
     ].join("\n"),
@@ -97,7 +97,7 @@ export const BUILTINS: Record<string, Builtin> = {
     prompt: [
       "Suggest how each project's CLAUDE.md and AGENTS.md should change, from what the team keeps in Grenier. Never edit those files.",
       "",
-      'For each git repository in the work folder: read its CLAUDE.md and AGENTS.md, then call get with the questions they should answer, and with type "Decision" and kind conventions for the project. Where a convention or a decision is missing from them, or they say what has since changed, call set with type "Doc", title "Instructions to update: <repository>", and as body the exact lines to add, change or remove, each with the record it comes from.',
+      'For each git repository in the work folder: read its CLAUDE.md and AGENTS.md, then call get with the questions they should answer, and for the team\'s conventions and decisions about the project. Where one is missing from them, or they say what has since changed, call set with the title "Instructions to update: <repository>" and, as Markdown, the exact lines to add, change or remove, each with the page it comes from.',
       "",
       "End with the repositories you wrote a page for, or none.",
     ].join("\n"),
