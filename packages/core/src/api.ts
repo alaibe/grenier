@@ -369,10 +369,23 @@ export interface RoutineView {
   schedule: string | null;
   agent: string;
   collector: boolean;
+  /** One of the routines Grenier ships, by its id; null for one the team wrote. */
+  builtin: string | null;
   /** What a run does: the routine's text. */
   prompt: string;
   /** How this machine's person approved it: its mode, and whether it changed since. */
   approval: { mode: RoutineMode; limit: number; current: boolean } | null;
+}
+
+/** A routine Grenier ships, as the Routines screen offers it before it is added. */
+export interface BuiltinView {
+  id: string;
+  title: string;
+  schedule: string;
+  collector: boolean;
+  /** Run here without an agent, at no cost. */
+  local: boolean;
+  prompt: string;
 }
 
 /** A run of a routine on this machine. */

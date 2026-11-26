@@ -242,10 +242,10 @@ export function MarkdownEditor({
   value: string;
   editable: boolean;
   label: string;
-  onChange: (text: string) => void;
+  onChange?: (text: string) => void;
   /** A link to a page, written through `@`. */
-  onLink: (link: Link) => void;
-  open: (id: string) => void;
+  onLink?: (link: Link) => void;
+  open?: (id: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -274,7 +274,7 @@ export function MarkdownEditor({
           EditorView.contentAttributes.of({ "aria-label": label, "aria-multiline": "true" }),
           preview,
           autocompletion({
-            override: [mentions((link) => latest.current.onLink(link))],
+            override: [mentions((link) => latest.current.onLink?.(link))],
             icons: false,
             tooltipClass: () => "menu",
             optionClass: () => "menu-item",
@@ -282,7 +282,7 @@ export function MarkdownEditor({
           EditorView.updateListener.of((update) => {
             if (!update.docChanged) return;
             sent.current = update.state.doc.toString();
-            latest.current.onChange(sent.current);
+            latest.current.onChange?.(sent.current);
           }),
           EditorView.domEventHandlers({
             click: (event, editor) => {
@@ -290,7 +290,7 @@ export function MarkdownEditor({
               const href = link?.dataset.href;
               if (!href || (editor.state.facet(EditorView.editable) && !(event.metaKey || event.ctrlKey))) return false;
               event.preventDefault();
-              if (href.startsWith("record:")) latest.current.open(href.slice("record:".length));
+              if (href.startsWith("record:")) latest.current.open?.(href.slice("record:".length));
               else window.open(href, "_blank", "noreferrer");
               return true;
             },

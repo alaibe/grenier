@@ -4,8 +4,9 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { api } from "../api.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
 import { type Command, useCommands } from "../shell/commands.tsx";
-import { useItemTitle } from "../shell/regions.tsx";
+import { DetailBar, useItemTitle } from "../shell/regions.tsx";
 import { descriptionOf, joinManifest, splitManifest, withDescription } from "../skill-manifest.ts";
+import { installTag } from "../states.ts";
 import { Button, Primary } from "../ui/button.tsx";
 import { useConfirm } from "../ui/dialog.tsx";
 import { Skeleton } from "../ui/empty.tsx";
@@ -73,8 +74,7 @@ function SkillPage({
 
   return (
     <article className="flex h-full min-w-0 flex-col overflow-y-auto" data-verb="save">
-      <header className="sticky top-0 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg px-4 font-mono text-sm">
-        <p className="min-w-0 flex-1 truncate text-muted">{path}</p>
+      <DetailBar crumb={path}>
         {state}
         {editable && <span className="text-xs text-muted">{dirty ? "Edited" : "Saved"}</span>}
         {actions}
@@ -83,7 +83,7 @@ function SkillPage({
             Save
           </Primary>
         )}
-      </header>
+      </DetailBar>
       <div className="mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24">
         <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">{name}</h1>
         {editable && description !== null ? (
@@ -110,7 +110,6 @@ function SkillPage({
             editable={editable}
             label="Instructions, in Markdown"
             onChange={(body) => setDraft((now) => ({ ...now, body }))}
-            onLink={() => {}}
             open={open}
           />
         </div>
@@ -241,12 +240,6 @@ export function LocalSkillView({
   );
 }
 
-const HERE: Record<SharedState["state"], ReactNode> = {
-  installed: <Status kind="ok" word="installed" />,
-  update: <Status kind="warn" word="update" />,
-  available: <Status kind="draft" word="not here" />,
-};
-
 /** A skill the team shares: installed here or not, and edited by an admin as a new version each machine approves. */
 export function TeamSkillView({
   entry,
@@ -339,7 +332,7 @@ export function TeamSkillView({
         manifest={files["SKILL.md"] ?? ""}
         files={Object.keys(files).filter((path) => path !== "SKILL.md")}
         editable={admin}
-        state={HERE[entry.state]}
+        state={<Status {...installTag(entry.state)} />}
         actions={
           <>
             {entry.state !== "installed" && (

@@ -2,9 +2,6 @@ import { recordProblem } from "@grenier/core";
 import { check, newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
 import type { FullRecord } from "@grenier/store";
 
-/** The librarian's mark on its routine: a run of it checks the store here instead of starting an agent. */
-export const LIBRARIAN = "librarian";
-
 const normal = (title: string) =>
   title
     .toLowerCase()

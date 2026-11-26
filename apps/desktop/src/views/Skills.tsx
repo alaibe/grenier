@@ -1,11 +1,12 @@
 import type { FoundSkill, LocalSkill, SharedState } from "@grenier/core/api";
 import { FilePlus, Link2, Search, Sparkles } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import { count } from "../format.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
 import { ListDetail } from "../shell/regions.tsx";
+import { installTag } from "../states.ts";
 import { Button, IconButton } from "../ui/button.tsx";
 import { Dialog } from "../ui/dialog.tsx";
 import { Empty, Skeleton } from "../ui/empty.tsx";
@@ -13,7 +14,7 @@ import { Field, Input, SearchField, Textarea } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Problem } from "../ui/notice.tsx";
 import { Status, Tag } from "../ui/tag.tsx";
-import { Tree, type TreeNode } from "../ui/tree.tsx";
+import { Tree, type TreeNode, toTree, useFolding } from "../ui/tree.tsx";
 import { LocalSkillView, TeamSkillView } from "./SkillDetail.tsx";
 
 const loadLocal = () => api<{ skills: LocalSkill[] }>("/skills").then((answer) => answer.skills);
@@ -26,12 +27,6 @@ interface Adding {
   to: Group;
   how: "find" | "write";
 }
-
-const HERE: Record<SharedState["state"], ReactNode> = {
-  installed: <Status kind="ok" word="installed" />,
-  update: <Status kind="warn" word="update" />,
-  available: <Status kind="draft" word="not here" />,
-};
 
 /** skills.sh's skills that match some words: Add puts one in the person's skills, or shares it with the team. */
 function FindSkill({ to, added, cancel }: { to: Group; added: (id: string) => void; cancel: () => void }) {
@@ -152,28 +147,11 @@ function WriteSkill({ to, added, cancel }: { to: Group; added: (id: string) => v
 /** Folders start open, except Synced and Plugins. Kept in this window only. */
 const closedFirst = (id: string) => id === "me/synced" || id === "me/plugins";
 
-function useOpen(): [(id: string) => boolean, (id: string, open: boolean) => void] {
-  const [flipped, setFlipped] = useState<Set<string>>(new Set());
-  const open = useCallback((id: string) => flipped.has(id) === closedFirst(id), [flipped]);
-  const set = useCallback(
-    (id: string, next: boolean) =>
-      setFlipped((current) => {
-        if ((current.has(id) === closedFirst(id)) === next) return current;
-        const out = new Set(current);
-        if (out.has(id)) out.delete(id);
-        else out.add(id);
-        return out;
-      }),
-    [],
-  );
-  return [open, set];
-}
-
 export function Skills({ item, go, member, team }: ViewProps) {
   const local = useLoad(loadLocal);
   const loadShared = useCallback(() => (team ? loadTeam() : Promise.resolve([])), [team]);
   const shared = useLoad(loadShared);
-  const [open, setOpen] = useOpen();
+  const [open, setOpen] = useFolding(closedFirst);
   const [adding, setAdding] = useState<Adding | null>(null);
   const [words, setWords] = useState("");
   const search = useRef<HTMLInputElement>(null);
@@ -260,7 +238,7 @@ export function Skills({ item, go, member, team }: ViewProps) {
                 id: `team:${entry.id}`,
                 name: entry.title,
                 icon: Sparkles,
-                meta: HERE[entry.state],
+                meta: <Status {...installTag(entry.state)} />,
               })),
           },
         ]
@@ -277,11 +255,7 @@ export function Skills({ item, go, member, team }: ViewProps) {
           live
           value={words}
           onChange={(event) => setWords(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowDown") return;
-            event.preventDefault();
-            event.currentTarget.closest("[data-region]")?.querySelector<HTMLElement>("[role=tree]")?.focus();
-          }}
+          onKeyDown={toTree}
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">

@@ -12,7 +12,7 @@ import { Empty, Skeleton } from "../ui/empty.tsx";
 import { Input, SearchField } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Problem } from "../ui/notice.tsx";
-import { Tree, type TreeDrag, type TreeNode, visibleRows } from "../ui/tree.tsx";
+import { Tree, type TreeDrag, type TreeNode, toTree, visibleRows } from "../ui/tree.tsx";
 import { type FolderPath, folderPath, PageEditor, type Target } from "./PageEditor.tsx";
 
 const loadTops = () => api<{ tops: Top[] }>("/tops").then((answer) => answer.tops);
@@ -543,14 +543,7 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
           live
           value={words}
           onChange={(event) => setWords(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowDown") return;
-            event.preventDefault();
-            event.currentTarget
-              .closest("[data-region]")
-              ?.querySelector<HTMLElement>("[role=tree], [role=listbox]")
-              ?.focus();
-          }}
+          onKeyDown={toTree}
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">

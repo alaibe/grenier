@@ -1,5 +1,5 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
-import { type DragEvent, type KeyboardEvent, type ReactNode, useState } from "react";
+import { type DragEvent, type KeyboardEvent, type ReactNode, useCallback, useRef, useState } from "react";
 
 export interface TreeNode {
   id: string;
@@ -208,4 +208,33 @@ export function Tree({
       })}
     </div>
   );
+}
+
+/** Which folders show what they hold, kept in this window only: each starts open unless `closedFirst` says otherwise. */
+export function useFolding(
+  closedFirst: (id: string) => boolean = () => false,
+): [(id: string) => boolean, (id: string, open: boolean) => void] {
+  const [flipped, setFlipped] = useState<Set<string>>(new Set());
+  const rule = useRef(closedFirst);
+  rule.current = closedFirst;
+  const open = useCallback((id: string) => flipped.has(id) === rule.current(id), [flipped]);
+  const set = useCallback(
+    (id: string, next: boolean) =>
+      setFlipped((current) => {
+        if ((current.has(id) === rule.current(id)) === next) return current;
+        const out = new Set(current);
+        if (out.has(id)) out.delete(id);
+        else out.add(id);
+        return out;
+      }),
+    [],
+  );
+  return [open, set];
+}
+
+/** On ↓ in a list's search field, focus moves into the list below it. */
+export function toTree(event: KeyboardEvent<HTMLInputElement>) {
+  if (event.key !== "ArrowDown") return;
+  event.preventDefault();
+  event.currentTarget.closest("[data-region]")?.querySelector<HTMLElement>("[role=tree], [role=listbox]")?.focus();
 }

@@ -2,8 +2,8 @@ import { hasPrompt, nextDue, ROUTINE_MODES, type RoutineMode, routineHash } from
 import type { RoutineView } from "@grenier/core/api";
 import { newRecord, type StoreDeps, write } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
+import { BUILTINS } from "./builtins.ts";
 import { Refusal } from "./io.ts";
-import { LIBRARIAN } from "./librarian.ts";
 
 export async function routineViews(store: Store): Promise<RoutineView[]> {
   const tops = (await store.tops.list()).map((top) => top.id);
@@ -18,6 +18,7 @@ export async function routineViews(store: Store): Promise<RoutineView[]> {
       schedule: typeof routine.fields.schedule === "string" && routine.fields.schedule ? routine.fields.schedule : null,
       agent: String(routine.fields.agent ?? "claude"),
       collector: routine.fields.collector === "yes",
+      builtin: typeof routine.fields.builtin === "string" ? routine.fields.builtin : null,
       prompt: routine.body,
       approval: approval
         ? {
@@ -47,18 +48,19 @@ export async function approve(store: Store, routine: FullRecord, mode: RoutineMo
   });
 }
 
-/** Adds the built-in routine that looks through the store each day and suggests fixes, once. */
-export async function addLibrarian(deps: StoreDeps): Promise<{ id: string; added: boolean }> {
+/** Adds one of the routines Grenier ships, once: a collector runs on its owner's machines and writes to their Me. */
+export async function addBuiltin(deps: StoreDeps, id: string): Promise<{ id: string; added: boolean }> {
+  const builtin = BUILTINS[id];
+  if (!builtin) throw new Refusal(`Grenier ships no routine ${id}`);
   const tops = (await deps.store.tops.list()).map((top) => top.id);
   const existing = (await deps.store.records.list({ tops, type: "Routine" })).find(
-    (record) => record.fields.builtin === LIBRARIAN,
+    (record) => record.fields.builtin === id,
   );
   if (existing) return { id: existing.id, added: false };
   const added = await addRoutine(deps, {
-    title: "Librarian",
-    prompt:
-      "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned tasks, and suggests fixes.",
-    fields: { schedule: "daily 05:00", builtin: LIBRARIAN },
+    title: builtin.title,
+    prompt: builtin.prompt,
+    fields: { schedule: builtin.schedule, builtin: id, ...(builtin.collector ? { collector: "yes" } : {}) },
     top: "team",
   });
   return { id: added.id, added: true };

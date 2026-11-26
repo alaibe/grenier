@@ -2,6 +2,8 @@ import type { LocalServer, RecordFull, ServerChange, SharedNow, SharedState } fr
 import { Check, Download, Plus, Settings, Share2, Trash2, Undo2 } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
 import { api } from "../api.ts";
+import { DetailBar } from "../shell/regions.tsx";
+import { installTag } from "../states.ts";
 import { Button, IconButton, Primary } from "../ui/button.tsx";
 import { Dialog, useConfirm } from "../ui/dialog.tsx";
 import { Skeleton } from "../ui/empty.tsx";
@@ -41,11 +43,10 @@ function ServerPage({
 }) {
   return (
     <article className="flex h-full min-w-0 flex-col overflow-y-auto" data-verb="save">
-      <header className="sticky top-0 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg px-4 font-mono text-sm">
-        <p className="min-w-0 flex-1 truncate text-muted">{path}</p>
+      <DetailBar crumb={path}>
         {state}
         {actions}
-      </header>
+      </DetailBar>
       <div className="mx-auto grid w-full max-w-(--layout-reading) gap-6 px-6 pt-10 pb-24">
         <div>
           <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">{name}</h1>
@@ -343,12 +344,6 @@ export function LocalServerView({
   );
 }
 
-const HERE: Record<SharedState["state"], ReactNode> = {
-  installed: <Status kind="ok" word="installed" />,
-  update: <Status kind="warn" word="update" />,
-  available: <Status kind="draft" word="not here" />,
-};
-
 /** A server the team shares: what it runs, the keys each person enters, and whether it is installed here. */
 export function TeamServerView({
   entry,
@@ -429,7 +424,7 @@ export function TeamServerView({
       path={`Team / ${entry.title}`}
       name={entry.title}
       meta={config.url ? "at a URL" : "a local command"}
-      state={HERE[entry.state]}
+      state={<Status {...installTag(entry.state)} />}
       actions={
         <>
           {entry.state !== "installed" && (

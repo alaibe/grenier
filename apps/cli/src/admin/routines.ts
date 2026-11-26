@@ -1,8 +1,9 @@
 import { hasPrompt, type RoutineMode, routineHash } from "@grenier/core";
-import type { LocalRun } from "@grenier/core/api";
+import type { BuiltinView, LocalRun } from "@grenier/core/api";
 import { StoreUseError } from "@grenier/index";
 import { Hono } from "hono";
-import { addLibrarian, addRoutine, approve, editRoutine, routineFromForm, routineViews } from "../routines.ts";
+import { BUILTINS } from "../builtins.ts";
+import { addBuiltin, addRoutine, approve, editRoutine, routineFromForm, routineViews } from "../routines.ts";
 import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./body.ts";
 
@@ -32,9 +33,20 @@ export function routineRoutes(deps: AdminDeps): Hono {
     return c.json(await addRoutine(await deps.storeDeps(), { ...form, top: "team" }));
   });
 
-  app.post("/routines/librarian", async (c) => {
+  app.get("/routines/builtins", (c) =>
+    c.json({
+      builtins: Object.entries(BUILTINS).map(([id, { admins: _admins, run, ...shown }]) => ({
+        id,
+        ...shown,
+        local: Boolean(run),
+      })) satisfies BuiltinView[],
+    }),
+  );
+
+  /** One of the routines Grenier ships: the librarian, the answer refresher, the summaries, the keeper, the digest. */
+  app.post("/routines/builtin/:id", async (c) => {
     if (!deps.team()) return c.json(noTeam, 409);
-    return c.json(await addLibrarian(await deps.storeDeps()));
+    return c.json(await addBuiltin(await deps.storeDeps(), c.req.param("id")));
   });
 
   app.put("/routines/:id", async (c) => {
@@ -51,6 +63,14 @@ export function routineRoutes(deps: AdminDeps): Hono {
     await approve(store, found, (input.mode as RoutineMode) ?? "read-only", Number(input.limit ?? 10));
     void runner.tick(true);
     return c.json({ approved: found.id });
+  });
+
+  /** This machine stops running it: its approval here goes, and the team keeps the routine. */
+  app.delete("/routines/:id/approve", async (c) => {
+    const found = await routine(c.req.param("id"));
+    if (!found) return c.json({ error: "no such routine" }, 404);
+    await store.approvals.remove(found.id, "routine");
+    return c.json({ stopped: found.id });
   });
 
   app.post("/routines/:id/run", async (c) => {

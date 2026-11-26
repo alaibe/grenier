@@ -96,3 +96,15 @@ export function Resizer({
     />
   );
 }
+
+/** A detail's top row, which stays as the page scrolls: where the item is, then its actions. */
+export function DetailBar({ crumb, title, children }: { crumb: ReactNode; title?: string; children?: ReactNode }) {
+  return (
+    <header className="sticky top-0 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg px-4 font-mono text-sm">
+      <p className="min-w-0 flex-1 truncate text-muted" title={title}>
+        {crumb}
+      </p>
+      {children}
+    </header>
+  );
+}

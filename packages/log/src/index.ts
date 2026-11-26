@@ -4,6 +4,7 @@ export {
   folderName,
   formatToday,
   type GroupBy,
+  money,
   mostSpentFirst,
   parseSince,
   projectOf,

@@ -29,7 +29,7 @@ import { hunks, lineDiff } from "../diff.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
 import { ago, exact } from "../format.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
-import { useItemTitle } from "../shell/regions.tsx";
+import { DetailBar, useItemTitle } from "../shell/regions.tsx";
 import { Button, IconButton, Primary } from "../ui/button.tsx";
 import { Dialog, useConfirm } from "../ui/dialog.tsx";
 import { Skeleton } from "../ui/empty.tsx";
@@ -225,10 +225,7 @@ export function PageEditor({
   return (
     <div className="flex h-full min-h-0">
       <article className="flex min-w-0 flex-1 flex-col overflow-y-auto" data-verb="save">
-        <header className="sticky top-0 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg px-4 font-mono text-sm">
-          <p className="min-w-0 flex-1 truncate text-muted" title="Where it is">
-            {folderPath(tops, draft.top, draft.folder)}
-          </p>
+        <DetailBar crumb={folderPath(tops, draft.top, draft.folder)} title="Where it is">
           {editable && (
             <span className="text-xs text-muted">{dirty ? (id ? "Edited" : "Not saved yet") : "Saved"}</span>
           )}
@@ -263,7 +260,7 @@ export function PageEditor({
               {conflict ? "Keep mine" : "Save"}
             </Primary>
           )}
-        </header>
+        </DetailBar>
 
         <div className="mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24">
           <input

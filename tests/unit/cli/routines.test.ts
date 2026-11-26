@@ -2,7 +2,7 @@ import type { StoreDeps } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { addLibrarian, addRoutine, editRoutine, routineFromForm } from "../../../apps/cli/src/routines.ts";
+import { addBuiltin, addRoutine, editRoutine, routineFromForm } from "../../../apps/cli/src/routines.ts";
 import { storeDeps } from "../../support/repo.ts";
 
 let store: Store;
@@ -58,9 +58,10 @@ describe("a routine written in the app", () => {
     const edited = await store.records.get(first.id);
     expect(edited).toMatchObject({ title: "Tidy up", body: "Tidy up, then test." });
     expect(edited?.fields).toEqual({ schedule: "hourly" });
-    const librarian = await addLibrarian(deps);
+    const librarian = await addBuiltin(deps, "librarian");
     expect(librarian.added).toBe(true);
-    expect(await addLibrarian(deps)).toEqual({ id: librarian.id, added: false });
+    expect(await addBuiltin(deps, "librarian")).toEqual({ id: librarian.id, added: false });
+    await expect(addBuiltin(deps, "nothing")).rejects.toThrow("ships no routine nothing");
   });
 
   it("refuses at once a text the team store would refuse, instead of keeping it here only", async () => {

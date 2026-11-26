@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Config, defaultConfig } from "@grenier/core";
 import { type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
+import { loadPrices } from "@grenier/log";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LIBRARIAN } from "../../../apps/cli/src/librarian.ts";
 import type { Probes } from "../../../apps/cli/src/machine.ts";
 import { addRoutine, approve } from "../../../apps/cli/src/routines.ts";
 import { Runner, type Spawner } from "../../../apps/cli/src/runner.ts";
@@ -49,6 +49,7 @@ function newRunner(): Runner {
     port: 7788,
     team: () => team,
     storeDeps: async () => deps,
+    prices: loadPrices(),
     tell: async (state) => {
       await teamApi(team, "/api/machines/me", { method: "PUT", body: state });
     },
@@ -341,7 +342,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Librarian",
       prompt: "Built in.",
-      fields: { builtin: LIBRARIAN },
+      fields: { builtin: "librarian" },
       top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
@@ -356,7 +357,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Librarian",
       prompt: "Built in.",
-      fields: { builtin: LIBRARIAN },
+      fields: { builtin: "librarian" },
       top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");

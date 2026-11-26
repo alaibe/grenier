@@ -105,7 +105,11 @@ export function parseSince(value: string, now: number): number {
   throw new Error(`--since takes a duration such as 7d, 12h or 30m, or a date such as 2026-11-01, not "${value}"`);
 }
 
-const spentAndCached = (row: ReportRow) => `$${row.cost.toFixed(2)} spent, $${row.saved.toFixed(2)} cached`;
+/** Dollars with cents, or with the two digits that matter below ten cents, as the app writes them. */
+export const money = (amount: number) =>
+  amount === 0 || Math.abs(amount) >= 0.1 ? `$${amount.toFixed(2)}` : `$${Number(amount.toPrecision(2))}`;
+
+const spentAndCached = (row: ReportRow) => `${money(row.cost)} spent, ${money(row.saved)} cached`;
 
 export function mostSpentFirst(rows: readonly ReportRow[]): ReportRow[] {
   return [...rows].sort((a, b) => b.cost - a.cost || a.key.localeCompare(b.key));

@@ -1,11 +1,12 @@
 import type { FoundServer, LocalServer, SharedState } from "@grenier/core/api";
 import { Plug, Plus } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import { serverName } from "../server-name.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
 import { ListDetail } from "../shell/regions.tsx";
+import { installTag } from "../states.ts";
 import { Button, IconButton } from "../ui/button.tsx";
 import { Dialog } from "../ui/dialog.tsx";
 import { Empty, Skeleton } from "../ui/empty.tsx";
@@ -14,7 +15,7 @@ import { useAction, useLoad } from "../ui/load.ts";
 import { Problem } from "../ui/notice.tsx";
 import { Segmented } from "../ui/segmented.tsx";
 import { Status, Tag } from "../ui/tag.tsx";
-import { Tree, type TreeNode } from "../ui/tree.tsx";
+import { Tree, type TreeNode, toTree, useFolding } from "../ui/tree.tsx";
 import { LocalServerView, TeamServerView } from "./ServerDetail.tsx";
 
 const loadLocal = () => api<{ servers: LocalServer[] }>("/servers").then((answer) => answer.servers);
@@ -26,12 +27,6 @@ const loadTeam = () =>
 
 /** Where a new server goes: the person's Claude Code, or the team's. */
 type Group = "me" | "team";
-
-const HERE: Record<SharedState["state"], ReactNode> = {
-  installed: <Status kind="ok" word="installed" />,
-  update: <Status kind="warn" word="update" />,
-  available: <Status kind="draft" word="not here" />,
-};
 
 const lines = (text: string) =>
   text
@@ -260,23 +255,6 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
 /** Folders start open, except each project's and each app's. Kept in this window only. */
 const closedFirst = (id: string) => id.startsWith("me/projects/") || id.startsWith("me/apps/");
 
-function useOpen(): [(id: string) => boolean, (id: string, open: boolean) => void] {
-  const [flipped, setFlipped] = useState<Set<string>>(new Set());
-  const open = useCallback((id: string) => flipped.has(id) === closedFirst(id), [flipped]);
-  const set = useCallback(
-    (id: string, next: boolean) =>
-      setFlipped((current) => {
-        if ((current.has(id) === closedFirst(id)) === next) return current;
-        const out = new Set(current);
-        if (out.has(id)) out.delete(id);
-        else out.add(id);
-        return out;
-      }),
-    [],
-  );
-  return [open, set];
-}
-
 const base = (path: string) => path.split("/").filter(Boolean).at(-1) ?? path;
 
 /** The MCP servers this person's agents get, beside the team's: listed, added, changed and installed. */
@@ -284,7 +262,7 @@ export function Mcp({ item, go, member, team }: ViewProps) {
   const local = useLoad(loadLocal);
   const loadShared = useCallback(() => (team ? loadTeam() : Promise.resolve([])), [team]);
   const shared = useLoad(loadShared);
-  const [open, setOpen] = useOpen();
+  const [open, setOpen] = useFolding(closedFirst);
   const [adding, setAdding] = useState<Group | null>(null);
   const [words, setWords] = useState("");
   const search = useRef<HTMLInputElement>(null);
@@ -373,7 +351,7 @@ export function Mcp({ item, go, member, team }: ViewProps) {
               id: `team:${entry.id}`,
               name: entry.title,
               icon: Plug,
-              meta: HERE[entry.state],
+              meta: <Status {...installTag(entry.state)} />,
             })),
           },
         ]
@@ -390,11 +368,7 @@ export function Mcp({ item, go, member, team }: ViewProps) {
           live
           value={words}
           onChange={(event) => setWords(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowDown") return;
-            event.preventDefault();
-            event.currentTarget.closest("[data-region]")?.querySelector<HTMLElement>("[role=tree]")?.focus();
-          }}
+          onKeyDown={toTree}
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">

@@ -9,6 +9,9 @@ const STATES: Record<string, [StatusKind, string]> = {
   cut: ["warn", "cut"],
   "to-do": ["draft", "to do"],
   installed: ["ok", "installed"],
+  "not-here": ["draft", "not here"],
+  approved: ["ok", "approved"],
+  changed: ["warn", "changed"],
   update: ["warn", "update"],
   available: ["ok", "available"],
   busy: ["live", "busy"],
@@ -20,3 +23,7 @@ export function stateTag(state: string): { kind: StatusKind; word: string } {
   const [kind, word] = STATES[state] ?? ["draft", state];
   return { kind, word };
 }
+
+/** A skill's or a server's tag here: installed, an update waiting, or not installed. */
+export const installTag = (state: "installed" | "update" | "available") =>
+  stateTag(state === "available" ? "not-here" : state);

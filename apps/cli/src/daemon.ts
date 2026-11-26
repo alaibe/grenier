@@ -124,6 +124,7 @@ export async function runDaemon(io: Io): Promise<number> {
     port,
     team: () => team,
     storeDeps: () => storeDeps(store, rules, embedder),
+    prices,
     tell: async (state) => {
       await link?.tell(state);
     },

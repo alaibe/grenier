@@ -15,8 +15,9 @@ import {
 import type { Availability } from "@grenier/core/api";
 import type { RunGuard } from "@grenier/gateway";
 import { newId, refusal, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
+import type { Prices } from "@grenier/log";
 import type { FullRecord, RecordInput, Session, Store } from "@grenier/store";
-import { LIBRARIAN, librarian } from "./librarian.ts";
+import { builtinOf } from "./builtins.ts";
 import { availability, type Probes, systemProbes } from "./machine.ts";
 import { newSessionId, repoResolver } from "./runtime.ts";
 
@@ -38,6 +39,8 @@ export interface RunnerDeps {
   port: number;
   team: () => TeamClient | null;
   storeDeps: () => Promise<StoreDeps>;
+  /** For a built-in that reports cost. */
+  prices: Prices;
   /** Tells the team store this machine's state, over the live connection. */
   tell: (state: Record<string, unknown>) => Promise<void>;
   /** A round of sync now, so a result reaches the team at once. */
@@ -198,8 +201,9 @@ export class Runner {
       );
       return decline(approval ? "it changed since it was approved here" : "it is not approved here");
     }
-    if (routine.fields.builtin === LIBRARIAN && (await this.deps.store.state.get("team_role")) === "member") {
-      return decline("the librarian writes suggestions for the team: an admin's machine runs it");
+    const builtin = builtinOf(routine);
+    if (builtin?.admins && (await this.deps.store.state.get("team_role")) === "member") {
+      return decline(`${builtin.title} writes for the team: an admin's machine runs it`);
     }
     if (!hasPrompt(routine)) return decline("it says nothing to do yet");
     await this.run({
@@ -333,22 +337,14 @@ export class Runner {
         }, LEASE_RENEW);
       }
 
-      if (routine.fields.builtin === LIBRARIAN) {
-        const found = await librarian(await this.deps.storeDeps());
-        return await this.#finish(
-          runId,
-          {
-            status: "done",
-            result:
-              found.suggested === 0
-                ? "The store is in order: nothing to suggest."
-                : `${found.suggested} suggestions, to accept or dismiss in the store:\n${found.lines.join("\n")}`,
-            cost: 0,
-            actions: 0,
-          },
-          report,
-          task,
-        );
+      const builtin = builtinOf(routine);
+      if (builtin?.run) {
+        const result = await builtin.run({
+          deps: await this.deps.storeDeps(),
+          prices: this.deps.prices,
+          now: this.now(),
+        });
+        return await this.#finish(runId, { status: "done", result, cost: 0, actions: 0 }, report, task);
       }
       const prompt = [
         routine.body,

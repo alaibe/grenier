@@ -71,10 +71,22 @@ describe("the routines' admin routes", () => {
     expect(runs).toHaveLength(1);
   });
 
-  it("adds no routine and no librarian outside a team: routines run on the team's machines", async () => {
+  it("stops running a routine here once its approval is taken back", async () => {
+    const { id } = await addRoutine(deps, { title: "Tidy", prompt: "Tidy up.", fields: {}, top: "team" });
+    await route()("POST", `/routines/${id}/approve`, { mode: "read-only" });
+    expect(await store.approvals.get(id, "routine")).toBeDefined();
+    expect((await route()("DELETE", `/routines/${id}/approve`))?.body).toEqual({ stopped: id });
+    expect(await store.approvals.get(id, "routine")).toBeUndefined();
+    expect((await route()("POST", `/routines/${id}/run`, {}))?.status).toBe(409);
+  });
+
+  it("adds no routine and no built-in outside a team: routines run on the team's machines", async () => {
     team = null;
     const form = { title: "Tidy", prompt: "Tidy up." };
-    for (const reply of [await route()("POST", "/routines", form), await route()("POST", "/routines/librarian", {})]) {
+    for (const reply of [
+      await route()("POST", "/routines", form),
+      await route()("POST", "/routines/builtin/librarian", {}),
+    ]) {
       expect(reply?.status).toBe(409);
       expect(reply?.body).toEqual({ error: expect.stringContaining("start or join a team first") });
     }

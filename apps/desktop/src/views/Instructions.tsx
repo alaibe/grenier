@@ -5,14 +5,17 @@ import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
 import { type Command, useCommands } from "../shell/commands.tsx";
-import { ListDetail, useItemTitle } from "../shell/regions.tsx";
+import { DetailBar, ListDetail, useItemTitle } from "../shell/regions.tsx";
 import { Button, Primary } from "../ui/button.tsx";
 import { Empty, Skeleton } from "../ui/empty.tsx";
 import { SearchField } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Notice, Problem } from "../ui/notice.tsx";
 import { Tag } from "../ui/tag.tsx";
-import { Tree, type TreeNode } from "../ui/tree.tsx";
+import { Tree, type TreeNode, toTree, useFolding } from "../ui/tree.tsx";
+
+/** The groups start open, each project's folder closed. */
+const closedFirst = (id: string) => !id.endsWith("/");
 
 const load = () => api<{ workdir: string; files: InstructionFile[] }>("/instructions");
 
@@ -85,10 +88,7 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
   if (!current.data || text === null) return <Skeleton rows={6} shape="text" />;
   return (
     <article className="flex h-full min-w-0 flex-col overflow-y-auto" data-verb="save">
-      <header className="sticky top-0 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg px-4 font-mono text-sm">
-        <p className="min-w-0 flex-1 truncate text-muted" title={file.path}>
-          {file.path}
-        </p>
+      <DetailBar crumb={file.path} title={file.path}>
         <span className="text-xs text-muted">
           {dirty ? "Edited" : grenier ? (file.exists ? "Yours" : "Grenier's") : file.exists ? "Saved" : "Not made yet"}
         </span>
@@ -100,7 +100,7 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
         <Primary size="sm" keys="mod+enter" busy={action.busy === "save"} disabled={!dirty} onClick={save}>
           {file.exists || grenier ? "Save" : "Make the file"}
         </Primary>
-      </header>
+      </DetailBar>
       <div className="mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24">
         <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">{titleOf(file)}</h1>
         <p className="mt-2 font-mono text-xs text-muted">
@@ -136,8 +136,6 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
             editable
             label={`${file.name}, in Markdown`}
             onChange={setText}
-            onLink={() => {}}
-            open={() => {}}
           />
         </div>
       </div>
@@ -149,7 +147,7 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
 export function Instructions({ item, go }: ViewProps) {
   const files = useLoad(load);
   const [words, setWords] = useState("");
-  const [flipped, setFlipped] = useState<Set<string>>(new Set());
+  const [folded, fold] = useFolding(closedFirst);
   const search = useRef<HTMLInputElement>(null);
   const query = words.trim().toLowerCase();
   const select = useCallback((id: string) => go("instructions", id), [go]);
@@ -205,13 +203,11 @@ export function Instructions({ item, go }: ViewProps) {
       children: all.filter((file) => file.group === "grenier").map(leaf),
     },
   ];
-  // The groups start open and each project's folder closed; opening a file opens its folder, and closes nothing.
-  const first = (id: string) => id.endsWith("/");
-  const open = (id: string) => Boolean(query) || flipped.has(id) !== first(id);
+  const open = (id: string) => Boolean(query) || folded(id);
+  // Opening a file opens its project's folder, and closes nothing.
   useEffect(() => {
-    const project = item?.startsWith("project/") ? `projects/${item.split("/")[1]}` : null;
-    if (project) setFlipped((now) => (now.has(project) ? now : new Set(now).add(project)));
-  }, [item]);
+    if (item?.startsWith("project/")) fold(`projects/${item.split("/")[1]}`, true);
+  }, [item, fold]);
 
   const list = (
     <>
@@ -223,11 +219,7 @@ export function Instructions({ item, go }: ViewProps) {
           live
           value={words}
           onChange={(event) => setWords(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowDown") return;
-            event.preventDefault();
-            event.currentTarget.closest("[data-region]")?.querySelector<HTMLElement>("[role=tree]")?.focus();
-          }}
+          onKeyDown={toTree}
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -241,15 +233,7 @@ export function Instructions({ item, go }: ViewProps) {
             selected={item ?? null}
             open={open}
             onSelect={(node) => node.children === undefined && select(node.id)}
-            onToggle={(id, next) =>
-              setFlipped((now) => {
-                if ((now.has(id) !== first(id)) === next) return now;
-                const out = new Set(now);
-                if (out.has(id)) out.delete(id);
-                else out.add(id);
-                return out;
-              })
-            }
+            onToggle={fold}
             onOpen={(node) => select(node.id)}
           />
         )}
