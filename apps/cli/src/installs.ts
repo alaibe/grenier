@@ -295,7 +295,7 @@ export async function removeRetired(store: Store): Promise<string[]> {
 }
 
 /** Flags and values that look like they carry a credential, which a shared server's arguments may not. */
-const CREDENTIAL_FLAG = /^--?[\w-]*(key|token|secret|password|auth)[\w-]*(=|$)/i;
+export const CREDENTIAL_FLAG = /^--?[\w-]*(key|token|secret|password|auth)[\w-]*(=|$)/i;
 
 /**
  * A server as an admin adds it from the app: a URL with header templates, or a command with its arguments and fixed

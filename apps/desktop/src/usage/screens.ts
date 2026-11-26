@@ -5,6 +5,7 @@ export const SCREENS = {
   routines: { url: "/routines", title: "Routines" },
   skills: { url: "/skills", title: "Skills" },
   mcp: { url: "/mcp", title: "MCP" },
+  instructions: { url: "/instructions", title: "Instructions" },
   team: { url: "/team", title: "Team" },
   settings: { url: "/settings", title: "Settings" },
 } as const satisfies Record<string, { url: string; title: string }>;

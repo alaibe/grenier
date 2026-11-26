@@ -9,10 +9,12 @@ import { Refusal } from "../io.ts";
 import type { Runner } from "../runner.ts";
 import { appRoutes } from "./apps.ts";
 import { installRoutes } from "./installs.ts";
+import { instructionRoutes } from "./instructions.ts";
 import { machineRoutes } from "./machine.ts";
 import { overviewRoutes } from "./overview.ts";
 import { recordRoutes } from "./records.ts";
 import { routineRoutes } from "./routines.ts";
+import { serverRoutes } from "./servers.ts";
 import { skillRoutes } from "./skills.ts";
 import { teamRoutes } from "./team.ts";
 
@@ -103,6 +105,8 @@ export function createAdmin(deps: AdminDeps): Hono {
     teamRoutes,
     installRoutes,
     skillRoutes,
+    serverRoutes,
+    instructionRoutes,
     routineRoutes,
     machineRoutes,
     appRoutes,

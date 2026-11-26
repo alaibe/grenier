@@ -58,6 +58,7 @@ screens! {
     Routines => "/routines", "Routines";
     Skills => "/skills", "Skills";
     Mcp => "/mcp", "MCP";
+    Instructions => "/instructions", "Instructions";
     Team => "/team", "Team";
     Settings => "/settings", "Settings";
 }

@@ -23,6 +23,7 @@ import { TooltipLayer } from "./ui/tooltip.tsx";
 import { SCREENS, type ViewName } from "./usage/screens.ts";
 import { useUsage } from "./usage/use-usage.ts";
 import { Cost } from "./views/Cost.tsx";
+import { Instructions } from "./views/Instructions.tsx";
 import { Knowledge } from "./views/Knowledge.tsx";
 import { Mcp } from "./views/Mcp.tsx";
 import { Routines } from "./views/Routines.tsx";
@@ -51,6 +52,7 @@ const VIEWS: Record<ViewName, ComponentType<ViewProps>> = {
   routines: Routines,
   skills: Skills,
   mcp: Mcp,
+  instructions: Instructions,
   team: Team,
   settings: Settings,
 };

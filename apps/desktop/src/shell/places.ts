@@ -1,4 +1,4 @@
-import { BookOpen, Coins, type LucideIcon, Plug, Repeat, Settings, Sparkles, Users } from "lucide-react";
+import { BookOpen, Coins, type LucideIcon, Plug, Repeat, ScrollText, Settings, Sparkles, Users } from "lucide-react";
 import type { Shortcut } from "../ui/keys.ts";
 import { SCREENS, type ViewName } from "../usage/screens.ts";
 
@@ -12,6 +12,7 @@ export const PLACE_ICONS: Record<ViewName, LucideIcon> = {
   routines: Repeat,
   skills: Sparkles,
   mcp: Plug,
+  instructions: ScrollText,
   team: Users,
   settings: Settings,
 };

@@ -271,6 +271,57 @@ export interface SharedState {
   canRollBack: boolean;
 }
 
+/** An instructions file agents read: one for every project, or one of a project's in the work folder. */
+export interface InstructionFile {
+  /** `global/<file>` or `project/<folder>/<file>`. */
+  id: string;
+  /** CLAUDE.md, AGENTS.md or CLAUDE.local.md. */
+  name: string;
+  /** The project's folder name; null for the files every project gets. */
+  project: string | null;
+  path: string;
+  exists: boolean;
+}
+
+/** An instructions file's text, and the hash a save names so it never writes over a change made since. */
+export interface InstructionText {
+  text: string;
+  /** Null while the file doesn't exist. */
+  hash: string | null;
+}
+
+/** An MCP server this person's agents get, as the MCP screen lists it under Me: never a key's value. */
+export interface LocalServer {
+  /** Its scope, where and name, as JSON: the key the daemon finds it by. */
+  id: string;
+  name: string;
+  /** Claude Code's for every project, one project's, a repository's .mcp.json, or another app's. */
+  scope: "user" | "project" | "repo" | "app";
+  /** The project's folder, or the app's name; null for every project. */
+  where: string | null;
+  /** Grenier's own server, added from Settings. */
+  grenier: boolean;
+  /** In Claude Code's config, so changed here; the others are changed where they are kept. */
+  editable: boolean;
+  transport: "stdio" | "http" | "sse";
+  command: string | null;
+  /** With what looks like a key masked. */
+  args: string[];
+  url: string | null;
+  /** The names it sets, never their values. */
+  env: string[];
+  headers: string[];
+}
+
+/** What a change to one of this person's servers sets: null removes a variable or a header. */
+export interface ServerChange {
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string | null>;
+  headers?: Record<string, string | null>;
+}
+
 /** A skill in this person's Claude Code skills, as the Skills screen lists it under Me. */
 export interface LocalSkill {
   /** Its folder's name; `synced/<bucket>/<name>` or `plugin/<plugin>/<name>` for the ones Claude Code keeps. */

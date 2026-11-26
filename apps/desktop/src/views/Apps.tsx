@@ -18,7 +18,7 @@ import { Status, Tag } from "../ui/tag.tsx";
 const load = () => api<Clients>("/clients");
 const loadApps = () => api<{ apps: AppView[] }>("/apps").then((answer) => answer.apps);
 
-/** For the MCP screen: the apps on this computer that read Grenier, each with its own key. */
+/** For Settings: the apps on this computer that read Grenier, each with its own key. */
 export function Apps() {
   const clients = useLoad(load);
   const apps = useLoad(loadApps);

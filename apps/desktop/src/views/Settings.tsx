@@ -15,6 +15,7 @@ import { Notice, Problem } from "../ui/notice.tsx";
 import { Page, Section, SectionRow } from "../ui/page.tsx";
 import { Secret } from "../ui/secret.tsx";
 import { Segmented } from "../ui/segmented.tsx";
+import { Apps } from "./Apps.tsx";
 import { MachineSettings } from "./Machine.tsx";
 
 const loadOverview = () => api<Overview>("/overview");
@@ -25,11 +26,12 @@ export function Settings(_: ViewProps) {
     <Detail title="Settings">
       <Page
         title="Settings"
-        intro="How Grenier looks here, when this computer takes the team's routine runs, and your personal key."
+        intro="How Grenier looks here, when this computer takes the team's routine runs, your personal key, and the apps that read Grenier."
       >
         <General />
         <MachineSettings />
         <PersonalKey />
+        <Apps />
       </Page>
     </Detail>
   );
