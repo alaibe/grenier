@@ -3,6 +3,7 @@ export {
   buildReport,
   formatToday,
   type GroupBy,
+  localDate,
   money,
   mostSpentFirst,
   parseSince,

@@ -93,7 +93,7 @@ export async function localSkills(store: Store, where: Where): Promise<LocalSkil
   return out;
 }
 
-async function found(store: Store, where: Where, id: string): Promise<LocalSkill> {
+export async function found(store: Store, where: Where, id: string): Promise<LocalSkill> {
   const skill = (await localSkills(store, where)).find((entry) => entry.id === id);
   if (!skill) throw new Refusal(`there is no skill ${id} in your skills`);
   return skill;

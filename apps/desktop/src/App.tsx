@@ -31,6 +31,7 @@ import { Routines } from "./views/Routines.tsx";
 import { Settings } from "./views/Settings.tsx";
 import { Skills } from "./views/Skills.tsx";
 import { Team } from "./views/Team.tsx";
+import { useStoreUpdate } from "./views/TeamJoin.tsx";
 
 export interface ViewProps {
   /** What the route names in this place: a record, or `new` for the form that makes one. */
@@ -113,6 +114,7 @@ function Shell() {
   // A daemon that went away is started again by the next call: keep calling until it answers.
   usePolling(reloadOverview, overview.error ? 3000 : null);
   const { run: runSync } = useAction(reloadOverview);
+  const update = useStoreUpdate(reloadOverview);
   const syncNow = useCallback(
     () =>
       void runSync(
@@ -236,7 +238,13 @@ function Shell() {
             create: () => go("team", "new"),
           }}
         />
-        <Banner overview={overview.data} error={overview.error} retry={reloadOverview} toTeam={() => go("team")} />
+        <Banner
+          overview={overview.data}
+          error={overview.error}
+          retry={reloadOverview}
+          toTeam={() => go("team")}
+          update={update}
+        />
         <Sidebar current={route.place} go={go} />
         <View
           key={route.place}

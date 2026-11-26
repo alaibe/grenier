@@ -12,6 +12,7 @@ import type {
   RecordRow,
   Run,
   Session,
+  ToolUse,
   Top,
   Usage,
 } from "./schema.ts";
@@ -30,6 +31,15 @@ export interface Store {
   approvals: ApprovalStore;
   runs: RunStore;
   clients: ClientStore;
+  toolUses: ToolUseStore;
+}
+
+/** What this machine's agents used, counted from their transcripts, and how far each transcript was read. */
+export interface ToolUseStore {
+  /** Sums the rows into the counts kept and moves each transcript's offset, in one transaction. */
+  add(rows: readonly ToolUse[], offsets: ReadonlyMap<string, number>): Promise<void>;
+  list(filter: { kind: ToolUse["kind"]; subjects?: readonly string[]; since: string }): Promise<ToolUse[]>;
+  offsets(): Promise<Map<string, number>>;
 }
 
 export interface SessionStore {

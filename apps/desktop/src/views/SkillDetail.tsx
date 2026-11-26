@@ -17,6 +17,7 @@ import { Notice, Problem } from "../ui/notice.tsx";
 import { Section } from "../ui/page.tsx";
 import { Status } from "../ui/tag.tsx";
 import { sharedEntryParts } from "./shared-entry.tsx";
+import { UsageSection } from "./tool-usage.tsx";
 
 /** A skill as it reads: where it is, its name, its description, its instructions in the editor, and its other files. */
 function SkillPage({
@@ -32,9 +33,11 @@ function SkillPage({
   saving,
   save,
   open,
+  usage,
 }: {
   path: string;
   name: string;
+  usage: string;
   manifest: string;
   files: string[];
   editable: boolean;
@@ -87,6 +90,9 @@ function SkillPage({
         <div className="mt-4 grid gap-2 empty:hidden">
           <Problem error={problem} />
           {notice}
+        </div>
+        <div className="mt-6">
+          <UsageSection query={usage} what="skill" />
         </div>
         <div className="mt-6">
           <MarkdownEditor
@@ -195,6 +201,7 @@ export function LocalSkillView({
         key={id}
         path={`Me / ${data.agent}${WHERE[data.kind]} / ${data.name}`}
         name={data.name}
+        usage={`skill=${encodeURIComponent(id)}`}
         manifest={data.manifest}
         files={data.files}
         editable={data.kind === "own"}
@@ -258,6 +265,7 @@ export function TeamSkillView({
         key={`${entry.id}:${record.data.version}`}
         path={`Team / ${entry.title}`}
         name={entry.title}
+        usage={`shared=${encodeURIComponent(entry.id)}`}
         manifest={files["SKILL.md"] ?? ""}
         files={Object.keys(files).filter((path) => path !== "SKILL.md")}
         editable={admin}

@@ -59,6 +59,8 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     approvals,
     runs,
     clients,
+    toolUses,
+    transcripts,
   } = schema;
 
   const ftsQuery = (terms: readonly string[]) =>
@@ -400,6 +402,43 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .set({ revokedAt: at, name: `${name}~${at}` })
           .where(and(eq(clients.name, name), isNull(clients.revokedAt)))
           .run().changes > 0,
+    },
+    toolUses: {
+      add: async (rows, offsets) => {
+        const upsert = sqlite.prepare(
+          `INSERT INTO tool_uses (day, agent, project, kind, subject, tool, calls, errors, last_at)
+           VALUES (@day, @agent, @project, @kind, @subject, @tool, @calls, @errors, @lastAt)
+           ON CONFLICT DO UPDATE SET calls = calls + excluded.calls, errors = errors + excluded.errors,
+             last_at = max(last_at, excluded.last_at)`,
+        );
+        const read = sqlite.prepare(
+          "INSERT INTO transcripts (path, offset) VALUES (?, ?) ON CONFLICT DO UPDATE SET offset = excluded.offset",
+        );
+        sqlite.transaction(() => {
+          for (const row of rows) upsert.run(row);
+          for (const [path, offset] of offsets) read.run(path, offset);
+        })();
+      },
+      list: async ({ kind, subjects, since }) =>
+        db
+          .select()
+          .from(toolUses)
+          .where(
+            and(
+              eq(toolUses.kind, kind),
+              subjects ? inArray(toolUses.subject, [...subjects]) : undefined,
+              gte(toolUses.day, since),
+            ),
+          )
+          .all(),
+      offsets: async () =>
+        new Map(
+          db
+            .select()
+            .from(transcripts)
+            .all()
+            .map((row) => [row.path, row.offset]),
+        ),
     },
   };
 }

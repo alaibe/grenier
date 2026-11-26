@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { writeAtomically } from "@grenier/core/node";
 import { acts, READ_TOOLS, type RoutineMode, STORE_TOOLS } from "@grenier/core/routines";
@@ -8,6 +8,41 @@ import type { Agent, AgentCommand, McpClient, ServerEntry, Where } from "./types
 
 /** Claude Code's built-in tools that only read. */
 const CLAUDE_READS = ["Read", "Grep", "Glob"];
+
+const jsonlFiles = (folder: string): string[] =>
+  existsSync(folder)
+    ? readdirSync(folder, { recursive: true, encoding: "utf8" })
+        .filter((name) => name.endsWith(".jsonl"))
+        .map((name) => join(folder, name))
+    : [];
+
+/** A skill loaded or an MCP server's tool called, as one transcript line records it, or a call that failed. */
+export type ToolEvent =
+  | {
+      kind: "call";
+      id: string | null;
+      at: number;
+      project: string;
+      use: { kind: "skill" | "server"; subject: string; tool: string };
+    }
+  | { kind: "error"; id: string };
+
+interface ClaudeLine {
+  timestamp?: string;
+  cwd?: string;
+  message?: {
+    content?:
+      | string
+      | {
+          type?: string;
+          id?: string;
+          name?: string;
+          input?: { skill?: unknown };
+          tool_use_id?: string;
+          is_error?: boolean;
+        }[];
+  };
+}
 
 const readText = (path: string) => (existsSync(path) ? readFileSync(path, "utf8") : "");
 
@@ -136,6 +171,42 @@ export class ClaudeCode extends JsonClient implements Agent {
       ? ["--permission-mode", "auto", "--allowedTools", STORE_TOOLS.join(",")]
       : ["--tools", CLAUDE_READS.join(","), "--allowedTools", [...READ_TOOLS, ...STORE_TOOLS].join(",")];
     return { command: "claude", args: ["-p", prompt, "--output-format", "json", ...tools] };
+  }
+
+  transcripts(where: Where): string[] {
+    return jsonlFiles(join(where.home, ".claude", "projects"));
+  }
+
+  /** The Skill tool and a slash command load a skill, an `mcp__<server>__<tool>` call uses a server; is_error fails. */
+  toolEvents(line: string): ToolEvent[] {
+    if (!line.includes('"tool_use"') && !line.includes('"is_error":true') && !line.includes("<command-name>"))
+      return [];
+    let entry: ClaudeLine;
+    try {
+      entry = JSON.parse(line) as ClaudeLine;
+    } catch {
+      return [];
+    }
+    const at = Date.parse(entry.timestamp ?? "");
+    if (Number.isNaN(at)) return [];
+    const project = entry.cwd ?? "";
+    const call = (id: string | null, kind: "skill" | "server", subject: string, tool = ""): ToolEvent[] => [
+      { kind: "call", id, at, project, use: { kind, subject, tool } },
+    ];
+    const content = entry.message?.content;
+    if (typeof content === "string") {
+      const command = /<command-name>\/?([^<\s]+)<\/command-name>/.exec(content)?.[1];
+      return command ? call(null, "skill", command) : [];
+    }
+    return (content ?? []).flatMap((block): ToolEvent[] => {
+      if (block.type === "tool_result" && block.is_error && block.tool_use_id)
+        return [{ kind: "error", id: block.tool_use_id }];
+      if (block.type !== "tool_use" || !block.name) return [];
+      const id = block.id ?? null;
+      if (block.name === "Skill" && typeof block.input?.skill === "string") return call(id, "skill", block.input.skill);
+      const server = /^mcp__(.+?)__(.+)$/.exec(block.name);
+      return server ? call(id, "server", server[1] as string, server[2] as string) : [];
+    });
   }
 }
 

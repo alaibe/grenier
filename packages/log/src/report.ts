@@ -52,15 +52,14 @@ function keyOf(row: UsageWithSession, by: GroupBy): string {
 
 const NO_PROJECT = "(not started with grenier run)";
 
-/** The last segment of a path, or the path itself for a root such as `/`. */
-
 /** What spending is grouped under everywhere: the repository's folder name, else the starting folder's. */
 export function projectOf(session: { repoRoot: string | null; cwd: string | null }): string | null {
   const folder = session.repoRoot ?? session.cwd;
   return folder ? folderName(folder) : null;
 }
 
-function localDate(ts: number): string {
+/** A day as reports key it: YYYY-MM-DD, in this machine's time zone. */
+export function localDate(ts: number): string {
   const date = new Date(ts);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;

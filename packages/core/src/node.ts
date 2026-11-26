@@ -14,6 +14,8 @@ export interface GrenierPaths {
   adminToken: string;
   /** This machine's token for the team store, once it joined or deployed one. */
   teamToken: string;
+  /** The Cloudflare API token the last deploy used, kept so an update of the team store takes one click. */
+  deployToken: string;
   /** The person's own key for the Me folder. */
   personalKey: string;
   /** What the running daemon writes about itself: its pid, port and version. */
@@ -32,6 +34,7 @@ export function resolvePaths(env: NodeJS.ProcessEnv = process.env, userHome: str
     db: resolve(env.GRENIER_DB || join(home, "grenier.db")),
     adminToken: join(home, "admin-token"),
     teamToken: join(home, "team-token"),
+    deployToken: join(home, "cloudflare-token"),
     personalKey: join(home, "personal.key"),
     daemonInfo: join(home, "daemon.json"),
     daemonLog: join(home, "daemon.log"),

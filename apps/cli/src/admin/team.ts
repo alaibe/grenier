@@ -84,19 +84,22 @@ export function teamRoutes(deps: AdminDeps): Hono {
 
   app.post("/deploy", async (c) => {
     const input = await bodyOf(c);
+    // An update needs nothing but a click: the store's name is its address's first label, the member this machine's.
+    const team = deps.team();
+    const current = team ? new URL(team.url).hostname.split(".")[0] : undefined;
     const deployed = await deployTeamStore(
       {
         paths: deps.paths,
         config: deps.config(),
         store,
         serverDir: deps.serverDir ?? fileURLToPath(new URL("./server/", import.meta.url)),
-        inTeam: deps.team() !== null,
+        inTeam: team !== null,
         ...(deps.fetch ? { fetch: deps.fetch } : {}),
       },
       {
         token: String(input.token ?? ""),
-        name: String(input.name ?? "grenier-team"),
-        member: String(input.member ?? ""),
+        name: String(input.name ?? current ?? "grenier-team"),
+        member: String(input.member ?? (await store.state.get("team_member")) ?? ""),
       },
     );
     if (deployed.team) deps.joined(deployed.team);

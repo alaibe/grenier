@@ -18,6 +18,7 @@ import { routineRoutes } from "./routines.ts";
 import { serverRoutes } from "./servers.ts";
 import { skillRoutes } from "./skills.ts";
 import { teamRoutes } from "./team.ts";
+import { usageRoutes } from "./usage.ts";
 
 export interface AdminDeps {
   store: Store;
@@ -112,6 +113,7 @@ export function createAdmin(deps: AdminDeps): Hono {
     routineRoutes,
     machineRoutes,
     appRoutes,
+    usageRoutes,
   ]) {
     app.route("/", routes(deps));
   }

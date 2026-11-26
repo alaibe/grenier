@@ -3,6 +3,7 @@ import type { Overview, PausedSession, SessionRow } from "@grenier/core/api";
 import { buildReport, mostSpentFirst, type Prices, parseSince, projectOf } from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { Hono } from "hono";
+import { keptDeployToken } from "../deploy.ts";
 import type { AdminDeps } from "./admin.ts";
 
 function sessionReport(rows: readonly UsageWithSession[], prices: Prices): SessionRow[] {
@@ -38,6 +39,7 @@ export function overviewRoutes(deps: AdminDeps): Hono {
       waiting: team ? new Set((await store.outbox.list()).map((entry) => entry.recordId)).size : 0,
       team: team ? { url: team.url, lastSync: Number((await store.state.get("last_sync")) ?? 0) || null } : null,
       role: team ? ((await store.state.get("team_role")) ?? null) : null,
+      deployKept: keptDeployToken(deps.paths) !== "",
       outdated: team ? Number((await store.state.get("team_protocol")) ?? TEAM_PROTOCOL) < TEAM_PROTOCOL : false,
       paused: (await store.sessions.paused()).length,
     } satisfies Overview);

@@ -7,6 +7,7 @@ import type {
   RecordFull,
   ServerChange,
   SharedState,
+  ToolUsage,
 } from "@grenier/core/api";
 import { serverName } from "@grenier/core/server-name";
 import { Refusal, UsageError } from "../io.ts";
@@ -99,6 +100,27 @@ const serverAdded = (answer: { id: string; title?: string }) =>
 
 const sharedNow = (answer: Record<string, unknown>) => (answer.updated ? "Updated" : "Shared");
 
+const usageShown = (usage: ToolUsage) =>
+  usage.calls === 0
+    ? "not used here in the last 30 days"
+    : [
+        `${usage.calls} calls, ${usage.errors} failed, last ${new Date(usage.lastAt ?? 0).toLocaleString()} (30 days)`,
+        ...(usage.tools.length > 1
+          ? [
+              "",
+              table(
+                usage.tools.map((tool) => [
+                  tool.tool,
+                  `${tool.calls} calls`,
+                  tool.errors ? `${tool.errors} failed` : "",
+                ]),
+              ),
+            ]
+          : []),
+        "",
+        table(usage.projects.map((project) => [project.project || "no folder", `${project.calls} calls`])),
+      ].join("\n");
+
 export const SKILLS: Group = {
   summary: "Skills: yours, each agent's, and the team's.",
   commands: {
@@ -136,6 +158,17 @@ export const SKILLS: Group = {
         [`${skill.id} · ${skill.path}`, "", skill.manifest.trimEnd(), ...skill.files.map((file) => `+ ${file}`)].join(
           "\n",
         ),
+    },
+    usage: {
+      usage: "usage <id|name>",
+      summary: "How often your agents loaded a skill in the last 30 days, and in which projects",
+      takes: [1, 1],
+      call: async ({ admin, args }) => {
+        const found = await anySkill(admin, args[0] as string);
+        const query = "mine" in found ? `skill=${q(found.mine.id)}` : `shared=${q(found.team.id)}`;
+        return admin<ToolUsage>("GET", `/usage?${query}`);
+      },
+      show: usageShown,
     },
     new: {
       usage: "new <name> --description <line> [--instructions <file>|-] [--team]",
@@ -213,13 +246,28 @@ export const SKILLS: Group = {
   },
 };
 
-const myServer = async (admin: Admin, wanted: string, flags?: Context["flags"]) => {
+const myServers = async (admin: Admin, flags?: Context["flags"]) => {
   const app = flags?.app ? String(flags.app).toLowerCase() : null;
-  const servers = (await admin<{ servers: LocalServer[] }>("GET", "/servers")).servers.filter(
+  return (await admin<{ servers: LocalServer[] }>("GET", "/servers")).servers.filter(
     (server) => !app || server.client.toLowerCase() === app || server.app === app,
   );
-  return pick(servers, wanted, "server", (server) => server.name);
 };
+
+const myServer = async (admin: Admin, wanted: string, flags?: Context["flags"]) =>
+  pick(await myServers(admin, flags), wanted, "server", (server) => server.name);
+
+/** One of the person's servers by name, else one of the team's. */
+async function anyServer(
+  admin: Admin,
+  wanted: string,
+  flags: Context["flags"],
+): Promise<{ mine: LocalServer } | { team: SharedState }> {
+  const mine = await myServers(admin, flags);
+  if (named(mine, wanted, (server) => server.name).length > 0) {
+    return { mine: pick(mine, wanted, "server", (server) => server.name) };
+  }
+  return { team: await teamOne(admin, "McpServer", wanted) };
+}
 
 const reach = (server: LocalServer) => server.url ?? [server.command, ...server.args].filter(Boolean).join(" ");
 
@@ -272,6 +320,18 @@ export const SERVERS: Group = {
           ["headers", server.headers.join(", ")],
           ["id", server.id],
         ]),
+    },
+    usage: {
+      usage: "usage <id|name> [--app <app>]",
+      summary: "How often your agents called a server's tools in the last 30 days, by tool and project",
+      options: { app: { type: "string" } },
+      takes: [1, 1],
+      call: async ({ admin, args, flags }) => {
+        const found = await anyServer(admin, args[0] as string, flags);
+        const query = "mine" in found ? `server=${q(found.mine.id)}` : `shared=${q(found.team.id)}`;
+        return admin<ToolUsage>("GET", `/usage?${query}`);
+      },
+      show: usageShown,
     },
     projects: {
       usage: "projects",

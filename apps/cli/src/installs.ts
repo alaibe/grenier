@@ -20,7 +20,7 @@ const slug = (name: string) =>
     .slice(0, 60) || "shared";
 
 /** The folder or server name a shared skill or server installs under, in each agent: `grenier-` and its name. */
-const installedName = (record: Pick<FullRecord, "title">) => `grenier-${slug(record.title)}`;
+export const installedName = (record: Pick<FullRecord, "title">) => `grenier-${slug(record.title)}`;
 
 /**
  * Installs a shared skill or server and pins its hash, so a later change waits for approval again. A server's keys

@@ -204,6 +204,35 @@ export const clients = sqliteTable("clients", {
   revokedAt: integer("revoked_at"),
 });
 
+/** The skills, MCP servers and tools this machine's agents used, counted from their transcripts, by day. */
+export const toolUses = sqliteTable(
+  "tool_uses",
+  {
+    /** YYYY-MM-DD, in the machine's time zone. */
+    day: text("day").notNull(),
+    agent: text("agent").notNull(),
+    /** The folder the agent ran in. */
+    project: text("project").notNull(),
+    kind: text("kind", { enum: ["skill", "server"] }).notNull(),
+    /** The skill's or the server's name as the agent called it. */
+    subject: text("subject").notNull(),
+    tool: text("tool").notNull(),
+    calls: integer("calls").notNull(),
+    errors: integer("errors").notNull(),
+    lastAt: integer("last_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.day, table.agent, table.project, table.kind, table.subject, table.tool] }),
+    index("tool_uses_subject").on(table.kind, table.subject),
+  ],
+);
+
+/** How far each agent transcript was read into tool_uses. */
+export const transcripts = sqliteTable("transcripts", {
+  path: text("path").primaryKey(),
+  offset: integer("offset").notNull(),
+});
+
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 export type Usage = typeof usage.$inferSelect;
@@ -219,3 +248,4 @@ export type OutboxEntry = typeof outbox.$inferSelect;
 export type Approval = typeof approvals.$inferSelect;
 export type Run = typeof runs.$inferSelect;
 export type Client = typeof clients.$inferSelect;
+export type ToolUse = typeof toolUses.$inferSelect;

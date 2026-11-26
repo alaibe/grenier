@@ -13,6 +13,7 @@ export type {
   RecordRow,
   Run,
   Session,
+  ToolUse,
   Top,
   Usage,
 } from "./schema.ts";
@@ -31,6 +32,7 @@ export type {
   SessionStore,
   StateStore,
   Store,
+  ToolUseStore,
   TopStore,
   UsageStore,
   UsageWithSession,

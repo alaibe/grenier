@@ -14,7 +14,21 @@ import { usePolling } from "./polling.ts";
 /** The six digits a joining machine shows, read as "123 456". */
 export const spaced = (code: string | null | undefined) => code?.replace(/^(\d{3})(\d{3})$/, "$1 $2") ?? "";
 
-/** The team store put in a Cloudflare account, or updated there, with an API token used once and not kept. */
+/** Updates the team store with the token the last deploy kept; `reload` follows either way, as a refused token is forgotten. */
+export function useStoreUpdate(reload: () => void) {
+  const action = useAction();
+  const run = () =>
+    void action
+      .run(
+        "deploy",
+        () => api<Deployed>("/deploy", { body: {} }).then((made) => `Updated the team store at ${made.url}`),
+        "Updating the team store",
+      )
+      .finally(reload);
+  return { run, busy: action.busy !== null, problem: action.problem };
+}
+
+/** The team store put in a Cloudflare account, or updated there; the token that worked is kept for the next update. */
 export function Deploy({
   name,
   me,
@@ -59,8 +73,8 @@ export function Deploy({
     >
       <p>
         In Cloudflare, under My Profile › API Tokens, create a token from the template{" "}
-        <strong>Edit Cloudflare Workers</strong> for your account, and paste it here. Grenier uses it for this deploy
-        only, and keeps nothing of it.
+        <strong>Edit Cloudflare Workers</strong> for your account, and paste it here. Grenier keeps it on this machine,
+        readable by you only, so the next update is one click; it never goes to the team store or a log.
       </p>
       <Problem error={action.problem} />
       <Field label="Cloudflare API token">

@@ -57,16 +57,14 @@ export const TEAM: Group = {
       show: (state: Joining) => `Joined ${state.url} as ${state.member}`,
     },
     deploy: {
-      usage: "deploy --member <your name> [--name <worker>]",
-      summary: "Start a team store on Cloudflare, or update yours; the token comes from $CLOUDFLARE_API_TOKEN or stdin",
+      usage: "deploy [--member <your name>] [--name <worker>]",
+      summary:
+        "Start a team store on Cloudflare, or update yours; the token comes from $CLOUDFLARE_API_TOKEN, stdin, or the one the last deploy kept",
       options: { member: { type: "string" }, name: { type: "string" } },
       call: ({ admin, flags, io }) => {
-        const token = io.env.CLOUDFLARE_API_TOKEN ?? textFrom("-").trim();
-        return admin<Deployed>("POST", "/deploy", {
-          token,
-          member: flags.member ?? "",
-          name: flags.name ?? "grenier-team",
-        });
+        // At a terminal nothing is piped in: the token the last deploy kept is used.
+        const token = io.env.CLOUDFLARE_API_TOKEN ?? (process.stdin.isTTY ? "" : textFrom("-").trim());
+        return admin<Deployed>("POST", "/deploy", { token, member: flags.member, name: flags.name });
       },
       show: (deployed: Deployed) =>
         deployed.created ? `Started ${deployed.url}: you are its first admin` : `Updated ${deployed.url}`,

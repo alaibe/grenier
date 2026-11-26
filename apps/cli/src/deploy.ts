@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import type { Config } from "@grenier/core";
@@ -12,6 +12,8 @@ import { enterTeam, newTeamToken } from "./team.ts";
 
 const CLOUDFLARE = "https://api.cloudflare.com/client/v4";
 
+class TokenRefused extends Refusal {}
+
 export interface DeployDeps {
   paths: GrenierPaths;
   config: Config;
@@ -22,6 +24,10 @@ export interface DeployDeps {
   inTeam: boolean;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+}
+
+export function keptDeployToken(paths: GrenierPaths): string {
+  return existsSync(paths.deployToken) ? readFileSync(paths.deployToken, "utf8").trim() : "";
 }
 
 /** One call to Cloudflare's API; its errors say what Cloudflare said, never the token. */
@@ -51,7 +57,8 @@ async function cloudflare<T>(
       .map((error) => error.message)
       .filter(Boolean)
       .join("; ");
-    throw new Refusal(`Cloudflare refused it: ${said || `HTTP ${response.status}`}`);
+    const Problem = response.status === 401 || response.status === 403 ? TokenRefused : Refusal;
+    throw new Problem(`Cloudflare refused it: ${said || `HTTP ${response.status}`}`);
   }
   return answer.result as T;
 }
@@ -66,13 +73,19 @@ export async function deployTeamStore(
 ): Promise<{ url: string; team: TeamClient | null }> {
   const fetchImpl = deps.fetch ?? fetch;
   const sleep = deps.sleep ?? ((ms: number) => wait(ms).then(() => undefined));
-  const token = input.token.trim();
+  // A token that worked is kept, so the next update needs none.
+  const given = input.token.trim();
+  const token = given || keptDeployToken(deps.paths);
   if (!token) throw new Refusal("paste an API token from Cloudflare");
   if (!/^[a-z0-9-]{1,63}$/.test(input.name))
     throw new Refusal("the store's name takes lowercase letters, digits and -");
   if (!MEMBER_NAME.test(input.member)) throw new Refusal("your name takes letters, digits and . _ @ -");
 
-  const accounts = await cloudflare<{ id: string }[]>(fetchImpl, token, "/accounts");
+  const accounts = await cloudflare<{ id: string }[]>(fetchImpl, token, "/accounts").catch((error: unknown) => {
+    // A kept token that stopped working is forgotten, so the next update asks for a new one.
+    if (!given && error instanceof TokenRefused) rmSync(deps.paths.deployToken, { force: true });
+    throw error;
+  });
   if (accounts.length !== 1) {
     throw new Refusal(
       accounts.length === 0
@@ -111,6 +124,7 @@ export async function deployTeamStore(
     method: "PUT",
     body: form,
   });
+  if (given) writeFileSync(deps.paths.deployToken, `${token}\n`, { mode: 0o600 });
   await cloudflare(fetchImpl, token, `/accounts/${account}/workers/scripts/${input.name}/subdomain`, {
     json: { enabled: true },
   });

@@ -39,6 +39,8 @@ export interface Overview {
   role: string | null;
   /** The team store is older than this Grenier: sync waits until it is deployed again. */
   outdated: boolean;
+  /** A Cloudflare token is kept here: updating the team store needs no other input. */
+  deployKept: boolean;
   /** Sessions the loop guard paused, waiting to be resumed. */
   paused: number;
 }
@@ -248,6 +250,19 @@ export interface Editors {
 /** A web link's path on the team store. */
 export interface MadeLink {
   path: string;
+}
+
+/** How often a skill was loaded, or a server's tools called, by this machine's agents: from their transcripts. */
+export interface ToolUsage {
+  /** Each day of the period, oldest first, those without a call too. */
+  days: { day: string; calls: number; errors: number }[];
+  /** The folders the agents ran in, the most calls first. */
+  projects: { project: string; calls: number }[];
+  /** A server's tools, by the name it gives them, the most calls first; a skill's one entry. */
+  tools: { tool: string; calls: number; errors: number; lastAt: number }[];
+  calls: number;
+  errors: number;
+  lastAt: number | null;
 }
 
 export interface SharedState {

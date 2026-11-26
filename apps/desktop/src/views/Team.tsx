@@ -21,7 +21,7 @@ import { Secret } from "../ui/secret.tsx";
 import { RowActions, Table } from "../ui/table.tsx";
 import { Status, Tag } from "../ui/tag.tsx";
 import { usePolling } from "./polling.ts";
-import { Deploy, Join, spaced } from "./TeamJoin.tsx";
+import { Deploy, Join, spaced, useStoreUpdate } from "./TeamJoin.tsx";
 import { Machines } from "./TeamMachines.tsx";
 import { Usage } from "./TeamUsage.tsx";
 
@@ -49,6 +49,7 @@ export function Team({ item, go, changed: done, overview }: ViewProps) {
       url={overview.data.team.url}
       lastSync={overview.data.team.lastSync}
       outdated={overview.data.outdated}
+      deployKept={overview.data.deployKept}
       me={overview.data.me}
       done={done}
       inviting={item === "invite"}
@@ -62,6 +63,7 @@ function Members({
   url,
   lastSync,
   outdated,
+  deployKept,
   me: name,
   done,
   inviting,
@@ -70,6 +72,7 @@ function Members({
   url: string;
   lastSync: number | null;
   outdated: boolean;
+  deployKept: boolean;
   me: string;
   done: () => void;
   inviting: boolean;
@@ -94,6 +97,7 @@ function Members({
     invites.reload();
     me.reload();
   });
+  const update = useStoreUpdate(done);
   const { ask, dialog } = useConfirm();
   usePolling(invites.reload, admin && !signedOut ? 3000 : null);
 
@@ -203,14 +207,14 @@ function Members({
         )
       }
     >
-      <Problem error={members.error ?? me.error ?? action.problem} />
+      <Problem error={members.error ?? me.error ?? action.problem ?? update.problem} />
       {outdated && (
         <Notice
           kind="warn"
           more="Whoever reaches its Cloudflare account updates it here; the team's records stay."
           action={
-            <Button size="sm" onClick={() => setUpdating(true)}>
-              Update it…
+            <Button size="sm" busy={update.busy} onClick={deployKept ? update.run : () => setUpdating(true)}>
+              {deployKept ? "Update it" : "Update it…"}
             </Button>
           }
         >

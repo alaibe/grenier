@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig } from "@grenier/core";
@@ -97,6 +97,15 @@ describe("creating the team store from the app", () => {
       { token: TOKEN, name: "grenier-team", member: "ada" },
     );
     expect(updated).toEqual({ url: "https://grenier-team.acme.workers.dev", team: null });
+    expect(statSync(paths.deployToken).mode & 0o777).toBe(0o600);
+    expect(readFileSync(paths.deployToken, "utf8").trim()).toBe(TOKEN);
+
+    const oneClick = await deployTeamStore(
+      { ...deps, inTeam: true },
+      { token: "", name: "grenier-team", member: "ada" },
+    );
+    expect(oneClick.url).toBe("https://grenier-team.acme.workers.dev");
+    expect(cloudflare.uploads).toHaveLength(3);
     expect(cloudflare.uploads[1]).not.toHaveProperty("migrations");
     expect(readFileSync(paths.config, "utf8")).not.toContain(TOKEN);
   });
@@ -135,5 +144,28 @@ describe("creating the team store from the app", () => {
     const refused = deployTeamStore(deps, { token: "cf_wrong_secret", name: "grenier-team", member: "ada" });
     await expect(refused).rejects.toThrow("Cloudflare refused it: Invalid API Token");
     await expect(refused).rejects.not.toThrow("cf_wrong_secret");
+    await refused.catch(() => {});
+    expect(existsSync(deps.paths.deployToken)).toBe(false);
+  });
+
+  it("forgets a kept token Cloudflare refuses, so the next update asks for one", async () => {
+    const cloudflare = fakeCloudflare();
+    const paths = resolvePaths({ GRENIER_HOME: join(dir, ".grenier") });
+    writeFileSync(paths.deployToken, "cf_revoked\n");
+    const deps = {
+      paths,
+      config: defaultConfig(),
+      store,
+      serverDir: join(dir, "server"),
+      inTeam: true,
+      fetch: cloudflare.fetchImpl,
+    };
+    await expect(deployTeamStore(deps, { token: "", name: "grenier-team", member: "ada" })).rejects.toThrow(
+      "Cloudflare refused it: Invalid API Token",
+    );
+    expect(existsSync(paths.deployToken)).toBe(false);
+    await expect(deployTeamStore(deps, { token: "", name: "grenier-team", member: "ada" })).rejects.toThrow(
+      "paste an API token from Cloudflare",
+    );
   });
 });

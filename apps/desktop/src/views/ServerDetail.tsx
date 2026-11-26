@@ -16,6 +16,7 @@ import { Notice, Problem } from "../ui/notice.tsx";
 import { Section } from "../ui/page.tsx";
 import { Status, Tag } from "../ui/tag.tsx";
 import { KeysDialog, sharedEntryParts } from "./shared-entry.tsx";
+import { UsageSection } from "./tool-usage.tsx";
 
 /** Where a server of the person's is, as its bar shows it. */
 function serverPath(server: LocalServer): string {
@@ -31,11 +32,13 @@ function ServerPage({
   state,
   actions,
   notice,
+  usage,
   children,
 }: {
   path: string;
   name: string;
   meta: ReactNode;
+  usage: string;
   state?: ReactNode;
   actions: ReactNode;
   notice?: ReactNode;
@@ -53,6 +56,7 @@ function ServerPage({
           <ItemMeta>{meta}</ItemMeta>
         </div>
         {notice && <div className="grid gap-2">{notice}</div>}
+        <UsageSection query={usage} what="server" />
         {children}
       </Reading>
     </article>
@@ -262,6 +266,7 @@ export function LocalServerView({
       <ServerPage
         path={serverPath(server)}
         name={server.name}
+        usage={`server=${encodeURIComponent(server.id)}`}
         meta={
           <>
             {server.transport === "stdio" ? "a local command" : `at a URL, over ${server.transport}`}
@@ -376,6 +381,7 @@ export function TeamServerView({
     <ServerPage
       path={`Team / ${entry.title}`}
       name={entry.title}
+      usage={`shared=${encodeURIComponent(entry.id)}`}
       meta={config.url ? "at a URL" : "a local command"}
       state={<Status {...installTag(entry.state)} />}
       actions={
