@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, CircleHelp, Command as CommandIcon, FilePlus, Pl
 import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityProvider } from "./activity.tsx";
 import { api, sendPageView } from "./api.ts";
+import { since } from "./format.ts";
 import { Banner } from "./shell/banner.tsx";
 import { type Command, CommandProvider, useCommands } from "./shell/commands.tsx";
 import { Palette } from "./shell/palette.tsx";
@@ -105,6 +106,18 @@ function Shell() {
   const sync = useAction(reloadOverview);
   const syncRun = useRef(sync.run);
   syncRun.current = sync.run;
+  const syncNow = useCallback(
+    () =>
+      void syncRun.current(
+        "sync",
+        async () => {
+          const done = await api<Synced>("/sync", { method: "POST" });
+          return `Synced: sent ${done.pushed}, took ${done.pulled}`;
+        },
+        "Syncing",
+      ),
+    [],
+  );
 
   const go = useCallback(
     (place: ViewName, next?: string) => {
@@ -157,15 +170,7 @@ function Shell() {
               id: "sync",
               label: "Sync now",
               icon: RefreshCw,
-              run: () =>
-                void syncRun.current(
-                  "sync",
-                  async () => {
-                    const done = await api<Synced>("/sync", { method: "POST" });
-                    return `Synced: sent ${done.pushed}, took ${done.pulled}`;
-                  },
-                  "Syncing",
-                ),
+              run: syncNow,
             },
           ]
         : []),
@@ -175,7 +180,7 @@ function Shell() {
       { id: "region-back", label: "Previous region", keys: "shift+f6", run: () => cycleRegions(-1) },
       { id: "shortcuts", label: "Keyboard shortcuts", icon: CircleHelp, keys: "?", run: () => setShortcuts(true) },
     ];
-  }, [go, back, forward, team]);
+  }, [go, back, forward, team, syncNow]);
   useCommands(commands, "shell");
 
   // The splash: the attic window on the dark, until the daemon first answers.
@@ -213,6 +218,17 @@ function Shell() {
           onBack={back}
           onForward={forward}
           onCommands={() => setPalette(true)}
+          store={{
+            team: team
+              ? {
+                  host: new URL(team.url).host,
+                  synced: team.lastSync ? `synced ${since(team.lastSync)}` : "not synced yet",
+                }
+              : null,
+            sync: syncNow,
+            openTeam: () => go("team"),
+            create: () => go("team", "new"),
+          }}
         />
         <Banner overview={overview.data} error={overview.error} retry={reloadOverview} toTeam={() => go("team")} />
         <Sidebar

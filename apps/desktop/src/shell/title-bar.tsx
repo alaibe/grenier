@@ -1,10 +1,20 @@
-import { ArrowLeft, ArrowRight, Command } from "lucide-react";
+import { ArrowLeft, ArrowRight, Command, LogIn, Plus, RefreshCw, Server, Users } from "lucide-react";
 import { IconButton } from "../ui/button.tsx";
 import { mac } from "../ui/keys.ts";
+import { Menu } from "../ui/menu.tsx";
+
+/** The team store this machine syncs with, or what to do without one. */
+export interface StoreButton {
+  /** Its address and when it last synced; null without a team. */
+  team: { host: string; synced: string } | null;
+  sync: () => void;
+  openTeam: () => void;
+  create: () => void;
+}
 
 /**
- * The top row (patterns/app-shell.md#title-bar): the window's mechanics and where you are, `Place / Item`, and the
- * palette as the one window button. The whole row drags the window.
+ * The top row (patterns/app-shell.md#title-bar): the window's mechanics and where you are, `Place / Item`, then the
+ * team store and the palette as window buttons. The whole row drags the window.
  */
 export function TitleBar({
   place,
@@ -14,6 +24,7 @@ export function TitleBar({
   onBack,
   onForward,
   onCommands,
+  store,
 }: {
   place: string;
   item: string | null;
@@ -22,6 +33,7 @@ export function TitleBar({
   onBack: () => void;
   onForward: () => void;
   onCommands: () => void;
+  store: StoreButton;
 }) {
   return (
     <header
@@ -40,6 +52,23 @@ export function TitleBar({
           </>
         )}
       </p>
+      <Menu
+        icon={Server}
+        label={
+          store.team ? `Team store ${store.team.host}, ${store.team.synced}` : "No team store: join or create a team"
+        }
+        items={
+          store.team
+            ? [
+                { label: "Sync now", icon: RefreshCw, run: store.sync },
+                { label: "Open the team", icon: Users, run: store.openTeam },
+              ]
+            : [
+                { label: "Join a team…", icon: LogIn, run: store.openTeam },
+                { label: "Create a team…", icon: Plus, run: store.create },
+              ]
+        }
+      />
       <IconButton label="Commands" keys="mod+k" icon={Command} size="sm" onClick={onCommands} />
     </header>
   );

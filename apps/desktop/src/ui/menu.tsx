@@ -15,8 +15,8 @@ export interface MenuItem {
   run: () => void;
 }
 
-/** A row's full set of actions behind its ⋯ button (components/menu.md): ↑↓ move, Enter runs, Esc closes. */
-export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
+/** A set of actions behind a button, ⋯ unless it says (components/menu.md): ↑↓ move, Enter runs, Esc closes. */
+export function Menu({ label, items, icon = Ellipsis }: { label: string; items: MenuItem[]; icon?: LucideIcon }) {
   const [at, setAt] = useState<{ top: number; right: number } | null>(null);
   const [highlighted, setHighlighted] = useState(0);
   const button = useRef<HTMLSpanElement>(null);
@@ -67,7 +67,7 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
       <span ref={button} className="inline-flex">
         <IconButton
           label={label}
-          icon={Ellipsis}
+          icon={icon}
           size="sm"
           aria-haspopup="menu"
           aria-expanded={at !== null}

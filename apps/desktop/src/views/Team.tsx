@@ -53,7 +53,12 @@ export function Team({ item, go, changed }: ViewProps) {
       <Skeleton rows={6} shape="table" />
     </div>
   ) : !overview.data.team ? (
-    <Join joined={done} me={overview.data.me} />
+    <Join
+      joined={done}
+      me={overview.data.me}
+      creating={item === "new"}
+      setCreating={(open) => go("team", open ? "new" : undefined)}
+    />
   ) : (
     <Members
       url={overview.data.team.url}
@@ -135,9 +140,18 @@ function Deploy({
   );
 }
 
-function Join({ joined, me }: { joined: () => void; me: string }) {
+function Join({
+  joined,
+  me,
+  creating,
+  setCreating,
+}: {
+  joined: () => void;
+  me: string;
+  creating: boolean;
+  setCreating: (open: boolean) => void;
+}) {
   const [state, setState] = useState<Joining | null>(null);
-  const [starting, setStarting] = useState(false);
   const action = useAction();
   const poll = useCallback(() => {
     api<Joining>("/join")
@@ -198,21 +212,21 @@ function Join({ joined, me }: { joined: () => void; me: string }) {
             title="Or start a team"
             description="Its store goes in your own Cloudflare account, and you become its admin."
             actions={
-              <Button trailing={ArrowRight} onClick={() => setStarting(true)}>
+              <Button trailing={ArrowRight} onClick={() => setCreating(true)}>
                 Create a team…
               </Button>
             }
           />
         </>
       )}
-      {starting && (
+      {creating && (
         <Deploy
           name="grenier-team"
           me={me}
           title="Create a team"
           action="Create the team"
           done={joined}
-          cancel={() => setStarting(false)}
+          cancel={() => setCreating(false)}
         />
       )}
     </Page>
