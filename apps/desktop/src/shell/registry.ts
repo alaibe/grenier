@@ -136,7 +136,7 @@ export class Registry {
 }
 
 /** What the palette suggests trying while it is open. */
-export const PALETTE_TRIES = ["new page", "sync", "cost"];
+const PALETTE_TRIES = ["new page", "sync", "cost"];
 
 /** The hints of what has the person's attention, at most five (components/status-bar.md#hints). */
 export function hintsFor(registry: Registry): { attention: Attention; hints: Hint[]; tries: string[] } {

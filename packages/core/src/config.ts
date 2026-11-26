@@ -1,5 +1,6 @@
 import { parse, TomlError } from "smol-toml";
 import { z } from "zod";
+import { DEVICE_NAME } from "./names.ts";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
@@ -14,25 +15,20 @@ const secureUrl = z.url({ protocol: /^https?$/ }).refine(
 
 const perMillion = z.number().nonnegative();
 
-/** USD per million tokens. `fast` multiplies every price when a response reports `speed: "fast"`. */
-export const modelPriceSchema = z.strictObject({
+const rates = {
   input: perMillion,
   output: perMillion,
   cache_write_5m: perMillion,
   cache_write_1h: perMillion,
   cache_read: perMillion,
+};
+
+/** USD per million tokens. `fast` multiplies every price when a response reports `speed: "fast"`. */
+const modelPriceSchema = z.strictObject({
+  ...rates,
   fast: z.number().positive().optional(),
   /** Prices once a request's input passes `threshold` tokens. */
-  long_context: z
-    .strictObject({
-      threshold: z.int().positive(),
-      input: perMillion,
-      output: perMillion,
-      cache_write_5m: perMillion,
-      cache_write_1h: perMillion,
-      cache_read: perMillion,
-    })
-    .optional(),
+  long_context: z.strictObject({ threshold: z.int().positive(), ...rates }).optional(),
 });
 
 export type ModelPrice = z.output<typeof modelPriceSchema>;
@@ -81,10 +77,7 @@ const configSchema = z.strictObject({
   machine: z
     .strictObject({
       /** How the team sees this machine; its host name until set. */
-      name: z
-        .string()
-        .regex(/^[\w.-]{1,40}$/, "takes letters, digits and . _ -")
-        .optional(),
+      name: z.string().regex(DEVICE_NAME, "takes letters, digits and . _ -").optional(),
       /** The folder that holds this person's projects: every routine runs in it. */
       workdir: z.string().default(""),
       /** Whether this machine takes the team's routine runs. */

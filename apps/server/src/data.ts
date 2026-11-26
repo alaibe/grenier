@@ -1,3 +1,5 @@
+import { randomHex } from "@grenier/core";
+import type { StoredRecord } from "@grenier/core/team";
 import type { Hono } from "hono";
 
 export interface Member {
@@ -17,27 +19,7 @@ export interface Vars {
   device: Device;
 }
 
-/** A record as the team store keeps it. In a `me` top folder, `sealed` holds it encrypted and the rest is empty. */
-export interface StoredRecord {
-  id: string;
-  top: string;
-  type: string;
-  kind: string | null;
-  title: string;
-  folder: string;
-  body: string;
-  fields: Record<string, unknown>;
-  author: string;
-  device: string | null;
-  sessionId: string | null;
-  createdAt: number;
-  updatedAt: number;
-  retiredAt: number | null;
-  version: number;
-  anchors: { kind: string; repoId: string | null; ref: string; version: string }[];
-  links: { kind: string; ref: string }[];
-  sealed: string | null;
-}
+export type { StoredRecord };
 
 export interface Change {
   id: string;
@@ -58,27 +40,36 @@ export interface TeamData {
   storage: DurableObjectStorage;
   sql(query: string, ...bindings: SqlStorageValue[]): Row[];
   one(query: string, ...bindings: SqlStorageValue[]): Row | undefined;
-  record(row: Row): StoredRecord;
   get(id: string): StoredRecord | undefined;
-  put(record: StoredRecord, member: Member, device: Device): void;
+  /** Writes a record and its version in the history, as by this author on this device. */
+  put(record: StoredRecord, author: string, device: string): void;
+  version(): number;
   nextVersion(): number;
-  topsOf(member: Member): string[];
-  apply(change: Change, member: Member, device: Device): Applied;
+  topsOf(member: Pick<Member, "id">): string[];
   authenticate(request: Request): Promise<{ member: Member; device: Device } | null>;
+  /** Tells every connected device there is something new. */
   notify(): void;
+  /** Drops every live connection, so a removed device stops at once; the others reconnect. */
+  closeSockets(): void;
 }
 
 export type TeamApp = Hono<{ Variables: Vars }>;
 
 export const SEEN = 3 * 60 * 1000;
 
+/** A request's JSON body; an empty object when there is none or it doesn't parse. */
+export const jsonBody = <T extends object = Record<string, unknown>>(c: { req: { json: <U>() => Promise<U> } }) =>
+  c.req.json<T>().catch(() => ({}) as T);
+
+/** A device's state as the team sees it: offline once it has said nothing for a while. */
+export const liveState = (row: Row) =>
+  (row.state_at as number | null) && (row.state_at as number) > Date.now() - SEEN ? row.state : "offline";
+
 export function problem(status: number, message: string): Response {
   return Response.json({ error: message }, { status });
 }
 
-export function randomId(bytes = 12): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
-}
+export const randomId = (bytes = 12) => randomHex(bytes);
 
 export async function adminOnly(c: { get: (key: "member") => Member }, next: () => Promise<void>) {
   if (c.get("member").role !== "admin") return problem(403, "only an admin can do this");

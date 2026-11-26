@@ -1,12 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
 import type { Config } from "@grenier/core";
+import { MEMBER_NAME } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import { type TeamClient, TeamError, teamApi } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { Refusal } from "./io.ts";
-import { deviceName, ensureBaseTops, ensurePersonalKey } from "./runtime.ts";
-import { newTeamToken, saveTeam } from "./team.ts";
+import { deviceName } from "./runtime.ts";
+import { enterTeam, newTeamToken } from "./team.ts";
 
 const CLOUDFLARE = "https://api.cloudflare.com/client/v4";
 
@@ -63,12 +65,12 @@ export async function deployTeamStore(
   input: { token: string; name: string; member: string },
 ): Promise<{ url: string; team: TeamClient | null }> {
   const fetchImpl = deps.fetch ?? fetch;
-  const sleep = deps.sleep ?? ((ms: number) => new Promise((done) => setTimeout(done, ms)));
+  const sleep = deps.sleep ?? ((ms: number) => wait(ms).then(() => undefined));
   const token = input.token.trim();
   if (!token) throw new Refusal("paste an API token from Cloudflare");
   if (!/^[a-z0-9-]{1,63}$/.test(input.name))
     throw new Refusal("the store's name takes lowercase letters, digits and -");
-  if (!/^[\w.@-]{1,64}$/.test(input.member)) throw new Refusal("your name takes letters, digits and . _ @ -");
+  if (!MEMBER_NAME.test(input.member)) throw new Refusal("your name takes letters, digits and . _ @ -");
 
   const accounts = await cloudflare<{ id: string }[]>(fetchImpl, token, "/accounts");
   if (accounts.length !== 1) {
@@ -133,10 +135,6 @@ export async function deployTeamStore(
       await sleep(2000);
     }
   }
-  saveTeam(deps.paths, url, setup.token);
-  await deps.store.state.set("team_member", input.member);
-  await deps.store.state.set("team_role", "admin");
-  await ensureBaseTops(deps.store);
-  ensurePersonalKey(deps.paths);
+  await enterTeam(deps.paths, deps.store, { url, token: setup.token, member: input.member, role: "admin" });
   return { url, team: { url, token: setup.token } };
 }

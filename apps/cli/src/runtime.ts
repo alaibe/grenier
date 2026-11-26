@@ -90,7 +90,6 @@ export function embedderLoader(
   config: Config,
   paths: GrenierPaths,
   log: (line: string) => void,
-  options: { offline?: boolean } = {},
   deps: { load?: typeof loadLocalEmbedder; now?: () => number } = {},
 ): () => Promise<Embedder | null> {
   const load = deps.load ?? loadLocalEmbedder;
@@ -105,11 +104,21 @@ export function embedderLoader(
     loading ??=
       config.store.embeddings === "off"
         ? Promise.resolve(null)
-        : load(paths.models, options).catch((error: unknown) => {
+        : load(paths.models).catch((error: unknown) => {
             failedAt = now();
             log(`grenier: embeddings unavailable, using full-text search only: ${(error as Error).message}`);
             return null;
           });
     return loading;
   };
+}
+
+/** A session's addresses on the proxy, and the environment that sends an agent through them. */
+export function sessionProxy(
+  port: number,
+  sessionId: string,
+): { base: string; openai: string; env: NodeJS.ProcessEnv } {
+  const base = `http://127.0.0.1:${port}/s/${sessionId}`;
+  const openai = `${base}/openai/v1`;
+  return { base, openai, env: { ANTHROPIC_BASE_URL: base, OPENAI_BASE_URL: openai, GRENIER_SESSION: sessionId } };
 }

@@ -27,7 +27,7 @@ export function caps(shortcut: Shortcut, onMac = mac): string[][] {
     step.split("+").map((key) => {
       const named = NAMES[key];
       if (named) return onMac ? named[0] : named[1];
-      return key.length === 1 ? key.toUpperCase() : key.toUpperCase();
+      return key.toUpperCase();
     }),
   );
 }

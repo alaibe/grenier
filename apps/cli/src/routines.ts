@@ -1,39 +1,52 @@
 import { hasPrompt, nextDue, ROUTINE_MODES, type RoutineMode, routineHash } from "@grenier/core";
 import type { RoutineView } from "@grenier/core/api";
 import { newRecord, type StoreDeps, write } from "@grenier/index";
-import type { FullRecord, Store } from "@grenier/store";
+import { type FullRecord, type Store, toInput } from "@grenier/store";
 import { BUILTINS } from "./builtins.ts";
 import { Refusal } from "./io.ts";
 
-export async function routineViews(store: Store): Promise<RoutineView[]> {
+/** How many actions a run in `limited` may take a day, unless its approval says otherwise. */
+export const DEFAULT_ACTION_LIMIT = 10;
+
+/** How this machine's person approved a routine, and whether it is as it was then; null when they didn't. */
+export async function routineApproval(store: Store, routine: FullRecord): Promise<RoutineView["approval"]> {
+  const approval = await store.approvals.get(routine.id, "routine");
+  if (!approval) return null;
+  return {
+    mode: (approval.settings.mode as RoutineMode) ?? "read-only",
+    limit: Number(approval.settings.limit ?? DEFAULT_ACTION_LIMIT),
+    current: approval.hash === (await routineHash(routine)),
+  };
+}
+
+/** The team's routines as the app lists them; one that names no agent runs this machine's. */
+export async function routineViews(store: Store, machineAgent: string): Promise<RoutineView[]> {
   const tops = (await store.tops.list()).map((top) => top.id);
   const out: RoutineView[] = [];
   for (const routine of await store.records.list({ tops, type: "Routine" })) {
-    const approval = await store.approvals.get(routine.id, "routine");
     out.push({
       id: routine.id,
       title: routine.title,
       top: routine.top,
       author: routine.author,
       schedule: typeof routine.fields.schedule === "string" && routine.fields.schedule ? routine.fields.schedule : null,
-      agent: String(routine.fields.agent ?? "claude"),
+      agent: typeof routine.fields.agent === "string" ? routine.fields.agent : machineAgent,
       collector: routine.fields.collector === "yes",
       builtin: typeof routine.fields.builtin === "string" ? routine.fields.builtin : null,
       prompt: routine.body,
-      approval: approval
-        ? {
-            mode: (approval.settings.mode as RoutineMode) ?? "read-only",
-            limit: Number(approval.settings.limit ?? 10),
-            current: approval.hash === (await routineHash(routine)),
-          }
-        : null,
+      approval: await routineApproval(store, routine),
     });
   }
   return out;
 }
 
 /** Approves a routine as it is now, on this machine, in a mode. */
-export async function approve(store: Store, routine: FullRecord, mode: RoutineMode, limit = 10): Promise<void> {
+export async function approve(
+  store: Store,
+  routine: FullRecord,
+  mode: RoutineMode,
+  limit = DEFAULT_ACTION_LIMIT,
+): Promise<void> {
   if (!ROUTINE_MODES.includes(mode)) throw new Refusal(`a mode is one of ${ROUTINE_MODES.join(", ")}`);
   if (!hasPrompt(routine)) throw new Refusal("the routine says nothing to do yet: an admin gives it its text first");
   const before = await store.approvals.get(routine.id, "routine");
@@ -138,7 +151,7 @@ export async function editRoutine(
   routine: FullRecord,
   input: { title: string; prompt: string; fields: Record<string, unknown> },
 ): Promise<void> {
-  const { seq: _seq, hits: _hits, ...rest } = routine;
+  const rest = toInput(routine);
   await write(
     deps,
     {

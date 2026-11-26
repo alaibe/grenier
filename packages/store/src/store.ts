@@ -63,9 +63,19 @@ export interface EventStore {
   prune(before: number): Promise<number>;
 }
 
+/** What this machine keeps of its team: who it is there, how far it synced, and the store's protocol. */
+export type StateKey =
+  | "team_member"
+  | "team_me_top"
+  | "team_role"
+  | "team_protocol"
+  | "team_cursor"
+  | "team_unopened"
+  | "last_sync";
+
 export interface StateStore {
-  get(key: string): Promise<string | undefined>;
-  set(key: string, value: string): Promise<void>;
+  get(key: StateKey): Promise<string | undefined>;
+  set(key: StateKey, value: string): Promise<void>;
 }
 
 export interface TopStore {
@@ -85,10 +95,15 @@ export type RecordInput = Omit<RecordRow, "seq" | "hits"> & {
   links: FullRecord["links"];
 };
 
+/** A stored record as the input of a new version: without what the store keeps for itself. */
+export function toInput(record: FullRecord): RecordInput {
+  const { seq: _seq, hits: _hits, ...input } = record;
+  return input;
+}
+
 export interface RecordFilter {
   tops: readonly string[];
   type?: string;
-  kind?: string;
   /** Records linking to this ref, as `kind:ref` would: a record id, a person, a repository. */
   linkedTo?: { kind: Link["kind"]; ref: string };
   /** With the retired ones too. */

@@ -16,17 +16,21 @@ interface Block {
   content?: unknown;
 }
 
-interface MessagesBody {
+/** A request to the model as the proxy reads it: Anthropic's messages, or OpenAI's chat messages or items. */
+export interface MessagesBody {
+  model?: unknown;
   messages?: { role?: string; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown }[];
   /** OpenAI's Responses API: the conversation as items. */
   input?: unknown;
 }
 
-interface OpenAIItem {
+/** One of OpenAI's Responses items or chat tool calls, with what the proxy reads of it. */
+export interface OpenAIItem {
   id?: string;
   call_id?: string;
   type?: string;
   name?: string;
+  namespace?: string;
   arguments?: unknown;
   input?: unknown;
   action?: unknown;
@@ -87,7 +91,7 @@ function steadyText(text: string): string {
 }
 
 /** A call is hashed with its result: the same call returning something else is progress, not a loop. */
-export async function toolCalls(
+async function toolCalls(
   body: MessagesBody,
   seen: ReadonlySet<string> = new Set(),
 ): Promise<{ key: string; call: ToolCall }[]> {
@@ -167,7 +171,7 @@ export class LoopDetector {
   }
 }
 
-export const IDLE_SESSION = 6 * 60 * 60 * 1000;
+const IDLE_SESSION = 6 * 60 * 60 * 1000;
 const SWEEP_EVERY = 60 * 1000;
 
 /** A session older than this process, or back from idle, only marks the history it resends as seen. */

@@ -1,7 +1,19 @@
-import { open, RECORD_PARTS, SEALED_PARTS, seal, TEAM_PROTOCOL, VaultError } from "@grenier/core";
-import type { FullRecord, OutboxEntry, RecordInput, Store } from "@grenier/store";
+import {
+  folderName,
+  fromBase64,
+  open,
+  RECORD_PARTS,
+  SEALED_PARTS,
+  seal,
+  TEAM_PROTOCOL,
+  toBase64,
+  VaultError,
+} from "@grenier/core";
+import type { StoredRecord } from "@grenier/core/team";
+import { type OutboxEntry, type Store, toInput } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
 import { newId } from "./records.ts";
+import { embedding } from "./writes.ts";
 
 export interface TeamClient {
   url: string;
@@ -45,41 +57,10 @@ export async function teamApi<T>(
   return body as T;
 }
 
-/** A record as the team store sends it. */
-interface Remote {
-  id: string;
-  top: string;
-  type: string;
-  kind: string | null;
-  title: string;
-  /** Missing from a team store deployed before folders. */
-  folder?: string;
-  body: string;
-  fields: Record<string, unknown>;
-  author: string;
-  device: string | null;
-  sessionId: string | null;
-  createdAt: number;
-  updatedAt: number;
-  retiredAt: number | null;
-  version: number;
-  anchors: FullRecord["anchors"];
-  links: FullRecord["links"];
-  sealed: string | null;
-}
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function fromBase64(text: string): Uint8Array {
-  return Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
-}
+type Remote = StoredRecord;
 
 /** A `me` record as it leaves: everything but its id and dates encrypted with the person's own key. */
-export async function sealRecord(key: string, record: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function sealRecord(key: string, record: Record<string, unknown>): Promise<Record<string, unknown>> {
   const secret = Object.fromEntries(SEALED_PARTS.map((part) => [part, record[part] ?? null]));
   const sealed = await seal(key, String(record.id), new TextEncoder().encode(JSON.stringify(secret)));
   return {
@@ -125,20 +106,21 @@ export async function teamChange(
 ): Promise<{ changed: string[]; record: Record<string, unknown> } | null> {
   let { record } = change;
   let changed = [...change.changed];
+  const everything = () => [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
   const { top } = record;
   // Without its top folder, a change could be a `me` record leaving unsealed: it stays here.
   if (typeof top !== "string") return null;
   if (top === "me") {
     if (!deps.personalKey) return null;
     return {
-      changed: [...new Set([...changed, ...SEALED_PARTS, "sealed"])],
+      changed: everything(),
       record: await sealRecord(deps.personalKey, record),
     };
   }
   // Out of `me`, the team store holds only the sealed copy: every part goes again, in the clear.
   if (changed.includes("top")) {
     record = { ...record, sealed: null };
-    changed = [...new Set([...changed, ...SEALED_PARTS, "sealed"])];
+    changed = everything();
   }
   const folder = await deps.store.tops.get(top);
   if (folder?.kind === "repo") record = { ...record, topName: folder.name };
@@ -237,22 +219,17 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
         unopened.delete(remote.id);
         remote = { ...opened, top: "me" };
       }
-      const { sealed: _sealed, ...rest } = remote;
-      const record: RecordInput = { ...rest, folder: rest.folder ?? "" };
+      const { sealed: _sealed, ...record } = remote;
       const before = await store.records.get(record.id);
-      const [vector] =
-        deps.embedder && (!before || before.title !== record.title || before.body !== record.body)
-          ? await deps.embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)])
-          : [];
-      await store.records.put(record, vector && deps.embedder ? { model: deps.embedder.model, vector } : undefined);
-      const { anchors, links, ...row } = record;
+      const same = before && before.title === record.title && before.body === record.body;
+      await store.records.put(record, same ? undefined : await embedding(deps.embedder, record));
       await store.history.add({
         recordId: record.id,
         version: record.version,
         author: record.author,
         device: record.device,
         ts: record.updatedAt,
-        snapshot: { ...row, anchors, links },
+        snapshot: { ...record },
       });
       result.pulled += 1;
     }
@@ -281,7 +258,7 @@ export async function rekeyed(store: Store, now = Date.now()): Promise<void> {
   const waiting = new Set((await store.outbox.list()).map((entry) => entry.recordId));
   for (const record of await store.records.list({ tops: ["me"], retired: true, limit: 1_000_000 })) {
     if (waiting.has(record.id)) continue;
-    const { seq: _seq, hits: _hits, ...rest } = record;
+    const rest = toInput(record);
     await store.outbox.add({
       id: newId(),
       recordId: record.id,
@@ -294,15 +271,26 @@ export async function rekeyed(store: Store, now = Date.now()): Promise<void> {
   await store.state.set("team_unopened", "[]");
 }
 
+interface UsageTotal {
+  day: string;
+  repo: string;
+  requests: number;
+  inputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  cost: number;
+  routineMinutes: number;
+}
+
 /** This machine's usage by day and repository folder, as totals the team store replaces. */
 async function pushUsage(deps: SyncDeps): Promise<void> {
   const since = (deps.now ?? Date.now)() - 35 * 86_400_000;
   const rows = await deps.store.usage.list({ since });
   const runs = await deps.store.runs.list({ since, limit: 10_000 });
-  const totals = new Map<string, Record<string, number | string>>();
-  for (const row of rows) {
-    const day = new Date(row.ts).toISOString().slice(0, 10);
-    const repo = (row.repoRoot ?? row.cwd ?? "").split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+  const totals = new Map<string, UsageTotal>();
+  const totalFor = (ts: number, repo: string): UsageTotal => {
+    const day = new Date(ts).toISOString().slice(0, 10);
     const key = `${day}\u0000${repo}`;
     const total = totals.get(key) ?? {
       day,
@@ -315,31 +303,21 @@ async function pushUsage(deps: SyncDeps): Promise<void> {
       cost: 0,
       routineMinutes: 0,
     };
-    total.requests = Number(total.requests) + 1;
-    total.inputTokens = Number(total.inputTokens) + (row.inputTokens ?? 0);
-    total.cacheWriteTokens = Number(total.cacheWriteTokens) + (row.cacheWriteTokens ?? 0);
-    total.cacheReadTokens = Number(total.cacheReadTokens) + (row.cacheReadTokens ?? 0);
-    total.outputTokens = Number(total.outputTokens) + (row.outputTokens ?? 0);
-    total.cost = Number(total.cost) + (row.cost ?? 0);
     totals.set(key, total);
+    return total;
+  };
+  for (const row of rows) {
+    const folder = row.repoRoot ?? row.cwd;
+    const total = totalFor(row.ts, folder ? folderName(folder) : "");
+    total.requests += 1;
+    total.inputTokens += row.inputTokens ?? 0;
+    total.cacheWriteTokens += row.cacheWriteTokens ?? 0;
+    total.cacheReadTokens += row.cacheReadTokens ?? 0;
+    total.outputTokens += row.outputTokens ?? 0;
+    total.cost += row.cost ?? 0;
   }
   for (const run of runs) {
-    if (!run.endedAt) continue;
-    const day = new Date(run.startedAt).toISOString().slice(0, 10);
-    const key = `${day}\u0000`;
-    const total = totals.get(key) ?? {
-      day,
-      repo: "",
-      requests: 0,
-      inputTokens: 0,
-      cacheWriteTokens: 0,
-      cacheReadTokens: 0,
-      outputTokens: 0,
-      cost: 0,
-      routineMinutes: 0,
-    };
-    total.routineMinutes = Number(total.routineMinutes) + (run.endedAt - run.startedAt) / 60_000;
-    totals.set(key, total);
+    if (run.endedAt) totalFor(run.startedAt, "").routineMinutes += (run.endedAt - run.startedAt) / 60_000;
   }
   if (totals.size === 0) return;
   await teamApi(deps.team, "/api/usage", { method: "PUT", body: { rows: [...totals.values()] } });

@@ -291,6 +291,8 @@ export interface LocalServer {
   name: string;
   /** The app whose config holds it, by its name: Claude Code, Codex, Cursor, Claude Desktop. */
   client: string;
+  /** The same app by its id, as `grenier app add` takes it: claude-code, codex, cursor, claude-desktop. */
+  app: string;
   /** The app's own for every project, a Claude Code project's, or a repository's .mcp.json. */
   scope: "user" | "project" | "repo";
   /** The project's folder; null for every project. */

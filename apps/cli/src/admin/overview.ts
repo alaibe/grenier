@@ -28,7 +28,7 @@ export function overviewRoutes(deps: AdminDeps): Hono {
   app.get("/overview", async (c) => {
     const since = parseSince("7d", Date.now());
     const rows = await store.usage.list({ since });
-    const team = deps.team() ?? null;
+    const team = deps.team();
     return c.json({
       version: deps.version,
       me: (await deps.storeDeps()).me.member,

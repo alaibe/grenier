@@ -1,21 +1,15 @@
-import type { LocalServer, ServerChange, SharedNow } from "@grenier/core/api";
-import { StoreUseError } from "@grenier/index";
+import type { LocalServer, ServerChange } from "@grenier/core/api";
 import { Hono } from "hono";
-import { serverEntry, serverToShare, share } from "../installs.ts";
-import { addServer, changeServer, claudeProjects, entryOf, localServers, removeServer, shareable } from "../servers.ts";
+import { shareServer } from "../installs.ts";
+import { entryOf, serverEntry, serverToShare, stringRecord } from "../server-config.ts";
+import { addServer, changeServer, claudeProjects, localServers, removeServer, shareable } from "../servers.ts";
 import type { AdminDeps } from "./admin.ts";
-import { bodyOf } from "./body.ts";
+import { bodyOf, queryId, storeConflicts } from "./request.ts";
 
 /** The person's own MCP servers: listed from every app, changed in Claude Code's and Codex's configs, shared by an admin. */
 export function serverRoutes(deps: AdminDeps): Hono {
   const { store, where } = deps;
-  const app = new Hono();
-  // What the team store would refuse is a conflict here, as in the team's servers.
-  app.onError((error) => {
-    if (error instanceof StoreUseError) return Response.json({ error: error.message }, { status: 409 });
-    throw error;
-  });
-  const id = (query: string | undefined) => String(query ?? "");
+  const app = storeConflicts(new Hono());
 
   app.get("/servers", async (c) => c.json({ servers: (await localServers(store, where)) satisfies LocalServer[] }));
 
@@ -31,30 +25,24 @@ export function serverRoutes(deps: AdminDeps): Hono {
   /** A server from the MCP Registry, filled in with the keys the person typed. */
   app.post("/servers/registry", async (c) => {
     const input = await bodyOf(c);
-    const keys = Object.fromEntries(
-      Object.entries((input.keys ?? {}) as Record<string, unknown>).map(([name, value]) => [name, String(value)]),
-    );
-    const entry = serverEntry({ fields: serverToShare(input) }, keys);
+    const entry = serverEntry({ fields: serverToShare(input) }, stringRecord(input.keys));
     return c.json({ id: addServer(where, { name: String(input.name ?? ""), entry }) }, 201);
   });
 
   app.put("/servers/one", async (c) => {
-    changeServer(where, id(c.req.query("id")), (await bodyOf(c)) as ServerChange);
+    changeServer(where, queryId(c), (await bodyOf(c)) as ServerChange);
     return c.json({ saved: true });
   });
 
   app.delete("/servers/one", (c) => {
-    removeServer(where, id(c.req.query("id")));
+    removeServer(where, queryId(c));
     return c.json({ removed: true });
   });
 
   /** An admin shares one of their servers: its values stay here, each becomes a key each teammate types. */
   app.post("/servers/share", async (c) => {
-    const server = (await localServers(store, where)).find((entry) => entry.id === id(c.req.query("id")));
-    const fields = serverToShare(shareable(where, id(c.req.query("id"))));
-    const title = server?.name ?? "";
-    const shared = await share(await deps.storeDeps(), { type: "McpServer", title, body: "", fields });
-    return c.json({ ...shared, title } satisfies SharedNow);
+    const { name, ...server } = shareable(where, queryId(c));
+    return c.json(await shareServer(await deps.storeDeps(), name, "", serverToShare(server)));
   });
 
   return app;

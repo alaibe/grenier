@@ -19,7 +19,11 @@ let places: Places;
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "grenier-instructions-"));
   work = join(home, "Work");
-  places = { workdir: work, home, grenierHome: join(home, ".grenier") };
+  places = {
+    workdir: work,
+    where: { home, platform: "linux", env: {}, self: [] },
+    grenierHome: join(home, ".grenier"),
+  };
   mkdirSync(join(work, "checkout", ".git"), { recursive: true });
   writeFileSync(join(work, "checkout", "AGENTS.md"), "# Checkout\n");
   mkdirSync(join(work, "notes"));
@@ -32,8 +36,8 @@ beforeEach(() => {
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
 describe("the instructions files", () => {
-  it("lists every project's in the work folder, every project's own, and Grenier's texts, made yet or not", () => {
-    const files = instructionFiles("~/Work", home, places.grenierHome);
+  it("lists every agent's own, each project's in the work folder, and Grenier's texts, made yet or not", () => {
+    const files = instructionFiles(places);
     expect(files.map((file) => [file.id, file.exists])).toEqual([
       ["global/CLAUDE.md", true],
       ["global/AGENTS.md", false],
@@ -47,7 +51,7 @@ describe("the instructions files", () => {
       ["grenier/get", false],
       ["grenier/set", false],
     ]);
-    expect(instructionFiles("", home, places.grenierHome).filter((file) => file.group !== "grenier")).toHaveLength(2);
+    expect(instructionFiles({ ...places, workdir: "" }).filter((file) => file.group !== "grenier")).toHaveLength(2);
   });
 
   it("writes one, makes a new one, and never over a change made since it was read", async () => {

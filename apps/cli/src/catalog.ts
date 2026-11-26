@@ -1,8 +1,16 @@
 import { posix } from "node:path";
 import { secretIn } from "@grenier/core";
 import type { FoundServer, FoundSkill } from "@grenier/core/api";
-import { MAX_SKILL_BYTES, MAX_SKILL_FILES, type SkillFiles, skillField, skillFromFiles } from "./installs.ts";
 import { Refusal } from "./io.ts";
+import { KEY_NAME, templateNames } from "./server-config.ts";
+import {
+  MAX_SKILL_BYTES,
+  MAX_SKILL_FILES,
+  type SkillFiles,
+  skillField,
+  skillFromFiles,
+  TOO_BIG,
+} from "./skill-files.ts";
 
 const SEARCH = "https://skills.sh/api/search";
 const GITHUB = "https://api.github.com/repos";
@@ -20,7 +28,6 @@ function reach(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promis
   });
 }
 
-/** A skill skills.sh lists: `source` is the GitHub repository that holds it. */
 /** Skills on skills.sh that match the words; only the words are sent. */
 export async function searchSkills(words: string, fetchImpl: typeof fetch = fetch): Promise<FoundSkill[]> {
   const query = words.trim().slice(0, 200);
@@ -77,7 +84,7 @@ export async function fetchSkill(source: string, name: string, fetchImpl: typeof
     const inside = visible.filter((entry) => entry.path.startsWith(prefix));
     const bytes = inside.reduce((total, entry) => total + (entry.size ?? 0), 0);
     if (inside.length > MAX_SKILL_FILES || bytes > MAX_SKILL_BYTES) {
-      throw new Refusal(`${name} is larger than a shared skill may be: ${MAX_SKILL_FILES} files and 200 KB`);
+      throw new Refusal(`${name} is too large: ${TOO_BIG}`);
     }
     const files: Record<string, string> = {};
     for (const entry of inside) files[entry.path.slice(prefix.length)] = await raw(entry.path);
@@ -88,7 +95,7 @@ export async function fetchSkill(source: string, name: string, fetchImpl: typeof
 
 const REGISTRY = "https://registry.modelcontextprotocol.io/v0/servers";
 
-/** A server the MCP Registry lists, as the team would share it: pinned, with the names of the keys each person enters. */
+/** A header or variable a server in the MCP Registry asks for: a fixed value, or a key each person enters. */
 interface RegistryInput {
   name?: unknown;
   value?: unknown;
@@ -98,7 +105,7 @@ interface RegistryInput {
   type?: unknown;
 }
 
-const named = (value: unknown): value is string => typeof value === "string" && /^[\w-]{1,80}$/.test(value);
+const named = (value: unknown): value is string => typeof value === "string" && KEY_NAME.test(value);
 const variable = (name: string) => name.replace(/-/g, "_");
 
 /** A remote entry: its URL and the headers, as templates naming what each person enters. */
@@ -110,7 +117,7 @@ function remoteConfig(remote: Record<string, unknown>): Pick<FoundServer, "confi
   for (const header of (Array.isArray(remote.headers) ? remote.headers : []) as RegistryInput[]) {
     if (!named(header.name)) return null;
     const template = typeof header.value === "string" ? header.value : `{${variable(header.name)}}`;
-    const names = [...template.matchAll(/\{(\w+)\}/g)].map((match) => match[1] as string);
+    const names = templateNames(template);
     if (names.length === 0 && header.isRequired === true) return null;
     headers[header.name] = template;
     credentials.push(...names);
@@ -176,7 +183,7 @@ export async function searchServers(words: string, fetchImpl: typeof fetch = fet
   if (!query) return [];
   const response = await reach(
     fetchImpl,
-    `${REGISTRY}?${new URLSearchParams({ search: query, version: "latest", limit: "30" })}`,
+    `${REGISTRY}?${new URLSearchParams({ search: query, version: "latest", limit: String(MAX_RESULTS) })}`,
     {
       headers: { accept: "application/json" },
     },

@@ -6,7 +6,14 @@ import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CLAUDE_CODE, CODEX, presentAgents, type Where } from "../../../apps/cli/src/agents/index.ts";
+import {
+  CLAUDE_CODE,
+  CODEX,
+  clientOf,
+  type McpClient,
+  presentAgents,
+  type Where,
+} from "../../../apps/cli/src/agents/index.ts";
 import { connectApp } from "../../../apps/cli/src/connect.ts";
 import { install, share, uninstall } from "../../../apps/cli/src/installs.ts";
 import { addServer, localServers } from "../../../apps/cli/src/servers.ts";
@@ -67,7 +74,7 @@ describe("Claude Code and Codex, each its own strategy", () => {
     expect(CLAUDE_CODE.runArgs(["-p", "hi"], "Call get.")).toEqual(["--append-system-prompt", "Call get.", "-p", "hi"]);
     expect(CODEX.runArgs(["exec"], null, "http://p")).toEqual(["-c", 'openai_base_url="http://p"', "exec"]);
     expect(CLAUDE_CODE.routine("Tidy.", "read-only").args).toContain("--tools");
-    expect(CODEX.routine("Tidy.", "on", "http://p")).toEqual({
+    expect(CODEX.routine("Tidy.", "on", "http://p/openai/v1")).toEqual({
       command: "codex",
       args: ["exec", "--sandbox", "workspace-write", "-c", 'openai_base_url="http://p/openai/v1"', "Tidy."],
     });
@@ -96,7 +103,7 @@ describe("Claude Code and Codex, each its own strategy", () => {
     expect(await localSkills(store, where)).toEqual([]);
 
     for (const { id } of [skill, server]) {
-      await uninstall(store, where, (await store.records.get(id)) as FullRecord);
+      await uninstall(store, where, id, ((await store.records.get(id)) as FullRecord).type as "Skill" | "McpServer");
     }
     expect(existsSync(join(home, ".codex", "skills", "grenier-notes"))).toBe(false);
     expect(claudeConfig().mcpServers["grenier-linear"]).toBeUndefined();
@@ -119,7 +126,7 @@ describe("Claude Code and Codex, each its own strategy", () => {
 
   it("adds Grenier to Codex with its setup skill", async () => {
     both();
-    await connectApp(store, "codex", ["*"], where);
+    await connectApp(store, clientOf("codex") as McpClient, ["*"], where);
     expect(codexConfig().mcp_servers).toMatchObject({ grenier: { args: ["grenier.js", "mcp", "serve"] } });
     expect(readFileSync(join(home, ".codex", "skills", "grenier-setup", "SKILL.md"), "utf8")).toContain(
       "name: grenier-setup",

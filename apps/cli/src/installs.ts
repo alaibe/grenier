@@ -1,56 +1,17 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, posix } from "node:path";
-import { recordProblem, secretIn, sharedHash } from "@grenier/core";
-import type { SharedState } from "@grenier/core/api";
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { recordProblem, sharedHash } from "@grenier/core";
+import type { SharedNow, SharedState } from "@grenier/core/api";
 import { newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
-import type { Approval, FullRecord, Store } from "@grenier/store";
+import { type Approval, type FullRecord, type Store, toInput } from "@grenier/store";
 import { presentAgents, type Where } from "./agents/index.ts";
 import { Refusal } from "./io.ts";
+import { keysIn, serverEntry } from "./server-config.ts";
+import { type SkillFiles, skillField, writeSkill } from "./skill-files.ts";
 
 export type Shared = "Skill" | "McpServer";
 
 const KIND = { Skill: "skill", McpServer: "mcp" } as const;
-export const MAX_SKILL_BYTES = 200_000;
-export const MAX_SKILL_FILES = 50;
-const TOO_BIG = `a shared skill holds at most ${MAX_SKILL_FILES} files and 200 KB`;
-
-export interface SkillFiles {
-  name: string;
-  description: string;
-  files: Record<string, string>;
-}
-
-/** A field of SKILL.md's front matter, as `name` or `description`, plain or in YAML's quotes. */
-export function skillField(manifest: string, key: string): string | undefined {
-  const front = /^---\n([\s\S]*?)\n---/.exec(manifest)?.[1] ?? "";
-  const value = new RegExp(`^${key}:\\s*(.+)$`, "m").exec(front)?.[1]?.trim();
-  if (value && value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
-    try {
-      return JSON.parse(value) as string;
-    } catch {
-      return value.slice(1, -1);
-    }
-  }
-  if (value && value.length > 1 && value.startsWith("'") && value.endsWith("'")) {
-    return value.slice(1, -1).replaceAll("''", "'");
-  }
-  return value;
-}
-
-/** A skill as a record holds it, SKILL.md and the text files beside it, within a shared skill's limits. */
-export function skillFromFiles(files: Record<string, string>, folderName: string): SkillFiles {
-  const manifest = files["SKILL.md"];
-  if (manifest === undefined) throw new Refusal("a skill has a SKILL.md");
-  let bytes = 0;
-  for (const [path, text] of Object.entries(files)) {
-    if (text.includes("\u0000")) throw new Refusal(`${path} is not a text file; a shared skill holds text only`);
-    bytes += Buffer.byteLength(text);
-  }
-  if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) throw new Refusal(TOO_BIG);
-  const name = skillField(manifest, "name") ?? (folderName || "skill");
-  return { name, description: skillField(manifest, "description") ?? "", files };
-}
-
 const slug = (name: string) =>
   name
     .toLowerCase()
@@ -59,108 +20,7 @@ const slug = (name: string) =>
     .slice(0, 60) || "shared";
 
 /** The folder or server name a shared skill or server installs under, in each agent: `grenier-` and its name. */
-export const installedName = (record: Pick<FullRecord, "title">) => `grenier-${slug(record.title)}`;
-
-const credentialsOf = (record: Pick<FullRecord, "fields">) =>
-  Array.isArray(record.fields.credentials) ? (record.fields.credentials as string[]) : [];
-
-/** A remote server's headers as shared: each value a template, as "Bearer {api_key}", whose names are credentials. */
-function headerTemplates(config: Record<string, unknown>, credentials: string[]): Record<string, string> {
-  const headers = (config.headers ?? {}) as Record<string, unknown>;
-  const templates = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, String(value)]));
-  // A credential no template names is sent as a header of its own name.
-  for (const name of credentials) {
-    if (!Object.values(templates).some((template) => template.includes(`{${name}}`))) templates[name] = `{${name}}`;
-  }
-  return templates;
-}
-
-const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/** The keys a person entered, read back from their server's entry in an agent's config. */
-function keysIn(
-  record: Pick<FullRecord, "fields">,
-  entry: Record<string, unknown> | undefined,
-): Record<string, string> {
-  if (!entry) return {};
-  const config = (record.fields.config ?? {}) as Record<string, unknown>;
-  const keys: Record<string, string> = {};
-  if (typeof config.url !== "string") {
-    for (const [name, value] of Object.entries((entry.env ?? {}) as Record<string, unknown>))
-      keys[name] = String(value);
-    return keys;
-  }
-  const headers = (entry.headers ?? {}) as Record<string, unknown>;
-  for (const [header, template] of Object.entries(headerTemplates(config, credentialsOf(record)))) {
-    const names = [...template.matchAll(/\{(\w+)\}/g)].map((match) => match[1] as string);
-    const pattern = new RegExp(`^${literal(template).replace(/\\\{\w+\\\}/g, "(.*)")}$`);
-    const found = pattern.exec(String(headers[header] ?? ""));
-    if (!found) continue;
-    for (const [index, name] of names.entries()) keys[name] = found[index + 1] as string;
-  }
-  return keys;
-}
-
-/** A server's entry in each agent's config, with the keys this person entered: they go nowhere else. */
-export function serverEntry(record: Pick<FullRecord, "fields">, keys: Record<string, string>): Record<string, unknown> {
-  const config = (record.fields.config ?? {}) as Record<string, unknown>;
-  const credentials = credentialsOf(record);
-  const missing = credentials.filter((name) => !keys[name]);
-  if (missing.length > 0) throw new Refusal(`it needs your ${missing.join(", ")}`);
-  if (typeof config.url === "string") {
-    const headers = Object.fromEntries(
-      Object.entries(headerTemplates(config, credentials)).map(([name, template]) => [
-        name,
-        template.replace(/\{(\w+)\}/g, (_, key: string) => keys[key] ?? ""),
-      ]),
-    );
-    return {
-      type: config.type === "sse" ? "sse" : "http",
-      url: config.url,
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
-    };
-  }
-  const env = {
-    ...((config.env ?? {}) as Record<string, string>),
-    ...Object.fromEntries(credentials.map((name) => [name, keys[name] as string])),
-  };
-  return {
-    type: "stdio",
-    command: String(config.command ?? ""),
-    args: Array.isArray(config.args) ? config.args.map(String) : [],
-    ...(Object.keys(env).length > 0 ? { env } : {}),
-  };
-}
-
-export function readJson(path: string): Record<string, unknown> {
-  if (!existsSync(path)) return {};
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-  } catch {
-    throw new Refusal(`${path} is not valid JSON; fix it or move it aside first`);
-  }
-}
-
-/** A path a skill's file may take inside its folder: relative, without `..`, and `/` its only separator. */
-export function safePath(path: string): string {
-  const normal = posix.normalize(path);
-  if (isAbsolute(normal) || normal.startsWith("..") || /[\0\\]/.test(normal) || normal === ".") {
-    throw new Refusal(`the skill's file ${path} would land outside its folder`);
-  }
-  return normal;
-}
-
-export function writeSkill(folder: string, files: Record<string, string>): void {
-  const paths = Object.keys(files).map(safePath);
-  rmSync(folder, { recursive: true, force: true });
-  for (const [index, path] of paths.entries()) {
-    const target = join(folder, path);
-    mkdirSync(join(target, ".."), { recursive: true });
-    const text = files[Object.keys(files)[index] as string] as string;
-    writeFileSync(target, text);
-    if (text.startsWith("#!")) chmodSync(target, 0o755);
-  }
-}
+const installedName = (record: Pick<FullRecord, "title">) => `grenier-${slug(record.title)}`;
 
 /**
  * Installs a shared skill or server and pins its hash, so a later change waits for approval again. A server's keys
@@ -211,9 +71,8 @@ export async function install(
 }
 
 /** Takes a shared skill or server off every agent here. */
-export async function uninstall(store: Store, where: Where, record: Pick<FullRecord, "id" | "type">): Promise<boolean> {
-  const kind = KIND[record.type as Shared];
-  const approval = kind ? await store.approvals.get(record.id, kind) : undefined;
+export async function uninstall(store: Store, where: Where, recordId: string, type: Shared): Promise<boolean> {
+  const approval = await store.approvals.get(recordId, KIND[type]);
   if (!approval) return false;
   const name = String(approval.settings.name ?? "");
   for (const agent of presentAgents(where)) {
@@ -224,7 +83,7 @@ export async function uninstall(store: Store, where: Where, record: Pick<FullRec
       });
     }
   }
-  await store.approvals.remove(record.id, approval.kind);
+  await store.approvals.remove(recordId, approval.kind);
   return true;
 }
 
@@ -282,68 +141,26 @@ export async function removeRetired(store: Store, where: Where): Promise<string[
     if (approval.kind !== "skill" && approval.kind !== "mcp") continue;
     const record = await store.records.get(approval.recordId);
     if (record && record.retiredAt === null) continue;
-    await uninstall(store, where, {
-      id: approval.recordId,
-      type: approval.kind === "skill" ? "Skill" : "McpServer",
-    });
+    await uninstall(store, where, approval.recordId, approval.kind === "skill" ? "Skill" : "McpServer");
     done.push(`removed ${record?.title ?? approval.recordId}, which the team retired`);
   }
   return done;
 }
 
-/** Flags and values that look like they carry a credential, which a shared server's arguments may not. */
-export const CREDENTIAL_FLAG = /^--?[\w-]*(key|token|secret|password|auth)[\w-]*(=|$)/i;
+/** A skill shared with the team, from its files: a new version when one of its name is there already. */
+export async function shareSkill(deps: StoreDeps, skill: SkillFiles): Promise<SharedNow> {
+  const shared = await share(deps, { type: "Skill", title: skill.name, body: "", fields: { files: skill.files } });
+  return { ...shared, title: skill.name };
+}
 
-/**
- * A server as an admin adds it from the app: a URL with header templates, or a command with its arguments and fixed
- * environment, plus the names of the keys each person enters. Nothing in it may already be a key.
- */
-export function serverToShare(input: { config?: unknown; credentials?: unknown }): {
-  config: Record<string, unknown>;
-  credentials: string[];
-} {
-  const given = (input.config ?? {}) as Record<string, unknown>;
-  const credentials = Array.isArray(input.credentials) ? input.credentials.map(String) : [];
-  if (credentials.some((name) => !/^[\w-]{1,80}$/.test(name))) {
-    throw new Refusal("a key's name takes letters, digits, _ and -");
-  }
-  const strings = (value: unknown) =>
-    Object.fromEntries(
-      Object.entries((value ?? {}) as Record<string, unknown>).map(([name, text]) => [name, String(text)]),
-    );
-  let config: Record<string, unknown>;
-  if (typeof given.url === "string" && given.url.trim()) {
-    let url: URL;
-    try {
-      url = new URL(given.url.trim());
-    } catch (error) {
-      throw new Refusal((error as Error).message);
-    }
-    if (
-      url.username ||
-      url.password ||
-      [...url.searchParams.keys()].some((key) => /key|token|secret|auth/i.test(key))
-    ) {
-      throw new Refusal("its URL carries a credential; move it to a header first");
-    }
-    const headers = strings(given.headers);
-    config = {
-      type: given.type === "sse" ? "sse" : "http",
-      url: given.url.trim(),
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
-    };
-  } else if (typeof given.command === "string" && given.command.trim()) {
-    const args = Array.isArray(given.args) ? given.args.map(String) : [];
-    if (args.some((arg) => CREDENTIAL_FLAG.test(arg))) {
-      throw new Refusal("its arguments carry a credential; pass it in an environment variable first");
-    }
-    const env = strings(given.env);
-    config = { command: given.command.trim(), args, ...(Object.keys(env).length > 0 ? { env } : {}) };
-  } else {
-    throw new Refusal("a server has a URL, or a command to run");
-  }
-  if (secretIn(JSON.stringify(config))) throw new Refusal("its configuration holds what looks like a key or a token");
-  return { config, credentials };
+/** A server shared with the team, with the names of the keys each person enters. */
+export async function shareServer(
+  deps: StoreDeps,
+  title: string,
+  description: string,
+  fields: { config: Record<string, unknown>; credentials: string[] },
+): Promise<SharedNow> {
+  return { ...(await share(deps, { type: "McpServer", title, body: description, fields })), title };
 }
 
 /** Writes a Skill or McpServer record to the Team folder, or a new version of the one with the same title. */
@@ -361,7 +178,7 @@ export async function share(
   if (why) throw new Refusal(`the team store would refuse it: ${why}`);
   const parts = { title: input.title, body: input.body, fields };
   const next = existing
-    ? { ...(({ seq: _seq, hits: _hits, ...rest }) => rest)(existing), ...parts, updatedAt: Date.now() }
+    ? { ...toInput(existing), ...parts, updatedAt: Date.now() }
     : newRecord(deps.me, { top: "team", type: input.type, ...parts });
   await write(deps, next, existing);
   return { id: next.id, updated: Boolean(existing) };

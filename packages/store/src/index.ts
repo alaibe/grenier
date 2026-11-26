@@ -36,6 +36,8 @@ export type {
   UsageWithSession,
 } from "./store.ts";
 
+export { toInput } from "./store.ts";
+
 export class StoreError extends Error {
   override name = "StoreError";
 }

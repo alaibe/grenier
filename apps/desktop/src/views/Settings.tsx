@@ -1,4 +1,4 @@
-import type { KeyState, Overview, ShownKey } from "@grenier/core/api";
+import type { KeyState, ShownKey } from "@grenier/core/api";
 import { AppWindow, Cpu, Eye, KeyRound, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import type { ViewProps } from "../App.tsx";
@@ -19,8 +19,6 @@ import { Tree } from "../ui/tree.tsx";
 import { Apps } from "./Apps.tsx";
 import { MachineSettings } from "./Machine.tsx";
 
-const loadOverview = () => api<Overview>("/overview");
-
 /** Settings' areas, in the list beside the one that is open: `#settings/<area>`. */
 const AREAS = [
   { id: "general", name: "General", icon: SlidersHorizontal, View: General },
@@ -30,7 +28,7 @@ const AREAS = [
 ] as const;
 
 /** Every setting in one place (patterns/navigation.md), an area at a time: its list beside the area that is open. */
-export function Settings({ item, go }: ViewProps) {
+export function Settings({ item, go, overview }: ViewProps) {
   const area = AREAS.find((entry) => entry.id === item) ?? AREAS[0];
   return (
     <ListDetail
@@ -41,16 +39,14 @@ export function Settings({ item, go }: ViewProps) {
             label="Settings"
             nodes={AREAS.map(({ id, name, icon }) => ({ id, name, icon }))}
             selected={area.id}
-            open={() => false}
             onSelect={(node) => go("settings", node.id)}
-            onToggle={() => {}}
             onOpen={(node) => go("settings", node.id)}
           />
         </div>
       }
     >
       <div className="px-6 pt-6 pb-12">
-        <area.View />
+        <area.View version={overview.data?.version ?? null} />
       </div>
     </ListDetail>
   );
@@ -62,10 +58,9 @@ const THEMES = [
   ["light", "Light"],
 ] as const satisfies readonly (readonly [Theme, string])[];
 
-function General() {
+function General({ version }: { version: string | null }) {
   const [prefs, setPrefs] = usePrefs();
   const saved = useSaved();
-  const overview = useLoad(loadOverview);
   const usage = useLoad(usageEnabled);
   const action = useAction(usage.reload);
   const set = (change: Parameters<typeof setPrefs>[0]) => {
@@ -108,7 +103,7 @@ function General() {
       {usage.error && <Notice kind="info">{usage.error}</Notice>}
       <Problem error={action.problem} />
       <SectionRow label="Version">
-        <span className="font-mono text-sm text-muted tabular-nums">{overview.data?.version ?? "…"}</span>
+        <span className="font-mono text-sm text-muted tabular-nums">{version ?? "…"}</span>
       </SectionRow>
     </Section>
   );

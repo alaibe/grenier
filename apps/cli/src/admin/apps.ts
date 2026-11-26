@@ -1,10 +1,10 @@
 import type { AppView, ClientMade, Clients } from "@grenier/core/api";
 import { addClient } from "@grenier/index";
 import { Hono } from "hono";
-import { type App, CLIENTS, clientOf } from "../agents/index.ts";
+import { CLIENTS, clientOf } from "../agents/index.ts";
 import { connectApp, connected } from "../connect.ts";
 import type { AdminDeps } from "./admin.ts";
-import { bodyOf } from "./body.ts";
+import { bodyOf } from "./request.ts";
 
 /** The apps on this computer Grenier can be added to, and the keys apps read the store with over MCP. */
 export function appRoutes(deps: AdminDeps): Hono {
@@ -16,7 +16,7 @@ export function appRoutes(deps: AdminDeps): Hono {
       apps: CLIENTS.map((client) => ({
         app: client.id,
         label: client.label,
-        connected: connected(client.id, where),
+        connected: connected(client, where),
       })) satisfies AppView[],
     }),
   );
@@ -26,8 +26,8 @@ export function appRoutes(deps: AdminDeps): Hono {
     const client = clientOf(name);
     if (!client) return c.json({ error: `Grenier cannot be added to ${name}` }, 404);
     const given = (await bodyOf(c)).scopes;
-    const scopes = Array.isArray(given) ? given.map(String) : ["*"];
-    const file = await connectApp(store, name as App, scopes, where);
+    const scopes = Array.isArray(given) ? given.filter((scope): scope is string => typeof scope === "string") : ["*"];
+    const file = await connectApp(store, client, scopes, where);
     return c.json({ app: name, file, restart: client.label });
   });
 

@@ -54,11 +54,7 @@ export function Notice({
 }
 
 /** A problem that stays until it is fixed or retried, or nothing when there is none. */
-export function Problem({ error, action }: { error: string | null | undefined; action?: ReactNode }) {
+export function Problem({ error }: { error: string | null | undefined }) {
   if (!error) return null;
-  return (
-    <Notice kind="err" action={action}>
-      {error}
-    </Notice>
-  );
+  return <Notice kind="err">{error}</Notice>;
 }

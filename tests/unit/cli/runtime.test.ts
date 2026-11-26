@@ -17,7 +17,7 @@ describe("embedderLoader", () => {
       return embedder;
     };
     const lines: string[] = [];
-    const get = embedderLoader(defaultConfig(), paths, (line) => lines.push(line), {}, { load, now: () => clock });
+    const get = embedderLoader(defaultConfig(), paths, (line) => lines.push(line), { load, now: () => clock });
 
     expect(await get()).toBeNull();
     expect(await get()).toBeNull();

@@ -29,9 +29,8 @@ export function acts(mode: RoutineMode): boolean {
   return mode === "limited" || mode === "on";
 }
 
-/** Whether a run may call a tool: anything once it acts, else reading, the store, and Codex's sandboxed tools. */
-export function mayCall(agent: string, mode: RoutineMode, tool: string): boolean {
-  if (acts(mode)) return true;
+/** Whether a tool call only reads: the reading tools, the store's, and Codex's sandboxed ones. */
+function reads(agent: string, tool: string): boolean {
   return (
     (READ_TOOLS as readonly string[]).includes(tool) ||
     (STORE_TOOLS as readonly string[]).includes(tool) ||
@@ -40,14 +39,14 @@ export function mayCall(agent: string, mode: RoutineMode, tool: string): boolean
   );
 }
 
+/** Whether a run may call a tool: anything once it acts, else what only reads. */
+export function mayCall(agent: string, mode: RoutineMode, tool: string): boolean {
+  return acts(mode) || reads(agent, tool);
+}
+
 /** Whether a tool call counts as an action, against `limited`'s daily allowance; Codex reads with its shell too. */
 export function isAction(tool: string, agent = "claude"): boolean {
-  return (
-    !(READ_TOOLS as readonly string[]).includes(tool) &&
-    !(STORE_TOOLS as readonly string[]).includes(tool) &&
-    !readsByName(tool) &&
-    !sandboxed(agent, tool)
-  );
+  return !reads(agent, tool);
 }
 
 export interface RoutineShape {

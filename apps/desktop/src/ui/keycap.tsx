@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from "react";
 import { caps, type Shortcut } from "./keys.ts";
 
 /** One key, as on the keyboard (components/keycap.md). */
-export function Kbd({ children }: { children: ReactNode }) {
+function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="kbd">{children}</kbd>;
 }
 

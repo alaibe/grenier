@@ -1,22 +1,20 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, rmSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { LocalSkill, LocalSkillFull } from "@grenier/core/api";
 import { writeAtomically } from "@grenier/core/node";
 import type { Store } from "@grenier/store";
-import { type Agent, agentNamed, CLAUDE_CODE, presentAgents, type Where } from "./agents/index.ts";
-import { MAX_SKILL_BYTES, MAX_SKILL_FILES, readJson, type SkillFiles, skillField, writeSkill } from "./installs.ts";
-import { Refusal } from "./io.ts";
-
-/** What a skill's folder is named: lowercase letters, digits and dashes, as Claude Code names skills. */
-export const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
-
-const isDir = (path: string) => {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-};
+import { type Agent, agentNamed, CLAUDE_CODE, presentAgents, readJson, type Where } from "./agents/index.ts";
+import { isDir, Refusal } from "./io.ts";
+import {
+  BAD_NAME,
+  MAX_SKILL_BYTES,
+  MAX_SKILL_FILES,
+  SKILL_NAME,
+  type SkillFiles,
+  skillField,
+  TOO_BIG,
+  writeSkill,
+} from "./skill-files.ts";
 
 function described(
   agent: Agent,
@@ -108,71 +106,51 @@ function folderOf(where: Where, skill: LocalSkill): string {
   return join(agentNamed(agent).skillsDir(where), name);
 }
 
-/** The text files of a skill's folder, by their path in it, within a shared skill's limits. */
-export function skillFilesIn(folder: string): Record<string, string> {
-  const files: Record<string, string> = {};
-  let bytes = 0;
+/** The files under a folder, by their path in it with `/` between parts, leaving out hidden ones. */
+function filesIn(folder: string): string[] {
+  const out: string[] = [];
   const walk = (at: string) => {
-    for (const name of readdirSync(at)) {
+    for (const name of readdirSync(at).sort()) {
       if (name.startsWith(".")) continue;
       const path = join(at, name);
-      if (isDir(path)) {
-        walk(path);
-        continue;
-      }
-      const text = readFileSync(path, "utf8");
-      bytes += Buffer.byteLength(text);
-      if (Object.keys(files).length >= MAX_SKILL_FILES || bytes > MAX_SKILL_BYTES) {
-        throw new Refusal(`a skill shared with the team holds at most ${MAX_SKILL_FILES} files and 200 KB`);
-      }
-      files[relative(folder, path).split("\\").join("/")] = text;
+      if (isDir(path)) walk(path);
+      else out.push(relative(folder, path).split("\\").join("/"));
     }
   };
   walk(folder);
+  return out;
+}
+
+/** The text files of a skill's folder, by their path in it, within a shared skill's limits. */
+export function skillFilesIn(folder: string): Record<string, string> {
+  const paths = filesIn(folder);
+  if (paths.length > MAX_SKILL_FILES) throw new Refusal(TOO_BIG);
+  const files = Object.fromEntries(paths.map((path) => [path, readFileSync(join(folder, path), "utf8")]));
+  const bytes = Object.values(files).reduce((total, text) => total + Buffer.byteLength(text), 0);
+  if (bytes > MAX_SKILL_BYTES) throw new Refusal(TOO_BIG);
   return files;
 }
 
 export async function localSkill(store: Store, where: Where, id: string): Promise<LocalSkillFull> {
   const skill = await found(store, where, id);
   const folder = folderOf(where, skill);
-  const files: string[] = [];
-  const walk = (at: string) => {
-    for (const name of readdirSync(at).sort()) {
-      if (name.startsWith(".")) continue;
-      const path = join(at, name);
-      if (isDir(path)) walk(path);
-      else files.push(relative(folder, path).split("\\").join("/"));
-    }
-  };
-  walk(folder);
   return {
     ...skill,
     manifest: readFileSync(join(folder, "SKILL.md"), "utf8"),
-    files: files.filter((path) => path !== "SKILL.md"),
+    files: filesIn(folder).filter((path) => path !== "SKILL.md"),
   };
 }
 
 /** A new skill of the person's own, a folder named after it in every agent's skills here, never over one there. */
 export function addLocalSkill(where: Where, skill: SkillFiles): string {
   const name = skill.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
-  if (!SKILL_NAME.test(name)) throw new Refusal("a skill's name takes lowercase letters, digits and -");
+  if (!SKILL_NAME.test(name)) throw new Refusal(BAD_NAME);
   const agents = presentAgents(where);
   if (agents.some((agent) => existsSync(join(agent.skillsDir(where), name)))) {
     throw new Refusal(`there is a skill named ${name} in your skills already`);
   }
   for (const agent of agents) writeSkill(join(agent.skillsDir(where), name), skill.files);
   return `${agents[0]?.agent ?? CLAUDE_CODE.agent}:${name}`;
-}
-
-/** A SKILL.md from a name, a one-line description and the instructions. */
-export function manifestOf(input: { name: string; description: string; instructions: string }): string {
-  if (!SKILL_NAME.test(input.name)) throw new Refusal("a skill's name takes lowercase letters, digits and -");
-  if (!input.description.trim() || !input.instructions.trim()) {
-    throw new Refusal("a skill needs a description and its instructions");
-  }
-  // A JSON string is a YAML double-quoted scalar: a ": " or a quote in it stays text.
-  const description = JSON.stringify(input.description.trim().replace(/\s+/g, " "));
-  return `---\nname: ${input.name}\ndescription: ${description}\n---\n${input.instructions.trim()}\n`;
 }
 
 /** A new SKILL.md for one of the person's own skills; a link, a synced or a plugin's skill is changed where it comes from. */

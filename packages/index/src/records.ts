@@ -1,4 +1,14 @@
-import { builtinType, customType, folderProblem, repoTop, sha256, type TypeDef, topName } from "@grenier/core";
+import {
+  builtinType,
+  customType,
+  folderName,
+  folderProblem,
+  randomHex,
+  repoTop,
+  sha256,
+  type TypeDef,
+  topName,
+} from "@grenier/core";
 import type { RecordInput, Store, Top } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
 
@@ -48,10 +58,7 @@ export class StoreUseError extends Error {
   override name = "StoreUseError";
 }
 
-export function newId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(12));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+export const newId = () => randomHex(12);
 
 /** A record this machine's person starts: `parts` says what it is, the rest is what every new record has. */
 export function newRecord(
@@ -108,7 +115,7 @@ export async function resolveFolderPath(
 
 export async function ensureRepoTop(store: Store, repo: Repo): Promise<string> {
   const id = repoTop(repo.id);
-  const name = (repo.home ?? repo.root).split(/[\\/]/).filter(Boolean).at(-1) ?? repo.id.slice(0, 8);
+  const name = folderName(repo.home ?? repo.root) || repo.id.slice(0, 8);
   const existing = await store.tops.get(id);
   const root = repo.home ?? repo.root;
   await store.tops.put({ id, name: existing?.name ?? name, kind: "repo", repoId: repo.id, root });

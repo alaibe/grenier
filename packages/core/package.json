@@ -8,11 +8,14 @@
   "exports": {
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
+    "./diff": "./src/diff.ts",
     "./policy": "./src/policy.ts",
     "./records": "./src/records.ts",
     "./routines": "./src/routines.ts",
+    "./server-name": "./src/server-name.ts",
     "./team": "./src/team.ts",
     "./vault": "./src/vault.ts",
+    "./names": "./src/names.ts",
     "./node": "./src/node.ts"
   },
   "dependencies": {

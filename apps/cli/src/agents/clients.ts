@@ -11,6 +11,23 @@ const CLAUDE_READS = ["Read", "Grep", "Glob"];
 
 const readText = (path: string) => (existsSync(path) ? readFileSync(path, "utf8") : "");
 
+/** A JSON file's object, or an empty one when there is none; refused when it doesn't parse. */
+export function readJson(path: string): Record<string, unknown> {
+  const text = readText(path);
+  if (text.trim() === "") return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Refusal(`${path} is not valid JSON; fix it or move it aside first`);
+  }
+}
+
+/** The servers a config, or one of its projects, holds under `mcpServers`. */
+export function serversIn(config: Record<string, unknown>): Record<string, ServerEntry> {
+  const servers = config.mcpServers;
+  return servers && typeof servers === "object" ? (servers as Record<string, ServerEntry>) : {};
+}
+
 /** A config file in JSON that holds its servers under `mcpServers`, as most MCP apps keep them. */
 abstract class JsonClient implements McpClient {
   abstract readonly id: McpClient["id"];
@@ -18,13 +35,7 @@ abstract class JsonClient implements McpClient {
   abstract configPath(where: Where): string;
 
   protected read(where: Where): Record<string, unknown> {
-    const text = readText(this.configPath(where));
-    if (text.trim() === "") return {};
-    try {
-      return JSON.parse(text) as Record<string, unknown>;
-    } catch {
-      throw new Refusal(`${this.configPath(where)} is not valid JSON; fix it or move it aside first`);
-    }
+    return readJson(this.configPath(where));
   }
 
   /** How this app wants an entry written; most take it as it is. */
@@ -33,13 +44,16 @@ abstract class JsonClient implements McpClient {
   }
 
   servers(where: Where): Record<string, ServerEntry> {
-    const servers = this.read(where).mcpServers;
-    return servers && typeof servers === "object" ? (servers as Record<string, ServerEntry>) : {};
+    return serversIn(this.read(where));
   }
 
   editServers(where: Where, change: (servers: Record<string, ServerEntry>) => void): void {
     const config = this.read(where);
-    config.mcpServers = this.changed(this.servers(where), change);
+    config.mcpServers = this.changed(serversIn(config), change);
+    this.write(where, config);
+  }
+
+  protected write(where: Where, config: Record<string, unknown>): void {
     writeAtomically(this.configPath(where), `${JSON.stringify(config, null, 2)}\n`);
   }
 
@@ -88,8 +102,8 @@ export class ClaudeCode extends JsonClient implements Agent {
     const projects = (config.projects ?? {}) as Record<string, Record<string, unknown>>;
     const settings = projects[project];
     if (!settings) throw new Refusal(`Claude Code knows no project ${project}`);
-    settings.mcpServers = this.changed((settings.mcpServers ?? {}) as Record<string, ServerEntry>, change);
-    writeAtomically(this.configPath(where), `${JSON.stringify(config, null, 2)}\n`);
+    settings.mcpServers = this.changed(serversIn(settings), change);
+    this.write(where, config);
   }
 
   present(where: Where): boolean {
@@ -179,7 +193,7 @@ export class Codex implements Agent {
     ];
   }
 
-  routine(prompt: string, mode: RoutineMode, base: string): AgentCommand {
+  routine(prompt: string, mode: RoutineMode, openaiBaseUrl: string): AgentCommand {
     return {
       command: "codex",
       args: [
@@ -187,7 +201,7 @@ export class Codex implements Agent {
         "--sandbox",
         acts(mode) ? "workspace-write" : "read-only",
         "-c",
-        `openai_base_url=${JSON.stringify(`${base}/openai/v1`)}`,
+        `openai_base_url=${JSON.stringify(openaiBaseUrl)}`,
         prompt,
       ],
     };

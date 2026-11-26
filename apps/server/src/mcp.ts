@@ -1,6 +1,8 @@
+import { ftsMatch, searchWords } from "@grenier/core";
 import { untrusted } from "@grenier/core/policy";
 import { topName } from "@grenier/core/team";
 import { type Member, problem, type StoredRecord, type TeamApp, type TeamData } from "./data.ts";
+import { recordFrom } from "./records.ts";
 
 /** The remote MCP server, as JSON-RPC over POST: one message or a batch. */
 export function mcpRoutes(app: TeamApp, team: TeamData): void {
@@ -28,14 +30,14 @@ function search(
   limit: number,
 ): StoredRecord[] {
   const tops = team.topsOf(member);
-  const words = query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+  const words = searchWords(query);
   if (words.length === 0) return [];
   return team
     .sql(
       "SELECT r.* FROM records_fts f JOIN records r ON r.id = f.id WHERE records_fts MATCH ? ORDER BY bm25(records_fts) LIMIT 100",
-      words.map((word) => `"${word.replace(/"/g, '""')}"`).join(" OR "),
+      ftsMatch(words),
     )
-    .map((row) => team.record(row))
+    .map(recordFrom)
     .filter((record) => tops.includes(record.top) && record.retiredAt === null && (!type || record.type === type))
     .slice(0, limit);
 }
@@ -111,7 +113,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
                 "SELECT r.* FROM records r, json_each(r.links) l WHERE json_extract(l.value, '$.ref') = ? AND r.retired_at IS NULL",
                 one.id,
               )
-              .map((row) => team.record(row)),
+              .map(recordFrom),
           ].filter((record): record is StoredRecord => record !== undefined && tops.includes(record.top));
           return reply(text(untrusted({ records: [shown(one)], linked: linked.map(shown) }, nameOf)));
         }
@@ -121,7 +123,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
             (args.type as string) ?? null,
             (args.type as string) ?? null,
           )
-          .map((row) => team.record(row))
+          .map(recordFrom)
           .filter((record) => tops.includes(record.top));
         return reply(
           text(untrusted({ records: rows.slice(0, Math.min(Number(args.limit ?? 50), 200)).map(shown) }, nameOf)),

@@ -43,7 +43,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         let mut shown: Vec<MenuItem<Wry>> = Vec::new();
         loop {
             let output = tauri::async_runtime::block_on(async {
-                let output = crate::grenier(&app, &["today"])?
+                let output = crate::daemon::grenier(&app, &["today"])?
                     .output()
                     .await
                     .map_err(|error| error.to_string())?;

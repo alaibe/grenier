@@ -1,11 +1,11 @@
-import { type Config, ConfigError, open, seal, VaultError } from "@grenier/core";
+import { open, seal, VaultError } from "@grenier/core";
 import type { KeyState, MachineState, ShownKey } from "@grenier/core/api";
 import { setRules } from "@grenier/core/node";
 import { rekeyed, teamApi, unopenedCount } from "@grenier/index";
 import { Hono } from "hono";
 import { ensurePersonalKey, personalKey, savePersonalKey } from "../runtime.ts";
 import type { AdminDeps } from "./admin.ts";
-import { bodyOf } from "./body.ts";
+import { bodyOf } from "./request.ts";
 
 /** This machine: the rules for when it takes the team's routine runs, and the personal key for the Me folder. */
 export function machineRoutes(deps: AdminDeps): Hono {
@@ -18,13 +18,7 @@ export function machineRoutes(deps: AdminDeps): Hono {
 
   app.put("/machine", async (c) => {
     const rules = ((await bodyOf(c)).rules ?? {}) as Record<string, unknown>;
-    let config: Config;
-    try {
-      config = setRules(paths, rules);
-    } catch (error) {
-      if (error instanceof ConfigError) return c.json({ error: error.message }, 400);
-      throw error;
-    }
+    const config = setRules(paths, rules);
     deps.reloaded(config);
     const team = deps.team();
     if (typeof rules.name === "string" && team) {

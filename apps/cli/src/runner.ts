@@ -1,16 +1,17 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { setPriority } from "node:os";
-import { type Config, hasPrompt, isAction, mayCall, type RoutineMode, routineHash } from "@grenier/core";
+import { type Config, hasPrompt, isAction, mayCall, type RoutineMode } from "@grenier/core";
 import type { Availability } from "@grenier/core/api";
 import type { RunGuard } from "@grenier/gateway";
 import { newId, refusal, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
 import type { Prices } from "@grenier/log";
-import type { FullRecord, RecordInput, Session, Store } from "@grenier/store";
+import { type FullRecord, type RecordInput, type Session, type Store, toInput } from "@grenier/store";
 import { agentNamed } from "./agents/index.ts";
 import { builtinOf } from "./builtins.ts";
 import { availability, type Probes, systemProbes } from "./machine.ts";
-import { newSessionId, repoResolver } from "./runtime.ts";
+import { DEFAULT_ACTION_LIMIT, routineApproval } from "./routines.ts";
+import { newSessionId, repoResolver, sessionProxy } from "./runtime.ts";
 
 export interface AgentResult {
   code: number;
@@ -72,10 +73,9 @@ const LEASE_RENEW = 2 * 60 * 1000;
 const CHECK_EVERY = 60 * 1000;
 const CLAIM_EVERY = 5 * 60 * 1000;
 const MAX_RESULT = 20_000;
-/** Claude Code's built-in tools that only read: `--tools` makes only these available to a run that may not act. */
 
 /** Spawns an agent at the lowest priority and collects what it prints. */
-export const spawnAgent: Spawner = (command, args, options) =>
+const spawnAgent: Spawner = (command, args, options) =>
   new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
@@ -181,10 +181,10 @@ export class Runner {
     const { task, routine } = offer;
     const decline = async (why: string) => {
       this.deps.log(`grenier: declined ${task.title} (${routine.title}): ${why}`);
-      await teamApi(team, `/api/work/${encodeURIComponent(task.id)}/decline`, { body: {} }).catch(() => undefined);
+      await this.#decline(team, task.id);
     };
-    const approval = await this.deps.store.approvals.get(routine.id, "routine");
-    if (!approval || approval.hash !== (await routineHash(routine))) {
+    const approval = await routineApproval(this.deps.store, routine);
+    if (!approval?.current) {
       this.deps.notify?.(
         "A routine waits for your approval",
         `${routine.title}: approve it on the app's Routines screen.`,
@@ -200,7 +200,7 @@ export class Runner {
       routine,
       task,
       trigger: "schedule",
-      mode: (approval.settings.mode as RoutineMode) ?? "read-only",
+      mode: approval.mode,
     });
   }
 
@@ -301,7 +301,7 @@ export class Runner {
       routineId: routine.id,
       agent,
       mode,
-      limit: Number((await store.approvals.get(routine.id, "routine"))?.settings.limit ?? 10),
+      limit: (await routineApproval(store, routine))?.limit ?? DEFAULT_ACTION_LIMIT,
       usedToday,
       actions: 0,
       cut: null,
@@ -346,19 +346,17 @@ export class Runner {
       ]
         .filter(Boolean)
         .join("\n\n");
-      const base = `http://127.0.0.1:${this.deps.port}/s/${sessionId}`;
+      const proxy = sessionProxy(this.deps.port, sessionId);
+      const collector = routine.fields.collector === "yes";
       const env: NodeJS.ProcessEnv = {
         ...process.env,
-        ANTHROPIC_BASE_URL: base,
-        OPENAI_BASE_URL: `${base}/openai/v1`,
-        GRENIER_SESSION: sessionId,
-        GRENIER_RUN_TOP: routine.fields.collector === "yes" ? "me" : routine.top === "me" ? "me" : "team",
+        ...proxy.env,
+        GRENIER_RUN_TOP: collector || routine.top === "me" ? "me" : "team",
       };
       const signal = this.#current.stop.signal;
-      const started = agentNamed(agent).routine(prompt, mode, base);
+      const started = agentNamed(agent).routine(prompt, mode, proxy.openai);
       const outcome = await this.spawner(started.command, started.args, { cwd, env, signal });
       const cut = this.#current.cut;
-      const collector = routine.fields.collector === "yes";
       const result = cut
         ? `Cut off: it called ${cut}, which this machine does not allow it.`
         : collector && outcome.code === 0
@@ -386,17 +384,28 @@ export class Runner {
     }
   }
 
-  /** Changes a task's fields here and sends them to the team store at once. */
-  async #setTask(task: FullRecord, change: Record<string, unknown>): Promise<void> {
+  /** A task as this machine has it now, and its next version with some fields changed, as this machine's. */
+  async #task(task: FullRecord) {
     const deps = await this.deps.storeDeps();
     const current = (await this.deps.store.records.get(task.id)) ?? task;
-    const { seq: _seq, hits: _hits, ...rest } = current as FullRecord;
-    await write(
-      deps,
-      { ...rest, fields: { ...rest.fields, ...change, machine: deps.me.device }, updatedAt: this.now() },
-      current as FullRecord,
-    );
+    const changed = (fields: Record<string, unknown>, at: number): RecordInput => ({
+      ...toInput(current),
+      fields: { ...current.fields, ...fields, machine: deps.me.device },
+      updatedAt: at,
+    });
+    return { deps, current, changed };
+  }
+
+  /** Changes a task's fields here and sends them to the team store at once. */
+  async #setTask(task: FullRecord, change: Record<string, unknown>): Promise<void> {
+    const { deps, current, changed } = await this.#task(task);
+    await write(deps, changed(change, this.now()), current);
     await this.deps.sync().catch(() => undefined);
+  }
+
+  /** Gives a task back to the team store, for another machine to take. */
+  async #decline(team: TeamClient, taskId: string): Promise<void> {
+    await teamApi(team, `/api/work/${encodeURIComponent(taskId)}/decline`, { body: {} }).catch(() => undefined);
   }
 
   async #finish(
@@ -412,31 +421,23 @@ export class Runner {
       .catch(() => undefined);
     await report({ status: outcome.status, endedAt, actions: outcome.actions, cost: outcome.cost });
     if (task) {
-      const deps = await this.deps.storeDeps();
-      const current = (await this.deps.store.records.get(task.id)) ?? task;
-      const { seq: _seq, hits: _hits, ...rest } = current as FullRecord;
+      const { deps, current, changed } = await this.#task(task);
       const done = outcome.status === "done";
-      const ended = (text: string): RecordInput => ({
-        ...rest,
-        fields: { ...rest.fields, status: done ? "done" : "to-do", result: text, machine: deps.me.device },
-        updatedAt: endedAt,
-      });
+      const ended = (text: string) => changed({ status: done ? "done" : "to-do", result: text }, endedAt);
       // A result the team store would refuse must not hold the task in "doing": a short failure takes its place.
-      const why = await refusal(deps.store, ended(result), current as FullRecord);
-      await write(deps, ended(why ? `Its result was not kept: ${why}.` : result), current as FullRecord);
+      const why = await refusal(deps.store, ended(result), current);
+      await write(deps, ended(why ? `Its result was not kept: ${why}.` : result), current);
       // Sent before the decline: the store drops a task's claims when it goes back to to-do, and only this one's.
       await this.deps.sync().catch(() => undefined);
       const team = this.deps.team();
-      if (!done && team) {
-        await teamApi(team, `/api/work/${encodeURIComponent(task.id)}/decline`, { body: {} }).catch(() => undefined);
-      }
+      if (!done && team) await this.#decline(team, task.id);
     }
     return { id: runId, ...outcome, result };
   }
 }
 
 /** The agent's final answer: Claude Code's JSON `result`, or what it printed. */
-export function resultText(output: string): string {
+function resultText(output: string): string {
   try {
     const parsed = JSON.parse(output) as { result?: unknown };
     if (typeof parsed.result === "string") return parsed.result;

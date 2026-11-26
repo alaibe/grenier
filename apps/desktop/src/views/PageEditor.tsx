@@ -11,6 +11,7 @@ import type {
   TeamRecord,
   Top,
 } from "@grenier/core/api";
+import { hunks, lineDiff } from "@grenier/core/diff";
 import { topName } from "@grenier/core/team";
 import {
   Archive,
@@ -23,13 +24,12 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api.ts";
-import { hunks, lineDiff } from "../diff.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
 import { ago, exact } from "../format.ts";
-import { type Command, useCommands } from "../shell/commands.tsx";
-import { DetailBar, useItemTitle } from "../shell/regions.tsx";
+import { useSaveCommand } from "../shell/commands.tsx";
+import { DetailBar, Reading, useItemTitle } from "../shell/regions.tsx";
 import { Button, IconButton, Primary } from "../ui/button.tsx";
 import { Dialog, useConfirm } from "../ui/dialog.tsx";
 import { Skeleton } from "../ui/empty.tsx";
@@ -158,24 +158,7 @@ export function PageEditor({
       "Saving",
     );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: save reads the draft as it is when it runs
-  const commands = useMemo<Command[]>(
-    () =>
-      editable
-        ? [
-            {
-              id: "page.save",
-              label: "Save the page",
-              keys: "mod+enter",
-              also: ["mod+s"],
-              hint: { in: "item", says: "save", order: 10 },
-              run: () => save(conflict?.version ?? base),
-            },
-          ]
-        : [],
-    [editable, conflict, base, draft],
-  );
-  useCommands(commands);
+  useSaveCommand("page.save", "Save the page", editable, () => save(conflict?.version ?? base));
 
   if (record.error)
     return (
@@ -262,7 +245,7 @@ export function PageEditor({
           )}
         </DetailBar>
 
-        <div className="mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24">
+        <Reading>
           <input
             className="w-full bg-transparent font-mono text-xl leading-tight font-semibold tracking-tight outline-none placeholder:text-muted"
             aria-label="Title"
@@ -329,7 +312,7 @@ export function PageEditor({
               <Linked title="Linked from" items={record.data.linkedFrom} open={open} />
             </div>
           )}
-        </div>
+        </Reading>
       </article>
       {history && record.data && (
         <HistoryPanel id={record.data.id} restore={(snapshot) => set(snapshot)} close={() => setHistory(false)} />
@@ -470,9 +453,7 @@ function Linked({ title, items, open }: { title: string; items: LinkedRecord[]; 
           label={title}
           nodes={items.map((item) => ({ id: item.id, name: item.title, icon: FileText, meta: <Tag>{item.type}</Tag> }))}
           selected={cursor}
-          open={() => false}
           onSelect={(node) => setCursor(node.id)}
-          onToggle={() => {}}
           onOpen={(node) => open(node.id)}
         />
       </div>

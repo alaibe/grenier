@@ -1,3 +1,4 @@
+import { hex, randomHex } from "./bytes.ts";
 /** JSON with object keys sorted at every level, so equal values give equal text. */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortKeys(value));
@@ -16,7 +17,7 @@ function sortKeys(value: unknown): unknown {
 /** Web Crypto, so it runs on Node and on Workers. */
 export async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return hex(new Uint8Array(digest));
 }
 
 export const MAX_SHARED_TEXT = 4000;
@@ -176,9 +177,7 @@ interface Shown {
   folder: string;
 }
 
-function nonce(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+const nonce = () => randomHex(6);
 
 /** Records as they reach an MCP client: redacted, each body in a block its writer cannot close, and with `nameOf` naming top folders, each folder as its folder path, "Team/Decisions". */
 export function untrusted<T extends { results?: Shown[]; records?: Shown[]; linked?: Shown[] }>(

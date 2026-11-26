@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWork } from "../activity.tsx";
 import { ApiError } from "../api.ts";
 import { type ToastInput, useToast } from "./toast.tsx";
 
-export const messageOf = (reason: unknown) => (reason instanceof ApiError ? reason.message : String(reason));
+const messageOf = (reason: unknown) => (reason instanceof ApiError ? reason.message : String(reason));
 
 /** Loads data for a view, with its error, and a reload for after an action; the status bar pulses while it runs. */
 export function useLoad<T>(load: () => Promise<T>): { data: T | null; error: string | null; reload: () => void } {
@@ -46,28 +46,32 @@ export function useAction(onDone: () => void = () => {}): {
   run: (key: string, action: () => Promise<Outcome>, working?: string) => Promise<boolean>;
   busy: string | null;
   problem: string | null;
-  clear: () => void;
 } {
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const toast = useToast();
   const work = useWork();
-  const run = async (key: string, action: () => Promise<Outcome>, working?: string) => {
-    setBusy(key);
-    setProblem(null);
-    const done = work(working ?? null);
-    try {
-      const outcome = await action();
-      if (outcome) toast(typeof outcome === "string" ? { text: outcome } : outcome);
-      onDone();
-      return true;
-    } catch (reason) {
-      setProblem(messageOf(reason));
-      return false;
-    } finally {
-      done();
-      setBusy(null);
-    }
-  };
-  return { run, busy, problem, clear: useCallback(() => setProblem(null), []) };
+  const finished = useRef(onDone);
+  finished.current = onDone;
+  const run = useCallback(
+    async (key: string, action: () => Promise<Outcome>, working?: string) => {
+      setBusy(key);
+      setProblem(null);
+      const done = work(working ?? null);
+      try {
+        const outcome = await action();
+        if (outcome) toast(typeof outcome === "string" ? { text: outcome } : outcome);
+        finished.current();
+        return true;
+      } catch (reason) {
+        setProblem(messageOf(reason));
+        return false;
+      } finally {
+        done();
+        setBusy(null);
+      }
+    },
+    [toast, work],
+  );
+  return { run, busy, problem };
 }

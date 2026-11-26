@@ -6,16 +6,9 @@ import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Where } from "../../../apps/cli/src/agents/index.ts";
-import {
-  install,
-  removeRetired,
-  rollback,
-  serverToShare,
-  share,
-  sharedList,
-  skillFromFiles,
-  uninstall,
-} from "../../../apps/cli/src/installs.ts";
+import { install, removeRetired, rollback, share, sharedList, uninstall } from "../../../apps/cli/src/installs.ts";
+import { serverToShare } from "../../../apps/cli/src/server-config.ts";
+import { skillFromFiles } from "../../../apps/cli/src/skill-files.ts";
 import { storeDeps } from "../../support/repo.ts";
 
 let store: Store;
@@ -75,7 +68,7 @@ describe("a shared skill", () => {
     expect(readFileSync(join(folder, "SKILL.md"), "utf8")).toBe(SKILL);
     expect((await sharedList(store))[0]).toMatchObject({ state: "update", canRollBack: false });
 
-    expect(await uninstall(store, where, await shared(id))).toBe(true);
+    expect(await uninstall(store, where, id, (await shared(id)).type as "Skill")).toBe(true);
     expect(existsSync(folder)).toBe(false);
   });
 
@@ -169,7 +162,7 @@ describe("a shared MCP server", () => {
     await install(store, where, await shared(id));
     const updated = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers["grenier-sentry"];
     expect(updated).toMatchObject({ args: ["-y", "@sentry/mcp@1.3.0"], env: { SENTRY_TOKEN: "sntrys_mine" } });
-    await uninstall(store, where, await shared(id));
+    await uninstall(store, where, id, "McpServer");
     expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers).toEqual({ mine: { command: "a" } });
 
     writeFileSync(

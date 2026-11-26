@@ -1,4 +1,5 @@
-import { sha256 } from "@grenier/core";
+import { bearer } from "@grenier/core";
+import { readerFor } from "@grenier/index";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Hono } from "hono";
 import { createMcpServer, type McpDeps } from "./mcp.ts";
@@ -27,21 +28,19 @@ export function createGateway(options: GatewayOptions): Hono {
 
   app.all("/mcp", async (c) => {
     if (!options.mcp) return errorResponse(404, "not_found_error", "MCP is not served here.");
-    const token = /^Bearer (\S+)$/.exec(c.req.header("authorization") ?? "")?.[1];
-    const client = token ? await options.store.clients.findActive(await sha256(token)) : undefined;
-    if (!client) {
+    const token = bearer(c.req.header("authorization"));
+    if (!(await readerFor(options.store, token))) {
       return errorResponse(
         401,
         "authentication_error",
         "Grenier's MCP endpoint needs a client token: Authorization: Bearer <token>.",
       );
     }
-    const reader = { id: client.id, name: client.name, scopes: client.scopes };
     const server = createMcpServer({
       ...options.mcp,
       store: options.store,
       // A token revoked mid-request stops at its next tool call.
-      reader: async () => ((await options.store.clients.findActive(client.tokenHash)) ? reader : null),
+      reader: () => readerFor(options.store, token),
     });
     // No session id generator: stateless, one server per request.
     const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });

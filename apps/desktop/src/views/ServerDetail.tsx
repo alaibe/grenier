@@ -1,11 +1,13 @@
 import type { LocalServer, RecordFull, ServerChange, SharedNow, SharedState } from "@grenier/core/api";
-import { Check, Download, Plus, Settings, Share2, Trash2, Undo2 } from "lucide-react";
+import { folderName } from "@grenier/core/names";
+import { Plus, Settings, Share2, Trash2, Undo2 } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
 import { api } from "../api.ts";
-import { DetailBar } from "../shell/regions.tsx";
+import { useSaveCommand } from "../shell/commands.tsx";
+import { DetailBar, ItemMeta, ItemName, Reading } from "../shell/regions.tsx";
 import { installTag } from "../states.ts";
 import { Button, IconButton, Primary } from "../ui/button.tsx";
-import { Dialog, useConfirm } from "../ui/dialog.tsx";
+import { useConfirm } from "../ui/dialog.tsx";
 import { Skeleton } from "../ui/empty.tsx";
 import { Field, Input, Textarea } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
@@ -13,13 +15,12 @@ import { Menu, type MenuItem } from "../ui/menu.tsx";
 import { Notice, Problem } from "../ui/notice.tsx";
 import { Section } from "../ui/page.tsx";
 import { Status, Tag } from "../ui/tag.tsx";
-
-const base = (path: string) => path.split("/").filter(Boolean).at(-1) ?? path;
+import { KeysDialog, sharedEntryParts } from "./shared-entry.tsx";
 
 /** Where a server of the person's is, as its bar shows it. */
-export function serverPath(server: LocalServer): string {
+function serverPath(server: LocalServer): string {
   if (server.scope === "user") return `Me / ${server.client} / ${server.name}`;
-  return `Me / ${server.client} / Projects / ${base(server.where ?? "")} / ${server.name}`;
+  return `Me / ${server.client} / Projects / ${folderName(server.where ?? "")} / ${server.name}`;
 }
 
 /** A server as it reads: its bar, its name and how it runs, then what is set for it. */
@@ -46,14 +47,14 @@ function ServerPage({
         {state}
         {actions}
       </DetailBar>
-      <div className="mx-auto grid w-full max-w-(--layout-reading) gap-6 px-6 pt-10 pb-24">
+      <Reading gap="gap-6">
         <div>
-          <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">{name}</h1>
-          <p className="mt-2 font-mono text-xs text-muted">{meta}</p>
+          <ItemName>{name}</ItemName>
+          <ItemMeta>{meta}</ItemMeta>
         </div>
         {notice && <div className="grid gap-2">{notice}</div>}
         {children}
-      </div>
+      </Reading>
     </article>
   );
 }
@@ -204,25 +205,22 @@ export function LocalServerView({
   };
   const dirty = Object.keys(change).length > 0;
   const editable = server.editable;
-  const items: MenuItem[] = editable
-    ? [
-        ...(share
-          ? [
-              {
-                label: "Share with the team",
-                icon: Share2,
-                run: () =>
-                  void action.run("share", async () => {
-                    const done = await api<SharedNow>(`/servers/share?id=${encodeURIComponent(server.id)}`, {
-                      method: "POST",
-                    });
-                    return `${done.updated ? "Shared a new version of" : "Shared"} ${done.title}: each teammate enters their own keys`;
-                  }),
-              },
-            ]
-          : []),
-      ]
-    : [];
+  const items: MenuItem[] =
+    editable && share
+      ? [
+          {
+            label: "Share with the team",
+            icon: Share2,
+            run: () =>
+              void action.run("share", async () => {
+                const done = await api<SharedNow>(`/servers/share?id=${encodeURIComponent(server.id)}`, {
+                  method: "POST",
+                });
+                return `${done.updated ? "Shared a new version of" : "Shared"} ${done.title}: each teammate enters their own keys`;
+              }),
+          },
+        ]
+      : [];
   const remove = () =>
     ask({
       title: `Remove ${server.name}?`,
@@ -252,6 +250,13 @@ export function LocalServerView({
     <Notice kind="info">{server.client}'s own: change it there.</Notice>
   ) : null;
 
+  const save = () =>
+    void action.run("save", async () => {
+      await api(`/servers/one?id=${encodeURIComponent(server.id)}`, { method: "PUT", body: change });
+      return `Saved ${server.name}: restart ${server.client} to load it`;
+    });
+  useSaveCommand("server.save", "Save the server", editable, () => dirty && save());
+
   return (
     <>
       <ServerPage
@@ -274,18 +279,7 @@ export function LocalServerView({
             )}
             {items.length > 0 && <Menu label="More" items={items} />}
             {editable && (
-              <Primary
-                size="sm"
-                keys="mod+enter"
-                busy={action.busy === "save"}
-                disabled={!dirty}
-                onClick={() =>
-                  void action.run("save", async () => {
-                    await api(`/servers/one?id=${encodeURIComponent(server.id)}`, { method: "PUT", body: change });
-                    return `Saved ${server.name}: restart ${server.client} to load it`;
-                  })
-                }
-              >
+              <Primary size="sm" keys="mod+enter" busy={action.busy === "save"} disabled={!dirty} onClick={save}>
                 Save
               </Primary>
             )}
@@ -368,55 +362,15 @@ export function TeamServerView({
   if (!record.data) return <Skeleton rows={6} shape="text" />;
   const config = (record.data.fields.config ?? {}) as { url?: string; command?: string; args?: string[] };
 
-  const install = (keys?: Record<string, string>) =>
-    void action.run("install", async () => {
-      await api(`/installs/${entry.id}`, { body: keys ? { keys } : {} });
-      return `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart your agents to load it`;
-    });
-  const start = () => (entry.state === "available" && entry.credentials.length > 0 ? setAsking(true) : install());
-  const uninstall = () =>
-    void action.run("remove", async () => {
-      await api(`/installs/${entry.id}`, { method: "DELETE" });
-      return entry.credentials.length === 0
-        ? { text: `Uninstalled ${entry.title}`, undo: () => install() }
-        : `Uninstalled ${entry.title}`;
-    });
-  const items: MenuItem[] = [
-    ...(entry.canRollBack
-      ? [
-          {
-            label: "Roll back",
-            icon: Undo2,
-            run: () =>
-              void action.run("rollback", async () => {
-                await api(`/installs/${entry.id}/rollback`, { method: "POST" });
-                return `Rolled ${entry.title} back to the version before`;
-              }),
-          },
-        ]
-      : []),
-    ...(admin
-      ? [
-          {
-            label: "Remove from the team",
-            icon: Trash2,
-            danger: true,
-            run: () =>
-              ask({
-                title: `Remove ${entry.title} from the team?`,
-                body: "It leaves every teammate's list, and each machine that installed it uninstalls it at its next sync. Its history stays.",
-                action: "Remove from the team",
-                run: () =>
-                  void action.run("retire", async () => {
-                    await api(`/records/${encodeURIComponent(entry.id)}`, { method: "DELETE" });
-                    removed();
-                    return `Removed ${entry.title} from the team`;
-                  }),
-              }),
-          },
-        ]
-      : []),
-  ];
+  const shared = sharedEntryParts({
+    entry,
+    admin,
+    action,
+    ask,
+    removed,
+    primary: true,
+    askKeys: () => setAsking(true),
+  });
 
   return (
     <ServerPage
@@ -426,32 +380,14 @@ export function TeamServerView({
       state={<Status {...installTag(entry.state)} />}
       actions={
         <>
-          {entry.state !== "installed" && (
-            <Primary
-              size="sm"
-              icon={entry.state === "update" ? Check : Download}
-              busy={action.busy === "install"}
-              onClick={start}
-            >
-              {entry.state === "update" ? "Approve the update" : "Install"}
-            </Primary>
-          )}
-          {entry.state !== "available" && (
-            <Button size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={uninstall}>
-              Uninstall
-            </Button>
-          )}
-          {items.length > 0 && <Menu label="More" items={items} />}
+          {shared.buttons}
+          {shared.items.length > 0 && <Menu label="More" items={shared.items} />}
         </>
       }
       notice={
         <>
           <Problem error={action.problem} />
-          {entry.state === "update" && (
-            <Notice kind="warn">
-              Changed since you installed it: nothing changes here until you approve the update.
-            </Notice>
-          )}
+          {shared.notice}
         </>
       }
     >
@@ -466,23 +402,15 @@ export function TeamServerView({
       )}
       {dialog}
       {asking && (
-        <Dialog
+        <KeysDialog
           title={`Install ${entry.title}`}
           action="Install"
+          names={entry.credentials}
           busy={action.busy !== null}
+          problem={action.problem}
           onCancel={() => setAsking(false)}
-          onAction={(form) =>
-            install(Object.fromEntries(entry.credentials.map((name) => [name, String(form.get(name) ?? "")])))
-          }
-        >
-          <p>Your keys go only into its entry in your own agents' configs: never to the team, a log or a store.</p>
-          <Problem error={action.problem} />
-          {entry.credentials.map((name) => (
-            <Field key={name} label={name}>
-              <Input name={name} type="password" mono required autoComplete="off" />
-            </Field>
-          ))}
-        </Dialog>
+          onKeys={shared.install}
+        />
       )}
     </ServerPage>
   );

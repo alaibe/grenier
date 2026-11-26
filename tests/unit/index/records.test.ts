@@ -115,7 +115,7 @@ describe("query, retire and the outbox", () => {
       links: [{ kind: "record", ref: project.id }],
       top: "team",
     });
-    const result = await query(deps, PERSON, { title: "checkout" });
+    const result = await query(deps, PERSON, { id: project.id });
     expect(result.records.map((record) => record.id)).toEqual([project.id]);
     expect(result.linked?.map((record) => record.id)).toEqual([meeting.id]);
     expect((await query(deps, PERSON, { type: "Meeting" })).records.map((record) => record.title)).toEqual([

@@ -1,18 +1,8 @@
 // End-to-end encryption for the `me` top folder: the key stays on the user's devices, the server stores only sealed bytes.
+import { fromBase64Url, toBase64Url } from "./bytes.ts";
 
 const VERSION = 1;
 const IV_BYTES = 12;
-
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromBase64Url(text: string): Uint8Array {
-  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
 
 export class VaultError extends Error {
   override name = "VaultError";

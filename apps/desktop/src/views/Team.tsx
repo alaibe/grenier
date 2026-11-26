@@ -1,20 +1,10 @@
-import type {
-  Deployed,
-  Invite,
-  InviteMade,
-  Joining,
-  Machine,
-  MadeLink,
-  Member,
-  Overview,
-  TeamMe,
-  TeamUsage,
-} from "@grenier/core/api";
-import { ArrowRight, Check, Link, RefreshCw, Trash2, UserCog, UserPlus } from "lucide-react";
+import type { Invite, InviteMade, MadeLink, Member, TeamMe } from "@grenier/core/api";
+import { inviteLink } from "@grenier/core/team";
+import { Check, Link, RefreshCw, Trash2, UserCog, UserPlus } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
-import { ago, exact, money, since } from "../format.ts";
+import { since } from "../format.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
 import { Detail } from "../shell/regions.tsx";
 import { stateTag } from "../states.ts";
@@ -28,21 +18,17 @@ import { Menu } from "../ui/menu.tsx";
 import { Notice, Problem } from "../ui/notice.tsx";
 import { Page, Section } from "../ui/page.tsx";
 import { Secret } from "../ui/secret.tsx";
-import { Segmented } from "../ui/segmented.tsx";
-import { Stat, Stats } from "../ui/stat.tsx";
 import { RowActions, Table } from "../ui/table.tsx";
 import { Status, Tag } from "../ui/tag.tsx";
 import { usePolling } from "./polling.ts";
+import { Deploy, Join, spaced } from "./TeamJoin.tsx";
+import { Machines } from "./TeamMachines.tsx";
+import { Usage } from "./TeamUsage.tsx";
 
-const loadOverview = () => api<Overview>("/overview");
 const loadMe = () => api<TeamMe>("/team/me");
 
-export function Team({ item, go, changed }: ViewProps) {
-  const overview = useLoad(loadOverview);
-  const done = () => {
-    overview.reload();
-    changed();
-  };
+export function Team({ item, go, changed: done, overview }: ViewProps) {
+  const setInviting = useCallback((open: boolean) => go("team", open ? "invite" : undefined), [go]);
   const content = overview.error ? (
     <div className="p-6">
       <Problem error={overview.error} />
@@ -66,170 +52,10 @@ export function Team({ item, go, changed }: ViewProps) {
       me={overview.data.me}
       done={done}
       inviting={item === "invite"}
-      setInviting={(open) => go("team", open ? "invite" : undefined)}
+      setInviting={setInviting}
     />
   );
   return <Detail title="Team">{content}</Detail>;
-}
-
-/** The six digits a joining machine shows, read as "123 456". */
-const spaced = (code: string | null | undefined) => code?.replace(/^(\d{3})(\d{3})$/, "$1 $2") ?? "";
-
-/** The team store put in a Cloudflare account, or updated there, with an API token used once and not kept. */
-function Deploy({
-  name,
-  me,
-  title,
-  action: verb,
-  done,
-  cancel,
-}: {
-  name: string;
-  me: string;
-  title: string;
-  action: string;
-  done: () => void;
-  cancel: () => void;
-}) {
-  const action = useAction(done);
-  return (
-    <Dialog
-      wide
-      title={title}
-      action={verb}
-      busy={action.busy !== null}
-      onCancel={cancel}
-      onAction={(form) =>
-        void action.run(
-          "deploy",
-          async () => {
-            const made = await api<Deployed>("/deploy", {
-              body: {
-                token: String(form.get("token") ?? ""),
-                name: String(form.get("name") ?? name),
-                member: String(form.get("member") ?? me),
-              },
-            });
-            return made.created
-              ? `The team store is at ${made.url}, and you are its admin`
-              : `Updated the team store at ${made.url}`;
-          },
-          "Deploying",
-        )
-      }
-    >
-      <p>
-        In Cloudflare, under My Profile › API Tokens, create a token from the template{" "}
-        <strong>Edit Cloudflare Workers</strong> for your account, and paste it here. Grenier uses it for this deploy
-        only, and keeps nothing of it.
-      </p>
-      <Problem error={action.problem} />
-      <Field label="Cloudflare API token">
-        <Input name="token" type="password" mono autoComplete="off" required />
-      </Field>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Your name">
-          <Input name="member" defaultValue={me} required />
-        </Field>
-        <Field label="Store name" help="Its name in Cloudflare.">
-          <Input name="name" mono defaultValue={name} required pattern="[a-z0-9\-]+" />
-        </Field>
-      </div>
-    </Dialog>
-  );
-}
-
-function Join({
-  joined,
-  me,
-  creating,
-  setCreating,
-}: {
-  joined: () => void;
-  me: string;
-  creating: boolean;
-  setCreating: (open: boolean) => void;
-}) {
-  const [state, setState] = useState<Joining | null>(null);
-  const action = useAction();
-  const poll = useCallback(() => {
-    api<Joining>("/join")
-      .then((next) => {
-        setState(next);
-        if (next.state === "joined") joined();
-      })
-      .catch(() => {});
-  }, [joined]);
-  usePolling(poll, state?.state === "waiting" ? 2000 : null);
-
-  return (
-    <Page
-      title="Team"
-      intro="A team shares one store: what each person and their agents learn, its skills, MCP servers and routines. It lives in the team's own Cloudflare account."
-    >
-      <Problem error={action.problem ?? (state?.state === "failed" ? (state.error ?? "Joining failed.") : null)} />
-      {state?.state === "waiting" ? (
-        <>
-          <Notice kind="accent" tag="WAITING" more="Waiting for the confirmation, up to 10 minutes.">
-            Read this code to the admin who invited you. They confirm it on their screen.
-          </Notice>
-          <div className="max-w-80">
-            <Stats columns={2}>
-              <Stat label="Your code" value={spaced(state.code)} lit />
-              <Stat label="Admin confirms" value="…" />
-            </Stats>
-          </div>
-        </>
-      ) : (
-        <>
-          <form
-            className="flex max-w-(--layout-reading) items-end gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const link = String(new FormData(event.currentTarget).get("link") ?? "");
-              void action.run(
-                "join",
-                async () => {
-                  setState(await api<Joining>("/join", { body: { link } }));
-                  return undefined;
-                },
-                "Joining",
-              );
-            }}
-          >
-            <div className="flex-1">
-              <Field label="Invite link">
-                <Input name="link" mono placeholder="grenier://join/…" required autoComplete="off" spellCheck={false} />
-              </Field>
-            </div>
-            <Primary type="submit" busy={action.busy !== null}>
-              Join
-            </Primary>
-          </form>
-          <Section
-            heading
-            title="Or start a team"
-            description="Its store goes in your own Cloudflare account, and you become its admin."
-            actions={
-              <Button trailing={ArrowRight} onClick={() => setCreating(true)}>
-                Create a team…
-              </Button>
-            }
-          />
-        </>
-      )}
-      {creating && (
-        <Deploy
-          name="grenier-team"
-          me={me}
-          title="Create a team"
-          action="Create the team"
-          done={joined}
-          cancel={() => setCreating(false)}
-        />
-      )}
-    </Page>
-  );
 }
 
 function Members({
@@ -532,7 +358,7 @@ function Members({
               const made = await api<InviteMade>("/team/invites", {
                 body: { name: invited, role: String(form.get("role") ?? "member") },
               });
-              setLink({ member: made.member, link: `grenier://join/${new URL(url).host}/${made.id}/${made.secret}` });
+              setLink({ member: made.member, link: inviteLink(url, made.id, made.secret) });
               setInviting(false);
               return `Made an invite link for ${made.member}`;
             });
@@ -565,164 +391,5 @@ function Members({
         />
       )}
     </Page>
-  );
-}
-
-/** The team's machines; an admin removes any of them, a member their own. */
-function Machines({ me, removed }: { me: TeamMe | null; removed: (self: boolean) => void }) {
-  const machines = useLoad(
-    useCallback(() => api<{ machines: Machine[] }>("/team/machines").then((a) => a.machines), []),
-  );
-  const action = useAction();
-  const { ask, dialog } = useConfirm();
-  if (machines.error) return <Problem error={machines.error} />;
-  if (!machines.data) return null;
-  const mayRemove = (machine: Machine) => me !== null && (me.role === "admin" || machine.member === me.name);
-  const remove = (machine: Machine) =>
-    void action.run(`remove:${machine.id}`, async () => {
-      await api(`/team/devices/${encodeURIComponent(machine.id)}`, { method: "DELETE" });
-      const self = machine.id === me?.deviceId;
-      if (!self) machines.reload();
-      removed(self);
-      return `Removed ${machine.name}`;
-    });
-  return (
-    <Section heading title="Machines">
-      <Problem error={action.problem} />
-      <Table
-        label="Machines"
-        head={
-          <>
-            <th>Machine</th>
-            <th>Member</th>
-            <th>State</th>
-            <th>Last seen</th>
-            <th className="num">Runs, 30 days</th>
-            <th>
-              <span className="sr-only">Actions</span>
-            </th>
-          </>
-        }
-      >
-        {machines.data.map((machine) => (
-          <tr key={machine.id}>
-            <td>
-              <span className="flex items-center gap-2">
-                <span className="font-mono text-sm">{machine.name}</span>
-                {machine.id === me?.deviceId && <Tag>this one</Tag>}
-              </span>
-            </td>
-            <td>{machine.member}</td>
-            <td>
-              <Status {...stateTag(machine.state)} />
-            </td>
-            <td className="mono">
-              <time title={machine.lastSeen ? exact(machine.lastSeen) : undefined}>{ago(machine.lastSeen)}</time>
-            </td>
-            <td className="num mono">{machine.runs ?? 0}</td>
-            <RowActions>
-              {mayRemove(machine) && (
-                <Button
-                  variant="danger"
-                  size="sm"
-                  icon={Trash2}
-                  disabled={action.busy !== null}
-                  onClick={() =>
-                    ask({
-                      title: `Remove ${machine.name}?`,
-                      body:
-                        machine.id === me?.deviceId
-                          ? "It is the machine you are on: removing it signs it out of the team, and it syncs nothing after."
-                          : "It is signed out of the team. Joining again takes a new invite.",
-                      action: "Remove the machine",
-                      run: () => remove(machine),
-                    })
-                  }
-                >
-                  Remove
-                </Button>
-              )}
-            </RowActions>
-          </tr>
-        ))}
-      </Table>
-      {dialog}
-    </Section>
-  );
-}
-
-type By = "member" | "machine" | "day" | "repo";
-
-/** What the agents cost, priced at API rates: an admin sees everyone's, a member their own. */
-function Usage({ admin }: { admin: boolean }) {
-  const [by, setBy] = useState<By>(admin ? "member" : "machine");
-  const { data, error } = useLoad(
-    useCallback(() => api<{ usage: TeamUsage[] }>("/team/usage").then((a) => a.usage), []),
-  );
-  if (error) return <Problem error={error} />;
-  if (!data) return null;
-  const rows = new Map<string, { requests: number; cost: number; minutes: number }>();
-  for (const row of data) {
-    const key = row[by] || "(no repository)";
-    const total = rows.get(key) ?? { requests: 0, cost: 0, minutes: 0 };
-    rows.set(key, {
-      requests: total.requests + row.requests,
-      cost: total.cost + row.cost,
-      minutes: total.minutes + row.routine_minutes,
-    });
-  }
-  const totals = [...rows.values()].reduce(
-    (sum, row) => ({
-      requests: sum.requests + row.requests,
-      cost: sum.cost + row.cost,
-      minutes: sum.minutes + row.minutes,
-    }),
-    { requests: 0, cost: 0, minutes: 0 },
-  );
-  const options = (admin ? (["member", "machine", "day", "repo"] as const) : (["machine", "day", "repo"] as const)).map(
-    (name) => [name, name === "repo" ? "Repository" : name[0]?.toUpperCase() + name.slice(1)] as const,
-  );
-  return (
-    <Section
-      heading
-      title={admin ? "Usage" : "Your usage"}
-      description="The last 30 days, priced at API rates."
-      actions={<Segmented label="Group by" options={options} value={by} onChange={setBy} />}
-    >
-      {rows.size === 0 ? (
-        <p className="text-muted">No usage reported yet.</p>
-      ) : (
-        <Table
-          label="Usage"
-          head={
-            <>
-              <th>{options.find(([key]) => key === by)?.[1]}</th>
-              <th className="num">Requests</th>
-              <th className="num">Routine minutes</th>
-              <th className="num">API cost</th>
-            </>
-          }
-          foot={
-            <>
-              <td>Total</td>
-              <td className="num">{totals.requests}</td>
-              <td className="num">{Math.round(totals.minutes)}</td>
-              <td className="num">{money(totals.cost)}</td>
-            </>
-          }
-        >
-          {[...rows.entries()]
-            .sort(([a, x], [b, y]) => (by === "day" ? b.localeCompare(a) : y.cost - x.cost))
-            .map(([key, total]) => (
-              <tr key={key}>
-                <td className={by === "day" || by === "machine" ? "mono" : undefined}>{key}</td>
-                <td className="num mono">{total.requests}</td>
-                <td className="num mono">{Math.round(total.minutes)}</td>
-                <td className="num mono">{money(total.cost)}</td>
-              </tr>
-            ))}
-        </Table>
-      )}
-    </Section>
   );
 }

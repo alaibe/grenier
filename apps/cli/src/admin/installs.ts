@@ -1,33 +1,18 @@
 import type { SharedNow } from "@grenier/core/api";
-import { StoreUseError } from "@grenier/index";
 import type { FullRecord } from "@grenier/store";
 import { Hono } from "hono";
 import { fetchSkill, searchServers, searchSkills } from "../catalog.ts";
-import {
-  install,
-  rollback,
-  type Shared,
-  serverToShare,
-  share,
-  sharedList,
-  skillFromFiles,
-  uninstall,
-} from "../installs.ts";
+import { install, rollback, type Shared, sharedList, shareServer, shareSkill, uninstall } from "../installs.ts";
 import { Refusal } from "../io.ts";
-import { manifestOf } from "../skills.ts";
+import { BAD_SERVER_NAME, SERVER_NAME, serverToShare, stringRecord } from "../server-config.ts";
+import { skillFromFiles, skillFromForm } from "../skill-files.ts";
 import type { AdminDeps } from "./admin.ts";
-import { bodyOf } from "./body.ts";
+import { bodyOf, Missing, storeConflicts } from "./request.ts";
 
 /** The team's skills and servers on this machine, and skills from skills.sh, shared from GitHub like any other. */
 export function installRoutes(deps: AdminDeps): Hono {
   const { store } = deps;
-  const app = new Hono();
-
-  // What the team store would refuse is a conflict here, as every other refusal of these routes.
-  app.onError((error) => {
-    if (error instanceof StoreUseError) return Response.json({ error: error.message }, { status: 409 });
-    throw error;
-  });
+  const app = storeConflicts(new Hono());
 
   /** A search's answer: what skills.sh or the MCP Registry said when it failed. */
   const searched = async (find: () => Promise<Record<string, unknown>>) => {
@@ -50,39 +35,14 @@ export function installRoutes(deps: AdminDeps): Hono {
   app.post("/installs/server", async (c) => {
     const input = await bodyOf(c);
     const title = String(input.title ?? "").trim();
-    if (!/^[\w.-]{1,60}$/.test(title)) {
-      return c.json({ error: "a server's name takes letters, digits, . _ and -" }, 400);
-    }
-    const shared = await share(await deps.storeDeps(), {
-      type: "McpServer",
-      title,
-      body: String(input.description ?? "").trim(),
-      fields: serverToShare(input),
-    });
-    return c.json({ ...shared, title } satisfies SharedNow);
+    if (!SERVER_NAME.test(title)) return c.json({ error: BAD_SERVER_NAME }, 400);
+    const description = String(input.description ?? "").trim();
+    return c.json(await shareServer(await deps.storeDeps(), title, description, serverToShare(input)));
   });
 
-  app.post("/installs/skill", async (c) => {
-    const input = await bodyOf(c);
-    const name = String(input.name ?? "").trim();
-    const skill = skillFromFiles(
-      {
-        "SKILL.md": manifestOf({
-          name,
-          description: String(input.description ?? ""),
-          instructions: String(input.instructions ?? ""),
-        }),
-      },
-      name,
-    );
-    const shared = await share(await deps.storeDeps(), {
-      type: "Skill",
-      title: skill.name,
-      body: "",
-      fields: { files: skill.files },
-    });
-    return c.json({ ...shared, title: skill.name } satisfies SharedNow);
-  });
+  app.post("/installs/skill", async (c) =>
+    c.json(await shareSkill(await deps.storeDeps(), skillFromForm(await bodyOf(c)))),
+  );
 
   app.post("/installs/share", async (c) => {
     const { source, name } = await bodyOf(c);
@@ -90,63 +50,42 @@ export function installRoutes(deps: AdminDeps): Hono {
       return c.json({ error: "share takes a source and a name" }, 400);
     }
     const skill = await fetchSkill(source, name, deps.fetch);
-    const shared = await share(await deps.storeDeps(), {
-      type: "Skill",
-      title: skill.name,
-      body: "",
-      fields: { files: skill.files },
-    });
-    return c.json({ ...shared, title: skill.name, files: Object.keys(skill.files).length } satisfies SharedNow);
+    const shared = await shareSkill(await deps.storeDeps(), skill);
+    return c.json({ ...shared, files: Object.keys(skill.files).length } satisfies SharedNow);
   });
 
   app.get("/installs", async (c) => c.json({ shared: await sharedList(store) }));
 
-  /** A skill or server the team has now, or null. */
-  const found = async (id: string) => {
+  /** A skill or server the team has now. */
+  const found = async (id: string, type?: Shared): Promise<FullRecord> => {
     const record = await store.records.get(id);
-    return record && (record.type === "Skill" || record.type === "McpServer") && record.retiredAt === null
-      ? (record as FullRecord)
-      : null;
+    const shared = record && (record.type === "Skill" || record.type === "McpServer") && record.retiredAt === null;
+    if (!shared || (type && record.type !== type)) throw new Missing("no such skill or MCP server");
+    return record;
   };
-  const missing = { error: "no such skill or MCP server" };
 
   /** An admin's new SKILL.md for a team skill: a new version, which each machine approves again. */
   app.put("/installs/:id/skill", async (c) => {
-    const record = await found(c.req.param("id"));
-    if (record?.type !== "Skill") return c.json(missing, 404);
+    const record = await found(c.req.param("id"), "Skill");
     const manifest = String((await bodyOf(c)).manifest ?? "");
     const files = { ...((record.fields.files ?? {}) as Record<string, string>), "SKILL.md": manifest };
     const skill = skillFromFiles(files, record.title);
-    const shared = await share(await deps.storeDeps(), {
-      type: "Skill",
-      title: record.title,
-      body: "",
-      fields: { files: skill.files },
-    });
-    return c.json({ ...shared, title: record.title } satisfies SharedNow);
+    return c.json(await shareSkill(await deps.storeDeps(), { ...skill, name: record.title }));
   });
 
-  app.post("/installs/:id/rollback", async (c) => {
-    const record = await found(c.req.param("id"));
-    if (!record) return c.json(missing, 404);
-    return c.json(await rollback(store, deps.where, record));
-  });
+  app.post("/installs/:id/rollback", async (c) =>
+    c.json(await rollback(store, deps.where, await found(c.req.param("id")))),
+  );
 
   app.post("/installs/:id", async (c) => {
     const record = await found(c.req.param("id"));
-    if (!record) return c.json(missing, 404);
-    const given = (await bodyOf(c)).keys;
-    const keys =
-      given && typeof given === "object"
-        ? Object.fromEntries(Object.entries(given).map(([name, value]) => [name, String(value)]))
-        : {};
+    const keys = stringRecord((await bodyOf(c)).keys);
     return c.json(await install(store, deps.where, record, { keys }));
   });
 
   app.delete("/installs/:id", async (c) => {
     const record = await found(c.req.param("id"));
-    if (!record) return c.json(missing, 404);
-    return c.json({ removed: await uninstall(store, deps.where, { id: record.id, type: record.type as Shared }) });
+    return c.json({ removed: await uninstall(store, deps.where, record.id, record.type as Shared) });
   });
 
   return app;

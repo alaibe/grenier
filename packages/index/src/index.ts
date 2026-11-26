@@ -1,4 +1,4 @@
-export { addClient, newClientToken, readerFor, resolveScopes } from "./clients.ts";
+export { addClient, readerFor, resolveScopes } from "./clients.ts";
 export { cosine, type Embedder, readSafetensors, StaticEmbedder } from "./embeddings.ts";
 export {
   type Checked,
@@ -9,9 +9,7 @@ export {
   query,
   type RecallResult,
   recall,
-  SIMILAR,
   type Status,
-  terms,
 } from "./reads.ts";
 export {
   ensureRepoTop,
@@ -31,7 +29,6 @@ export {
   rekeyed,
   type SyncDeps,
   type SyncResult,
-  sealRecord,
   syncOnce,
   type TeamClient,
   TeamError,
@@ -40,7 +37,6 @@ export {
   unopenedCount,
 } from "./sync.ts";
 export {
-  aboutCode,
   changedFields,
   embedding,
   type RememberInput,

@@ -4,38 +4,20 @@ import { SCREENS, type ViewName } from "../usage/screens.ts";
 import { PLACE_ICONS, PLACES, placeKeys } from "./places.ts";
 import { href } from "./router.ts";
 
-export interface Count {
-  value: number;
-  /** What it counts, for its name and tooltip. */
-  title: string;
-  /** Something arrived since the person last looked: the badge lights up. */
-  news?: boolean;
-}
-
-/** The app's places as a rail of icons (components/sidebar.md): names and counts in tooltips, Settings at the bottom. */
-export function Sidebar({
-  current,
-  go,
-  counts,
-}: {
-  current: ViewName;
-  go: (place: ViewName) => void;
-  counts: Partial<Record<ViewName, Count>>;
-}) {
+/** The app's places as a rail of icons (components/sidebar.md): names in tooltips, Settings at the bottom. */
+export function Sidebar({ current, go }: { current: ViewName; go: (place: ViewName) => void }) {
   const item = (name: ViewName) => {
     const Icon = PLACE_ICONS[name];
-    const count = counts[name];
-    const shown = count && count.value > 0 ? count : null;
     const title = SCREENS[name].title;
     return (
       <a
         key={name}
         href={href({ place: name })}
-        className="sidebar-item badge-host"
+        className="sidebar-item"
         aria-current={current === name ? "page" : undefined}
-        aria-label={shown ? `${title}, ${shown.title}` : title}
+        aria-label={title}
         aria-keyshortcuts={spoken(placeKeys(name))}
-        title={shown ? `${title} ${shown.value}` : title}
+        title={title}
         data-tip-side="end"
         data-keys={placeKeys(name)}
         onClick={(event) => {
@@ -44,11 +26,6 @@ export function Sidebar({
         }}
       >
         <Icon className="icon" aria-hidden="true" />
-        {shown && (
-          <span className={shown.news ? "badge" : "badge badge-info"} aria-hidden="true">
-            {shown.value}
-          </span>
-        )}
       </a>
     );
   };

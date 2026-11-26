@@ -95,7 +95,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     and(
       filter.tops.length === 0 ? sql`0` : inArray(records.top, [...filter.tops]),
       filter.type === undefined ? undefined : eq(records.type, filter.type),
-      filter.kind === undefined ? undefined : eq(records.kind, filter.kind),
       filter.retired ? undefined : isNull(records.retiredAt),
       filter.linkedTo === undefined
         ? undefined

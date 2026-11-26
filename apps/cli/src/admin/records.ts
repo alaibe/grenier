@@ -29,11 +29,11 @@ import {
   teamChange,
   write,
 } from "@grenier/index";
-import type { FullRecord, RecordInput } from "@grenier/store";
+import { type FullRecord, type RecordInput, toInput } from "@grenier/store";
 import { Hono } from "hono";
 import { personalKey } from "../runtime.ts";
 import type { AdminDeps } from "./admin.ts";
-import { bodyOf } from "./body.ts";
+import { bodyOf } from "./request.ts";
 
 /** Records Skills, Routines and Settings manage, which Knowledge's tree leaves out. */
 const MANAGED_ELSEWHERE = new Set(["Skill", "McpServer", "Routine", "Task", "Type"]);
@@ -59,6 +59,9 @@ async function shown(deps: StoreDeps, record: FullRecord, tops: readonly string[
 }
 
 /** The editor's records: the tree, search, a record with its links, history and anchors' changes, and every write. */
+/** As many records as a list may hold: every one this machine has. */
+const ALL = 100_000;
+
 export function recordRoutes(deps: AdminDeps): Hono {
   const { store } = deps;
   const app = new Hono();
@@ -95,7 +98,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
         if (answer.refused[0]) throw new StoreUseError(`the team store refused it: ${answer.refused[0].reason}`);
         await store.records.put(
           { ...record, version: answer.applied[0]?.version ?? record.version },
-          await embedding(storeDeps, record),
+          await embedding(storeDeps.embedder, record),
         );
         await deps.sync().catch(() => undefined);
         return { saved: record.id };
@@ -120,7 +123,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
 
   /** Knowledge's tree: every page but the records other screens manage. */
   app.get("/pages", async (c) => {
-    const records = await store.records.list({ tops: await allTops(), limit: 100_000 });
+    const records = await store.records.list({ tops: await allTops(), limit: ALL });
     return c.json({
       pages: records
         .filter((record) => !MANAGED_ELSEWHERE.has(record.type))
@@ -151,11 +154,11 @@ export function recordRoutes(deps: AdminDeps): Hono {
     if (toTop !== "me" && !(await store.tops.get(toTop))) {
       return c.json({ error: `there is no top folder ${toTop}` }, 400);
     }
-    const inside = (await store.records.list({ tops: [top], limit: 100_000 })).filter(
+    const inside = (await store.records.list({ tops: [top], limit: ALL })).filter(
       (record) => record.folder === from || record.folder.startsWith(`${from}/`),
     );
     for (const before of inside) {
-      const { seq: _seq, hits: _hits, ...current } = before;
+      const current = toInput(before);
       const folder = `${to}${before.folder.slice(from.length)}`;
       const result = await save({ ...current, top: toTop, folder, updatedAt: Date.now() }, before, before.version);
       if ("conflict" in result) {
@@ -167,31 +170,14 @@ export function recordRoutes(deps: AdminDeps): Hono {
 
   app.get("/records", async (c) => {
     const storeDeps = await deps.storeDeps();
-    const tops = c.req.query("top") ? [c.req.query("top") as string] : await allTops();
-    const type = c.req.query("type");
-    const words = c.req.query("q")?.trim();
-    let records: Found[];
-    if (words) {
-      records = (
-        await recall(storeDeps, everything, {
-          query: words,
-          repo: null,
-          limit: 20,
-          count: false,
-          ...(type ? { type } : {}),
-          ...(c.req.query("top") ? { top: c.req.query("top") as string } : {}),
-        })
-      ).results;
-    } else {
-      records = (
-        await query(storeDeps, everything, {
-          ...(type ? { type } : {}),
-          ...(c.req.query("top") ? { top: c.req.query("top") as string } : {}),
-          ...(c.req.query("retired") === "1" ? { retired: true } : {}),
-          limit: 200,
-        })
-      ).records;
-    }
+    const { top, type, q: words, retired } = c.req.query();
+    const tops = top ? [top] : await allTops();
+    const filter = { ...(type ? { type } : {}), ...(top ? { top } : {}) };
+    const records: Found[] = words?.trim()
+      ? (await recall(storeDeps, everything, { query: words.trim(), repo: null, limit: 20, count: false, ...filter }))
+          .results
+      : (await query(storeDeps, everything, { ...filter, ...(retired === "1" ? { retired: true } : {}), limit: 200 }))
+          .records;
     return c.json({ records: records.filter((record) => tops.includes(record.top)) satisfies RecordRow[] });
   });
 
@@ -257,7 +243,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const before = await store.records.get(c.req.param("id"));
     if (!before) return c.json({ error: "no such record" }, 404);
     const body = (await bodyOf(c)) as Partial<RecordInput> & { baseVersion?: number };
-    const { seq: _seq, hits: _hits, ...current } = before;
+    const current = toInput(before);
     const record: RecordInput = {
       ...current,
       ...(typeof body.title === "string" ? { title: body.title.trim() } : {}),

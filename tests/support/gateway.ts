@@ -99,6 +99,8 @@ export interface TestAdmin {
   raw: (url: string, init?: RequestInit) => Promise<Response>;
   /** What reached the model provider through the proxy. */
   upstream: Upstream;
+  /** The admin API's routes, as Hono lists them. */
+  routes: { method: string; path: string }[];
 }
 
 /** The admin API mounted in the gateway as the daemon mounts it: `home` is the user's, with Grenier's in .grenier. */
@@ -150,5 +152,6 @@ export function testAdmin(store: Store, home: string, deps: Partial<AdminDeps> =
     },
     raw: async (url, init) => app.request(url, init),
     upstream,
+    routes: admin.routes.map(({ method, path }) => ({ method, path })),
   };
 }

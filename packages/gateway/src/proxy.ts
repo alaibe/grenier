@@ -1,7 +1,7 @@
 import type { Config } from "@grenier/core";
 import { costOf, type Prices, priceOf } from "@grenier/log";
 import type { Session, Store } from "@grenier/store";
-import { LoopWatch, type ToolCall } from "./loops.ts";
+import { LoopWatch, type MessagesBody, type OpenAIItem, type ToolCall } from "./loops.ts";
 import { OpenAIUsageReader } from "./openai.ts";
 import { UsageReader } from "./usage.ts";
 
@@ -43,18 +43,10 @@ export interface RunGuard {
 const cutMessage = (tool: string) => `Grenier cut this routine's run off: it may not call ${tool}.`;
 
 /** An item of OpenAI's Responses API. */
-interface ResponseItem {
-  id?: string;
-  call_id?: string;
-  type?: string;
-  name?: string;
-  namespace?: string;
-}
-
 const CALLS = new Set(["function_call", "custom_tool_call", "local_shell_call"]);
 
 /** The tool a Responses item calls, named as Codex names it: an MCP tool's namespace and name joined by "__". */
-function calledTool(item: ResponseItem): string | null {
+function calledTool(item: OpenAIItem): string | null {
   if (!item.type || !CALLS.has(item.type)) return null;
   if (item.type === "local_shell_call") return "local_shell";
   const name = item.name ?? "";
@@ -66,7 +58,7 @@ function toolsOfAnswer(provider: Provider, bytes: Uint8Array): string[] {
   try {
     const answer = JSON.parse(new TextDecoder().decode(bytes)) as {
       content?: { type?: string; name?: string }[];
-      output?: ResponseItem[];
+      output?: OpenAIItem[];
     };
     if (provider === "anthropic") {
       return (answer.content ?? []).filter((block) => block.type === "tool_use").map((block) => block.name ?? "");
@@ -91,7 +83,7 @@ function streamedTools(provider: Provider): (data: string) => string | null {
       }
       // A call shows in output_item.added, and again in .done: either may be the first one seen.
       if (!data.includes('"response.output_item.')) return null;
-      const event = JSON.parse(data) as { type?: string; output_index?: number; item?: ResponseItem };
+      const event = JSON.parse(data) as { type?: string; output_index?: number; item?: OpenAIItem };
       if (!event.item || !/^response\.output_item\.(added|done)$/.test(event.type ?? "")) return null;
       const tool = calledTool(event.item);
       const key = event.item.id ?? event.item.call_id ?? String(event.output_index);
@@ -426,16 +418,10 @@ export function createProxy(options: ProxyOptions) {
   };
 }
 
-interface MessagesRequest {
-  model?: unknown;
-  messages?: { role?: string; content?: unknown; tool_calls?: unknown }[];
-  input?: unknown;
-}
-
-function parseJson(body: ArrayBuffer): MessagesRequest | undefined {
+function parseJson(body: ArrayBuffer): MessagesBody | undefined {
   try {
     const value: unknown = JSON.parse(new TextDecoder().decode(body));
-    return value !== null && typeof value === "object" ? (value as MessagesRequest) : undefined;
+    return value !== null && typeof value === "object" ? (value as MessagesBody) : undefined;
   } catch {
     return undefined;
   }

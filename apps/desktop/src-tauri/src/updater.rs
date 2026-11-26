@@ -10,7 +10,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 
 const FIRST_CHECK: Duration = Duration::from_secs(60);
-const INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const INTERVAL: Duration = Duration::from_hours(24);
 
 pub fn schedule(app: &AppHandle) {
     if cfg!(debug_assertions) {
@@ -43,13 +43,7 @@ fn check(app: &AppHandle, asked: bool) {
     CHECKING.store(false, Ordering::SeqCst);
     if let Err(error) = installed {
         let message = format!("The update could not be installed: {error}");
-        ask(
-            app,
-            MessageDialogKind::Error,
-            "Grenier could not update",
-            &message,
-            None,
-        );
+        tell(app, MessageDialogKind::Error, "Grenier could not update", &message);
     }
 }
 
@@ -63,17 +57,16 @@ fn check_and_install(app: &AppHandle, asked: bool) -> Result<(), String> {
         Ok(Some(update)) => update,
         Ok(None) if asked => {
             let message = format!("You have {}, the newest version.", app.package_info().version);
-            ask(app, MessageDialogKind::Info, "Grenier is up to date", &message, None);
+            tell(app, MessageDialogKind::Info, "Grenier is up to date", &message);
             return Ok(());
         }
         Err(error) if asked => {
             let message = format!("The check for a new version failed: {error}");
-            ask(
+            tell(
                 app,
                 MessageDialogKind::Error,
                 "Grenier could not check for updates",
                 &message,
-                None,
             );
             return Ok(());
         }
@@ -89,16 +82,16 @@ fn check_and_install(app: &AppHandle, asked: bool) -> Result<(), String> {
         MessageDialogKind::Info,
         &title,
         &message,
-        Some(("Install and Restart", "Later")),
+        ("Install and Restart", "Later"),
     ) {
         return Ok(());
     }
     let bytes = block_on(update.download(|_, _| {}, || {})).map_err(|error| error.to_string())?;
     // The daemon runs from the app's own files: the installer must not find it running, nor the new app reuse it.
-    crate::stop_daemon(app);
+    crate::daemon::stop_daemon(app);
     if let Err(error) = update.install(bytes) {
-        if let Ok(home) = crate::grenier_home() {
-            let _ = crate::start_daemon(app, &home);
+        if let Ok(home) = crate::daemon::grenier_home() {
+            let _ = crate::daemon::start_daemon(app, &home);
         }
         return Err(error.to_string());
     }
@@ -106,11 +99,17 @@ fn check_and_install(app: &AppHandle, asked: bool) -> Result<(), String> {
     app.restart();
 }
 
-/// A dialog over the app; true when its first button was chosen.
-fn ask(app: &AppHandle, kind: MessageDialogKind, title: &str, message: &str, buttons: Option<(&str, &str)>) -> bool {
-    let mut dialog = app.dialog().message(message).title(title).kind(kind);
-    if let Some((yes, no)) = buttons {
-        dialog = dialog.buttons(MessageDialogButtons::OkCancelCustom(yes.to_owned(), no.to_owned()));
-    }
-    dialog.blocking_show()
+/// A message over the app, until it is dismissed.
+fn tell(app: &AppHandle, kind: MessageDialogKind, title: &str, message: &str) {
+    app.dialog().message(message).title(title).kind(kind).blocking_show();
+}
+
+/// A question over the app: true when its first button was chosen.
+fn ask(app: &AppHandle, kind: MessageDialogKind, title: &str, message: &str, (yes, no): (&str, &str)) -> bool {
+    app.dialog()
+        .message(message)
+        .title(title)
+        .kind(kind)
+        .buttons(MessageDialogButtons::OkCancelCustom(yes.to_owned(), no.to_owned()))
+        .blocking_show()
 }

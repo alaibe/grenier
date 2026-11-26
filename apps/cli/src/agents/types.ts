@@ -51,6 +51,6 @@ export interface Agent extends McpClient {
   ownPrompt(args: readonly string[]): boolean;
   /** `grenier run`'s arguments: Grenier's prompt when given, and the proxy where only a flag can set it. */
   runArgs(args: readonly string[], prompt: string | null, openaiBaseUrl: string): string[];
-  /** A routine's run, read-only or acting as its mode says, through the proxy at `base`. */
-  routine(prompt: string, mode: RoutineMode, base: string): AgentCommand;
+  /** A routine's run, read-only or acting as its mode says, through the proxy's OpenAI address for Codex. */
+  routine(prompt: string, mode: RoutineMode, openaiBaseUrl: string): AgentCommand;
 }

@@ -1,18 +1,18 @@
 import type { InstructionFile, InstructionText } from "@grenier/core/api";
 import { FileText, RotateCcw, Settings } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
-import { type Command, useCommands } from "../shell/commands.tsx";
-import { DetailBar, ListDetail, useItemTitle } from "../shell/regions.tsx";
+import { type Command, useCommands, useSaveCommand } from "../shell/commands.tsx";
+import { DetailBar, ItemMeta, ItemName, ListDetail, Reading, useItemTitle } from "../shell/regions.tsx";
 import { Button, Primary } from "../ui/button.tsx";
 import { Empty, Skeleton } from "../ui/empty.tsx";
-import { SearchField } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Notice, Problem } from "../ui/notice.tsx";
 import { Tag } from "../ui/tag.tsx";
-import { Tree, type TreeNode, toTree, useFolding } from "../ui/tree.tsx";
+import { Tree, type TreeNode, useFolding } from "../ui/tree.tsx";
+import { useListSearch } from "./list-search.tsx";
 
 /** The groups start open, each project's folder closed. */
 const closedFirst = (id: string) => !id.endsWith("/");
@@ -68,21 +68,7 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
       return `Put back Grenier's ${file.name}`;
     });
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: save reads the text as it is when it runs
-  const commands = useMemo<Command[]>(
-    () => [
-      {
-        id: "instructions.save",
-        label: "Save the file",
-        keys: "mod+enter",
-        also: ["mod+s"],
-        hint: { in: "item", says: "save", order: 10 },
-        run: () => dirty && save(),
-      },
-    ],
-    [dirty, text],
-  );
-  useCommands(commands);
+  useSaveCommand("instructions.save", "Save the file", true, () => dirty && save());
 
   if (current.error) return <Problem error={current.error} />;
   if (!current.data || text === null) return <Skeleton rows={6} shape="text" />;
@@ -101,12 +87,12 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
           {file.exists || grenier ? "Save" : "Make the file"}
         </Primary>
       </DetailBar>
-      <div className="mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24">
-        <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">{titleOf(file)}</h1>
-        <p className="mt-2 font-mono text-xs text-muted">
+      <Reading>
+        <ItemName>{titleOf(file)}</ItemName>
+        <ItemMeta>
           {READ_BY[file.name]}
           {file.group === "project" ? ` in ${file.project}` : file.group === "every" ? ", in every project" : ""}.
-        </p>
+        </ItemMeta>
         {grenier && (
           <p className="mt-2 text-sm text-muted">
             Your version applies from the next session that starts: a new grenier run, or the next time an app starts
@@ -138,7 +124,7 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
             onChange={setText}
           />
         </div>
-      </div>
+      </Reading>
     </article>
   );
 }
@@ -146,25 +132,11 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
 /** The instructions agents read, CLAUDE.md and AGENTS.md: every project's own, and each project's in the work folder. */
 export function Instructions({ item, go }: ViewProps) {
   const files = useLoad(load);
-  const [words, setWords] = useState("");
-  const [folded, fold] = useFolding(closedFirst);
-  const search = useRef<HTMLInputElement>(null);
-  const query = words.trim().toLowerCase();
+  const [unfolded, fold] = useFolding(closedFirst);
   const select = useCallback((id: string) => go("instructions", id), [go]);
 
-  const commands = useMemo<Command[]>(
-    () => [
-      {
-        id: "instructions.search",
-        label: "Search the projects",
-        keys: "/",
-        also: ["mod+f"],
-        hint: { in: "list", says: "search", order: 30 },
-        run: () => search.current?.focus(),
-      },
-    ],
-    [],
-  );
+  const { field: searchField, query } = useListSearch("instructions.search", "Search the projects", "Search projects");
+  const commands = useMemo<Command[]>(() => [], []);
   useCommands(commands);
 
   const all = files.data?.files ?? [];
@@ -203,7 +175,7 @@ export function Instructions({ item, go }: ViewProps) {
       children: all.filter((file) => file.group === "grenier").map(leaf),
     },
   ];
-  const open = (id: string) => Boolean(query) || folded(id);
+  const open = (id: string) => Boolean(query) || unfolded(id);
   // Opening a file opens its project's folder, and closes nothing.
   useEffect(() => {
     if (item?.startsWith("project/")) fold(`projects/${item.split("/")[1]}`, true);
@@ -211,17 +183,7 @@ export function Instructions({ item, go }: ViewProps) {
 
   const list = (
     <>
-      <div className="border-b border-line p-3">
-        <SearchField
-          ref={search}
-          label="Search the projects"
-          placeholder="Search projects"
-          live
-          value={words}
-          onChange={(event) => setWords(event.currentTarget.value)}
-          onKeyDown={toTree}
-        />
-      </div>
+      {searchField}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Problem error={files.error} />
         {files.error ? null : !files.data ? (

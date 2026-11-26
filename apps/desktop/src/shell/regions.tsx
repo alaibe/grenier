@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
+import { store, stored } from "../storage.ts";
 import { PrimaryScope } from "../ui/button.tsx";
 
 /** The shell's regions, for F6 and for where focus starts (patterns/app-shell.md#focus-and-landmarks). */
@@ -21,12 +22,8 @@ export function useItemTitle(title: string | null | undefined) {
 const LIST = { key: "grenier.list", width: 360, min: 280, max: 480 };
 
 function savedWidth(): number {
-  try {
-    const width = Number(localStorage.getItem(LIST.key));
-    return width >= LIST.min && width <= LIST.max ? width : LIST.width;
-  } catch {
-    return LIST.width;
-  }
+  const width = Number(stored(LIST.key, LIST.width));
+  return width >= LIST.min && width <= LIST.max ? width : LIST.width;
 }
 
 /** The detail of a screen without a list: a dashboard, settings. Its page header scrolls with it. */
@@ -43,11 +40,7 @@ export function Detail({ title, children }: { title: string; children: ReactNode
 /** A list of the place's items beside the open one (layout.md#window-regions); the list resizes from 280 to 480. */
 export function ListDetail({ title, list, children }: { title: string; list: ReactNode; children: ReactNode }) {
   const [width, setWidth] = useState(savedWidth);
-  useEffect(() => {
-    try {
-      localStorage.setItem(LIST.key, String(width));
-    } catch {}
-  }, [width]);
+  useEffect(() => store(LIST.key, width), [width]);
   return (
     <main className="content" data-list style={{ "--list-width": `${width}px` } as React.CSSProperties}>
       <section className="region-list" data-region="list" aria-label={`${title}: list`}>
@@ -62,7 +55,7 @@ export function ListDetail({ title, list, children }: { title: string; list: Rea
 }
 
 /** A region's right edge: drag to resize between `min` and `max`, double-click to reset. */
-export function Resizer({
+function Resizer({
   min,
   max,
   onResize,
@@ -95,6 +88,25 @@ export function Resizer({
       }}
     />
   );
+}
+
+/** An open item's text under its bar, at reading width; `gap` spaces its parts as a grid. */
+export function Reading({ gap, children }: { gap?: "gap-4" | "gap-6"; children: ReactNode }) {
+  return (
+    <div className={`mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24${gap ? ` grid ${gap}` : ""}`}>
+      {children}
+    </div>
+  );
+}
+
+/** An open item's name, at the top of its text. */
+export function ItemName({ children }: { children: ReactNode }) {
+  return <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">{children}</h1>;
+}
+
+/** The line under an item's name that says what it is. */
+export function ItemMeta({ children }: { children: ReactNode }) {
+  return <p className="mt-2 font-mono text-xs text-muted">{children}</p>;
 }
 
 /** A detail's top row, which stays as the page scrolls: where the item is, then its actions. */

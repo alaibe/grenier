@@ -1,21 +1,11 @@
+import { folderName } from "@grenier/core";
+import type { ReportRow } from "@grenier/core/api";
 import type { UsageWithSession } from "@grenier/store";
 import { cacheSavingsOf, type Prices } from "./cost.ts";
 
 export type GroupBy = "day" | "session" | "repo";
 
-export interface ReportRow {
-  key: string;
-  requests: number;
-  inputTokens: number;
-  cacheWriteTokens: number;
-  cacheReadTokens: number;
-  outputTokens: number;
-  /** USD; requests to a model with no price count as 0 and are counted in `unpriced`. */
-  cost: number;
-  unpriced: number;
-  /** USD saved by prompt-cache reads. */
-  saved: number;
-}
+export type { ReportRow };
 
 /** Totals per day (local time), session or repository, in the order each key first appears. */
 export function buildReport(rows: readonly UsageWithSession[], by: GroupBy, prices: Prices): ReportRow[] {
@@ -63,14 +53,6 @@ function keyOf(row: UsageWithSession, by: GroupBy): string {
 const NO_PROJECT = "(not started with grenier run)";
 
 /** The last segment of a path, or the path itself for a root such as `/`. */
-export function folderName(path: string): string {
-  return (
-    path
-      .replace(/[\\/]+$/, "")
-      .split(/[\\/]/)
-      .at(-1) || path
-  );
-}
 
 /** What spending is grouped under everywhere: the repository's folder name, else the starting folder's. */
 export function projectOf(session: { repoRoot: string | null; cwd: string | null }): string | null {

@@ -7,7 +7,7 @@ import {
   recordProblem,
   repoTop,
 } from "@grenier/core";
-import type { FullRecord, Link, RecordInput, Store } from "@grenier/store";
+import { type FullRecord, type Link, type RecordInput, type Store, toInput } from "@grenier/store";
 import {
   contentHashes,
   ensureRepoTop,
@@ -29,7 +29,7 @@ export interface RememberInput {
   folder?: string;
   body?: string;
   fields?: Record<string, unknown>;
-  /** By default the repository's top folder for what is about its code, else `team` when writable, else `me`. */
+  /** By default the repository's top folder for what is about its code, else `me`. */
   top?: string;
   /** Every file it was worked out from, in the repository the agent is in. */
   files?: readonly string[];
@@ -42,7 +42,7 @@ export interface RememberInput {
 }
 
 /** A page worked out from the repository's files, and only from them: kept in that repository's folder. */
-export function aboutCode(record: { anchors: readonly { kind: FullRecord["anchors"][number]["kind"] }[] }): boolean {
+function aboutCode(record: { anchors: readonly { kind: FullRecord["anchors"][number]["kind"] }[] }): boolean {
   return record.anchors.length > 0 && record.anchors.every((anchor) => anchor.kind === "git");
 }
 
@@ -82,7 +82,7 @@ export async function remember(
   }
 
   if (repo) await ensureRepoTop(deps.store, repo);
-  const writable = (await readable(deps.store, reader)).map((top) => top.id);
+  const readableTops = (await readable(deps.store, reader)).map((top) => top.id);
   let top = input.top;
   const member = (await deps.store.state.get("team_role")) === "member";
   if (!top) {
@@ -90,11 +90,12 @@ export async function remember(
     else top = "me";
   }
   if (top !== "me" && !(await deps.store.tops.get(top))) throw new StoreUseError(`there is no top folder ${top}`);
-  if (reader && top !== "me" && !writable.includes(top)) throw new StoreUseError(`this client may not write to ${top}`);
+  if (reader && top !== "me" && !readableTops.includes(top))
+    throw new StoreUseError(`this client may not write to ${top}`);
 
-  const typeDef = await typeOf(deps.store, type, writable);
+  const typeDef = await typeOf(deps.store, type, readableTops);
   let existing = input.id ? await deps.store.records.get(input.id) : undefined;
-  if (input.id && (!existing || (reader && existing.top !== "me" && !writable.includes(existing.top))))
+  if (input.id && (!existing || (reader && existing.top !== "me" && !readableTops.includes(existing.top))))
     throw new StoreUseError(`there is no record ${input.id}`);
   // A page about the code with the same title replaces the one before: it is the same question, answered again.
   if (!existing && aboutCode({ anchors })) {
@@ -163,19 +164,19 @@ export async function refusal(store: Store, record: RecordInput, before?: FullRe
 
 /** The vector a record is found by, when embeddings are on. */
 export async function embedding(
-  deps: StoreDeps,
+  embedder: StoreDeps["embedder"],
   record: { title: string; body: string },
 ): Promise<{ model: string; vector: Float32Array } | undefined> {
-  if (!deps.embedder) return undefined;
-  const [vector] = await deps.embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)]);
-  return vector ? { model: deps.embedder.model, vector } : undefined;
+  if (!embedder) return undefined;
+  const [vector] = await embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)]);
+  return vector ? { model: embedder.model, vector } : undefined;
 }
 
 export async function write(deps: StoreDeps, record: RecordInput, before?: FullRecord): Promise<void> {
   // The team store drops what it refuses: refusing here says so at once, not at the next sync.
   const why = await refusal(deps.store, record, before);
   if (why) throw new StoreUseError(`the record is refused: ${why}`);
-  await deps.store.records.put(record, await embedding(deps, record));
+  await deps.store.records.put(record, await embedding(deps.embedder, record));
   const changed = changedFields(before, record);
   if (changed.length === 0) return;
   await deps.store.outbox.add({
@@ -195,8 +196,7 @@ export async function retire(deps: StoreDeps, id: string): Promise<boolean> {
   const record = await deps.store.records.get(id);
   if (!record || record.retiredAt !== null) return false;
   const now = (deps.now ?? Date.now)();
-  const { seq: _seq, hits: _hits, ...rest } = record;
-  await write(deps, { ...rest, retiredAt: now, updatedAt: now }, record);
+  await write(deps, { ...toInput(record), retiredAt: now, updatedAt: now }, record);
   return true;
 }
 

@@ -366,7 +366,7 @@ pub fn usage_page_view(request: Request<'_>, usage: State<'_, Usage>) -> Result<
     let InvokeBody::Json(args) = request.body() else {
         return Err("a page view takes JSON".into());
     };
-    let args: PageViewArgs = serde_json::from_value(args.clone()).map_err(|error| error.to_string())?;
+    let args = PageViewArgs::deserialize(args).map_err(|error| error.to_string())?;
     if let Some(body) = usage.page_view(args.screen, args.width, args.height, now_seconds()) {
         let agent = usage.os.user_agent();
         tauri::async_runtime::spawn(async move {

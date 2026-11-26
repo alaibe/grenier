@@ -21,11 +21,8 @@ export function modelDir(modelsDir: string): string {
   return join(modelsDir, `${DEFAULT_MODEL.repository.replace("/", "--")}@${DEFAULT_MODEL.revision.slice(0, 7)}`);
 }
 
-/** Downloads any file that is missing or fails its hash, unless `offline`. */
-export async function loadLocalEmbedder(
-  modelsDir: string,
-  options: { fetch?: typeof fetch; offline?: boolean } = {},
-): Promise<Embedder> {
+/** Downloads any file that is missing or fails its hash. */
+export async function loadLocalEmbedder(modelsDir: string, options: { fetch?: typeof fetch } = {}): Promise<Embedder> {
   const model = DEFAULT_MODEL;
   const fetchFile = options.fetch ?? fetch;
   const dir = modelDir(modelsDir);
@@ -36,7 +33,6 @@ export async function loadLocalEmbedder(
     const path = join(dir, name);
     let bytes = existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
     if (!bytes || sha256(bytes) !== expected) {
-      if (options.offline) throw new Error(`${path} is missing or damaged, and downloading is off`);
       const url = `https://huggingface.co/${model.repository}/resolve/${model.revision}/${name}`;
       const response = await fetchFile(url);
       if (!response.ok) throw new Error(`could not download ${url}: HTTP ${response.status}`);

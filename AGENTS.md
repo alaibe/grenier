@@ -15,7 +15,7 @@ A team's shared memory for people and their AI agents: a pnpm workspace in TypeS
 
 - The daemon binds to `127.0.0.1` only, and its endpoints need a client token, except the proxy path `grenier run` uses.
 - API keys and auth headers are forwarded, never stored, logged or sent to the team store.
-- The keys a person types to install a shared MCP server go only into that server's entry in their own agents' configs, Claude Code's and Codex's (`serverEntry` in `apps/cli/src/installs.ts`): never into the store, an approval, the team store or a log.
+- The keys a person types to install a shared MCP server go only into that server's entry in their own agents' configs, Claude Code's and Codex's (`serverEntry` in `apps/cli/src/server-config.ts`): never into the store, an approval, the team store or a log.
 - Nothing leaves the machine by default: the team store is opt-in. The one exception is the desktop app's usage statistics (`usage.rs`), on until the person turns them off in Settings, which send a screen's url and title from the fixed list, the display's size, Grenier's version, the system's name and a random id, nothing else. An admin's search of skills.sh or the MCP Registry sends only the words typed (`apps/cli/src/catalog.ts`).
 - The team store never holds file contents, prompts or keys: every record passes `recordProblem` on both sides, and `me` records are sealed before they leave.
 - An agent never shares a record with the team: the MCP tool `set` keeps an answer about the code in its repository's folder and anything else in Me, without asking (`packages/gateway/src/mcp.ts`); the person moves a record to the team in Knowledge. A routine's run, with nobody there to ask, writes under the approval its machine's person gave that routine.

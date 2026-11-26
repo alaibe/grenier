@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
 import { type GrenierPaths, writeAtomically } from "@grenier/core/node";
 import { createGateway } from "@grenier/gateway";
 import { gitFiles } from "@grenier/git";
@@ -28,7 +29,7 @@ export function adminToken(paths: GrenierPaths): string {
   return token;
 }
 
-export interface DaemonInfo {
+interface DaemonInfo {
   pid: number;
   port: number;
   version: string;
@@ -97,8 +98,6 @@ function isAlive(pid: number): boolean {
   }
   return true;
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const DAY = 86_400_000;
 const PRUNE_EVERY = 6 * 60 * 60 * 1000;

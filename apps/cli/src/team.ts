@@ -3,7 +3,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Config } from "@grenier/core";
 import { type GrenierPaths, withTomlValue } from "@grenier/core/node";
 import type { TeamClient } from "@grenier/index";
+import type { Store } from "@grenier/store";
 import { Refusal } from "./io.ts";
+import { ensureBaseTops, ensurePersonalKey } from "./runtime.ts";
 
 /** The team server and this machine's token: the env var named by `[team] token_env`, else the saved token. */
 export function teamClient(config: Config, paths: GrenierPaths, env: NodeJS.ProcessEnv): TeamClient | null {
@@ -26,6 +28,20 @@ export function parseInvite(link: string): { url: string; invite: string; secret
 export function newTeamToken(): { token: string; hash: string } {
   const token = `gt_${randomBytes(32).toString("base64url")}`;
   return { token, hash: createHash("sha256").update(token).digest("hex") };
+}
+
+/** This machine in a team from now on: its address and token saved, who it is there, and its folders and key. */
+export async function enterTeam(
+  paths: GrenierPaths,
+  store: Store,
+  team: { url: string; token: string; member: string; role: string; meTop?: string },
+): Promise<void> {
+  saveTeam(paths, team.url, team.token);
+  await store.state.set("team_member", team.member);
+  await store.state.set("team_role", team.role);
+  if (team.meTop) await store.state.set("team_me_top", team.meTop);
+  await ensureBaseTops(store);
+  ensurePersonalKey(paths);
 }
 
 /** Saves the team server's address in config.toml and the token beside it, readable by this user only. */

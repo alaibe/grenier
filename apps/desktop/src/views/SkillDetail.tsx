@@ -1,10 +1,10 @@
 import type { LocalSkillFull, RecordFull, SharedNow, SharedState } from "@grenier/core/api";
-import { Check, Download, FileText, Share2, Trash2, Undo2 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, Share2, Trash2 } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
-import { type Command, useCommands } from "../shell/commands.tsx";
-import { DetailBar, useItemTitle } from "../shell/regions.tsx";
+import { useSaveCommand } from "../shell/commands.tsx";
+import { DetailBar, ItemName, Reading, useItemTitle } from "../shell/regions.tsx";
 import { descriptionOf, joinManifest, splitManifest, withDescription } from "../skill-manifest.ts";
 import { installTag } from "../states.ts";
 import { Button, Primary } from "../ui/button.tsx";
@@ -16,6 +16,7 @@ import { Menu, type MenuItem } from "../ui/menu.tsx";
 import { Notice, Problem } from "../ui/notice.tsx";
 import { Section } from "../ui/page.tsx";
 import { Status } from "../ui/tag.tsx";
+import { sharedEntryParts } from "./shared-entry.tsx";
 
 /** A skill as it reads: where it is, its name, its description, its instructions in the editor, and its other files. */
 function SkillPage({
@@ -53,24 +54,7 @@ function SkillPage({
   const description = descriptionOf(draft.front);
   useItemTitle(name);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: save reads the draft as it is when it runs
-  const commands = useMemo<Command[]>(
-    () =>
-      editable
-        ? [
-            {
-              id: "skill.save",
-              label: "Save the skill",
-              keys: "mod+enter",
-              also: ["mod+s"],
-              hint: { in: "item", says: "save", order: 10 },
-              run: () => dirty && save(written),
-            },
-          ]
-        : [],
-    [editable, dirty, written],
-  );
-  useCommands(commands);
+  useSaveCommand("skill.save", "Save the skill", editable, () => dirty && save(written));
 
   return (
     <article className="flex h-full min-w-0 flex-col overflow-y-auto" data-verb="save">
@@ -84,8 +68,8 @@ function SkillPage({
           </Primary>
         )}
       </DetailBar>
-      <div className="mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24">
-        <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">{name}</h1>
+      <Reading>
+        <ItemName>{name}</ItemName>
         {editable && description !== null ? (
           <div className="mt-3">
             <Input
@@ -127,7 +111,7 @@ function SkillPage({
             </Section>
           </div>
         )}
-      </div>
+      </Reading>
     </article>
   );
 }
@@ -266,62 +250,7 @@ export function TeamSkillView({
   if (!record.data) return <Skeleton rows={6} shape="text" />;
   const files = (record.data.fields.files ?? {}) as Record<string, string>;
 
-  const call = (key: string, path: string, method: string, said: string) =>
-    void action.run(key, async () => {
-      await api(path, { method });
-      return said;
-    });
-  const install = () =>
-    call(
-      "install",
-      `/installs/${entry.id}`,
-      "POST",
-      `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart your agents to load it`,
-    );
-  const uninstall = () =>
-    void action.run("remove", async () => {
-      await api(`/installs/${entry.id}`, { method: "DELETE" });
-      return { text: `Uninstalled ${entry.title} from this machine`, undo: install };
-    });
-  const items: MenuItem[] = [
-    ...(entry.canRollBack
-      ? [
-          {
-            label: "Roll back",
-            icon: Undo2,
-            run: () =>
-              call(
-                "rollback",
-                `/installs/${entry.id}/rollback`,
-                "POST",
-                `Rolled ${entry.title} back to the version before`,
-              ),
-          },
-        ]
-      : []),
-    ...(admin
-      ? [
-          {
-            label: "Remove from the team",
-            icon: Trash2,
-            danger: true,
-            run: () =>
-              ask({
-                title: `Remove ${entry.title} from the team?`,
-                body: "It leaves every teammate's list, and each machine that installed it uninstalls it at its next sync. Its history stays.",
-                action: "Remove from the team",
-                run: () =>
-                  void action.run("retire", async () => {
-                    await api(`/records/${encodeURIComponent(entry.id)}`, { method: "DELETE" });
-                    removed();
-                    return `Removed ${entry.title} from the team`;
-                  }),
-              }),
-          },
-        ]
-      : []),
-  ];
-  const Install = admin ? Button : Primary;
+  const shared = sharedEntryParts({ entry, admin, action, ask, removed, primary: !admin });
 
   return (
     <>
@@ -335,31 +264,11 @@ export function TeamSkillView({
         state={<Status {...installTag(entry.state)} />}
         actions={
           <>
-            {entry.state !== "installed" && (
-              <Install
-                size="sm"
-                icon={entry.state === "update" ? Check : Download}
-                busy={action.busy === "install"}
-                onClick={install}
-              >
-                {entry.state === "update" ? "Approve the update" : "Install"}
-              </Install>
-            )}
-            {entry.state !== "available" && (
-              <Button size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={uninstall}>
-                Uninstall
-              </Button>
-            )}
-            {items.length > 0 && <Menu label="More" items={items} />}
+            {shared.buttons}
+            {shared.items.length > 0 && <Menu label="More" items={shared.items} />}
           </>
         }
-        notice={
-          entry.state === "update" && (
-            <Notice kind="warn">
-              Changed since you installed it: it loads as it is now once you approve the update.
-            </Notice>
-          )
-        }
+        notice={shared.notice}
         problem={action.problem}
         saving={action.busy === "save"}
         save={(manifest) =>

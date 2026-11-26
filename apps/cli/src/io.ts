@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { type Config, ConfigError } from "@grenier/core";
 import { ensureDirectories, type GrenierPaths, loadConfig, resolvePaths } from "@grenier/core/node";
 import { StoreUseError } from "@grenier/index";
@@ -32,7 +33,16 @@ export function isReported(error: unknown): error is Error {
   );
 }
 
-export interface Environment {
+/** Whether a path is a folder, following links; false when there is nothing there. */
+export function isDir(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+interface Environment {
   paths: GrenierPaths;
   config: Config;
 }

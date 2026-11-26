@@ -1,4 +1,4 @@
-import type { Config } from "@grenier/core";
+import { type Config, ConfigError } from "@grenier/core";
 import type { GrenierPaths } from "@grenier/core/node";
 import { type StoreDeps, StoreUseError, type SyncResult, type TeamClient, TeamError } from "@grenier/index";
 import type { Prices } from "@grenier/log";
@@ -13,6 +13,7 @@ import { instructionRoutes } from "./instructions.ts";
 import { machineRoutes } from "./machine.ts";
 import { overviewRoutes } from "./overview.ts";
 import { recordRoutes } from "./records.ts";
+import { Missing } from "./request.ts";
 import { routineRoutes } from "./routines.ts";
 import { serverRoutes } from "./servers.ts";
 import { skillRoutes } from "./skills.ts";
@@ -88,7 +89,8 @@ export function createAdmin(deps: AdminDeps): Hono {
 
   // Any other error is a bug: it goes on to a 500, never reported as a refusal.
   app.onError((error) => {
-    if (error instanceof StoreUseError) return problem(400, error.message);
+    if (error instanceof StoreUseError || error instanceof ConfigError) return problem(400, error.message);
+    if (error instanceof Missing) return problem(404, error.message);
     if (error instanceof Refusal) return problem(409, error.message);
     // The app reads a 401 as its own admin token refused: the team store's means this machine was removed.
     if (error instanceof TeamError && error.status === 401) {

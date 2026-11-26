@@ -1,5 +1,6 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
 import { type DragEvent, type KeyboardEvent, type ReactNode, useCallback, useRef, useState } from "react";
+import { store, stored } from "../storage.ts";
 
 export interface TreeNode {
   id: string;
@@ -52,23 +53,26 @@ const DRAGGED = "application/x-grenier-tree";
  * Folders and their items as one-line rows (components/row.md): the selected one in accent-soft with its bar, glowing
  * while the tree has focus. J/K or ↓/↑ move, → opens a folder or goes in, ← closes it or goes up, Enter opens.
  */
+const closed = () => false;
+
 export function Tree({
   label,
   nodes,
   selected,
-  open,
+  open = closed,
   onSelect,
-  onToggle,
+  onToggle = () => {},
   onOpen,
   drag,
 }: {
   label: string;
   nodes: TreeNode[];
   selected: string | null;
-  open: (id: string) => boolean;
+  /** Which folders show what they hold; a flat list leaves it out. */
+  open?: (id: string) => boolean;
   /** The selection moved to a row, by key or by click. */
   onSelect: (node: TreeNode) => void;
-  onToggle: (id: string, open: boolean) => void;
+  onToggle?: (id: string, open: boolean) => void;
   /** Enter on an item that isn't a folder. */
   onOpen: (node: TreeNode) => void;
   drag?: TreeDrag;
@@ -210,11 +214,17 @@ export function Tree({
   );
 }
 
-/** Which folders show what they hold, kept in this window only: each starts open unless `closedFirst` says otherwise. */
+/**
+ * Which folders show what they hold: each starts open unless `closedFirst` says otherwise. Kept in this window only,
+ * or under `storageKey` for the next time the app opens.
+ */
 export function useFolding(
   closedFirst: (id: string) => boolean = () => false,
+  storageKey?: string,
 ): [(id: string) => boolean, (id: string, open: boolean) => void] {
-  const [flipped, setFlipped] = useState<Set<string>>(new Set());
+  const [flipped, setFlipped] = useState<Set<string>>(
+    () => new Set(storageKey ? stored<string[]>(storageKey, []) : []),
+  );
   const rule = useRef(closedFirst);
   rule.current = closedFirst;
   const open = useCallback((id: string) => flipped.has(id) === rule.current(id), [flipped]);
@@ -225,9 +235,10 @@ export function useFolding(
         const out = new Set(current);
         if (out.has(id)) out.delete(id);
         else out.add(id);
+        if (storageKey) store(storageKey, [...out]);
         return out;
       }),
-    [],
+    [storageKey],
   );
   return [open, set];
 }

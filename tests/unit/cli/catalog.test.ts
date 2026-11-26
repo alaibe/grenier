@@ -32,7 +32,9 @@ describe("fetching a skill from GitHub", () => {
 
   it("refuses a skill too large to share before fetching its files, and a source that is not owner/repo", async () => {
     const { asked, fetchImpl } = fakeWeb({ ...REPO, "skills/notes/big.md": "x".repeat(200_001) });
-    await expect(fetchSkill("acme/skills", "release-notes", fetchImpl)).rejects.toThrow("larger than a shared skill");
+    await expect(fetchSkill("acme/skills", "release-notes", fetchImpl)).rejects.toThrow(
+      "release-notes is too large: a shared skill holds at most",
+    );
     expect(asked.some((url) => url.endsWith("big.md"))).toBe(false);
     await expect(fetchSkill("acme/skills", "missing", fetchImpl)).rejects.toThrow("no skill named missing");
     for (const source of ["../etc", "acme/..", "acme/.", "acme/skills/extra", "-acme/skills"]) {

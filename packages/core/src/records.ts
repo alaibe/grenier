@@ -22,14 +22,14 @@ export interface TypeDef {
   limitCode?: boolean;
 }
 
-export const MEMORY_KINDS = ["answer", "summary", "convention", "fact"] as const;
-export const TASK_STATUSES = ["to-do", "doing", "done"] as const;
+const MEMORY_KINDS = ["answer", "summary", "convention", "fact"] as const;
+const TASK_STATUSES = ["to-do", "doing", "done"] as const;
 export const ROUTINE_MODES = ["read-only", "shadow", "limited", "on"] as const;
 
 const LONG = 200_000;
 
 /** The types every team has. Admins add more as records of type Type. */
-export const BUILTIN_TYPES: readonly TypeDef[] = [
+const BUILTIN_TYPES: readonly TypeDef[] = [
   {
     name: "Project",
     description: "A piece of work with an owner, linking its repos, tasks, meetings, decisions and docs.",
@@ -227,8 +227,8 @@ export const MEMBER_WRITES =
   "only an admin writes there: a member writes in me, and their agents' answers in a repository's folder";
 
 /**
- * Whether a member who is not an admin may make this change: anything in their own `me` (`mine`), a memory in a
- * repository's folder (what their agents work out about its code), and the run fields of a routine's task their machine ran.
+ * Whether a member who is not an admin may make this change: anything in their own `me` (`mine`), a page or memory in
+ * a repository's folder (what their agents work out about its code), and the run fields of a task their machine ran.
  */
 export function memberMay(
   before: MemberChange | undefined,

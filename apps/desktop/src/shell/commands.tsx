@@ -1,8 +1,17 @@
-import { createContext, type ReactNode, useContext, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { anywhere, chordOf } from "../ui/keys.ts";
 import { type Attention, type Command, type Hint, type Layer, Registry, type Scope } from "./registry.ts";
 
-export { type Command, type Hint, hintsFor, Registry } from "./registry.ts";
+export { type Command, hintsFor } from "./registry.ts";
 
 const RegistryContext = createContext<Registry | null>(null);
 
@@ -27,6 +36,29 @@ export function useCommands(commands: Command[], scope: Scope = "screen") {
     registry.set(owner, commands, scope);
   }, [registry, owner, commands, scope]);
   useEffect(() => () => registry.delete(owner), [registry, owner]);
+}
+
+/** ⌘↵ and ⌘S save what the page edits, while it can be saved; the save runs as it is when the keys are pressed. */
+export function useSaveCommand(id: string, label: string, enabled: boolean, save: () => void) {
+  const latest = useRef(save);
+  latest.current = save;
+  const commands = useMemo<Command[]>(
+    () =>
+      enabled
+        ? [
+            {
+              id,
+              label,
+              keys: "mod+enter",
+              also: ["mod+s"],
+              hint: { in: "item", says: "save", order: 10 },
+              run: () => latest.current(),
+            },
+          ]
+        : [],
+    [id, label, enabled],
+  );
+  useCommands(commands);
 }
 
 /** A dialog or the palette, while it is open: global keys wait, and the status bar shows its hints. */

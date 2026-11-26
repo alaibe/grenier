@@ -6,7 +6,7 @@ import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clientOf, type Where } from "../../../apps/cli/src/agents/index.ts";
+import { clientOf, type McpClient, type Where } from "../../../apps/cli/src/agents/index.ts";
 import { readServers, writeServers } from "../../../apps/cli/src/agents/toml.ts";
 import { connectApp } from "../../../apps/cli/src/connect.ts";
 
@@ -42,7 +42,9 @@ describe("adding Grenier's MCP server to an app's config", () => {
       join(home, ".claude.json"),
       JSON.stringify({ theme: "dark", mcpServers: { other: { command: "x" } } }),
     );
-    expect(await connectApp(store, "claude-code", ["*"], where)).toBe(join(home, ".claude.json"));
+    expect(await connectApp(store, clientOf("claude-code") as McpClient, ["*"], where)).toBe(
+      join(home, ".claude.json"),
+    );
     expect(readFileSync(join(home, ".claude", "skills", "grenier-setup", "SKILL.md"), "utf8")).toContain(
       "name: grenier-setup",
     );
@@ -53,11 +55,11 @@ describe("adding Grenier's MCP server to an app's config", () => {
   });
 
   it("writes Cursor's mcp.json, creating it, and Claude Desktop's config where each system keeps it", async () => {
-    await connectApp(store, "cursor", ["*"], where);
+    await connectApp(store, clientOf("cursor") as McpClient, ["*"], where);
     expect(JSON.parse(readFileSync(join(home, ".cursor", "mcp.json"), "utf8"))).toEqual({
       mcpServers: { grenier: expected },
     });
-    await connectApp(store, "claude-desktop", ["*"], where);
+    await connectApp(store, clientOf("claude-desktop") as McpClient, ["*"], where);
     const mac = join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
     expect(JSON.parse(readFileSync(mac, "utf8")).mcpServers.grenier).toEqual(expected);
     const desktop = clientOf("claude-desktop");
@@ -75,7 +77,7 @@ describe("adding Grenier's MCP server to an app's config", () => {
       join(home, ".codex", "config.toml"),
       '# my settings\nmodel = "o5"\n\n[mcp_servers.other]\ncommand = "x"\n',
     );
-    await connectApp(store, "codex", ["*"], where);
+    await connectApp(store, clientOf("codex") as McpClient, ["*"], where);
     const text = readFileSync(join(home, ".codex", "config.toml"), "utf8");
     expect(text.startsWith('# my settings\nmodel = "o5"\n')).toBe(true);
     const config = parse(text) as { model: string; mcp_servers: Record<string, unknown> };
@@ -92,11 +94,11 @@ describe("adding Grenier's MCP server to an app's config", () => {
   });
 
   it("gives each app a token with its folders, a new one replaces the old, and a broken config keeps the old", async () => {
-    await connectApp(store, "cursor", ["me"], where);
+    await connectApp(store, clientOf("cursor") as McpClient, ["me"], where);
     const read = () =>
       JSON.parse(readFileSync(join(home, ".cursor", "mcp.json"), "utf8")).mcpServers.grenier.env.GRENIER_CLIENT_TOKEN;
     const first = read();
-    await connectApp(store, "cursor", ["*"], where);
+    await connectApp(store, clientOf("cursor") as McpClient, ["*"], where);
     const clients = await store.clients.list();
     expect(clients.filter((client) => client.revokedAt === null).map((client) => [client.name, client.scopes])).toEqual(
       [["cursor", ["*"]]],
@@ -105,7 +107,7 @@ describe("adding Grenier's MCP server to an app's config", () => {
 
     const working = read();
     writeFileSync(join(home, ".cursor", "mcp.json"), "{ not json");
-    await expect(connectApp(store, "cursor", ["*"], where)).rejects.toThrow("not valid JSON");
+    await expect(connectApp(store, clientOf("cursor") as McpClient, ["*"], where)).rejects.toThrow("not valid JSON");
     expect(await store.clients.findActive(createHash("sha256").update(working).digest("hex"))).toBeDefined();
   });
 });

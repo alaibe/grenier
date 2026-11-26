@@ -1,7 +1,7 @@
 import { ClaudeCode, ClaudeDesktop, Codex, Cursor } from "./clients.ts";
 import type { Agent, McpClient, Where } from "./types.ts";
 
-export { ClaudeCode, Codex } from "./clients.ts";
+export { readJson, serversIn } from "./clients.ts";
 export type { Agent, AgentCommand, McpClient, ServerEntry, Where } from "./types.ts";
 
 export const CLAUDE_CODE = new ClaudeCode();

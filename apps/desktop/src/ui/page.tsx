@@ -1,5 +1,4 @@
-import { ChevronRight } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 
 /**
  * A screen's page header and content (patterns/app-shell.md#regions): its title, a one-line intro, its actions on the
@@ -48,71 +47,27 @@ export function Section({
   heading = false,
   description,
   actions,
-  collapsible,
-  danger = false,
   children,
 }: {
   title: string;
   heading?: boolean;
   description?: ReactNode;
   actions?: ReactNode;
-  /** Folded or not, kept under this key per person. */
-  collapsible?: string;
-  danger?: boolean;
   children?: ReactNode;
 }) {
-  const [open, setOpen] = useState(() => !collapsible || readFolded(collapsible) === false);
   const Title = heading ? "h2" : "h3";
-  const name = heading ? "section-heading" : "label";
   return (
-    <section className={danger ? "section section-raised section-danger" : "section"}>
+    <section className="section">
       <header className="section-header">
         <div>
-          <Title className={collapsible ? undefined : name}>
-            {collapsible ? (
-              <button
-                type="button"
-                className={`${name} inline-flex cursor-pointer items-center gap-1`}
-                aria-expanded={open}
-                onClick={() => {
-                  setOpen(!open);
-                  writeFolded(collapsible, open);
-                }}
-              >
-                <ChevronRight
-                  className={`icon size-3 transition-transform duration-120 ${open ? "rotate-90" : ""}`}
-                  aria-hidden="true"
-                />
-                {title}
-              </button>
-            ) : (
-              title
-            )}
-          </Title>
+          <Title className={heading ? "section-heading" : "label"}>{title}</Title>
           {description && <p className="section-desc">{description}</p>}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </header>
-      {open && children}
+      {children}
     </section>
   );
-}
-
-const FOLDED = "grenier.folded";
-
-function readFolded(key: string): boolean {
-  try {
-    return (JSON.parse(localStorage.getItem(FOLDED) ?? "{}") as Record<string, boolean>)[key] ?? true;
-  } catch {
-    return true;
-  }
-}
-
-function writeFolded(key: string, folded: boolean) {
-  try {
-    const all = JSON.parse(localStorage.getItem(FOLDED) ?? "{}") as Record<string, boolean>;
-    localStorage.setItem(FOLDED, JSON.stringify({ ...all, [key]: folded }));
-  } catch {}
 }
 
 /** One line of a section: its label and what it means on the left, a control or a value on the right. */

@@ -1,24 +1,61 @@
 import { version } from "../package.json";
+import { type Admin, daemonAdmin, type Group, runGroup } from "./commands/client.ts";
+import { SERVERS, SKILLS } from "./commands/extensions.ts";
+import { FOLDERS, PAGES } from "./commands/knowledge.ts";
 import { serve } from "./commands/mcp.ts";
+import { ROUTINES } from "./commands/routines.ts";
 import { run as runAgent } from "./commands/run.ts";
+import { APPS, INSTRUCTIONS, KEY, MACHINE, SESSIONS, STATUS } from "./commands/settings.ts";
+import { TEAM } from "./commands/team.ts";
 import { today } from "./commands/today.ts";
 import { runDaemon, stopDaemon } from "./daemon.ts";
 import { type Io, isReported, UsageError } from "./io.ts";
+
+/** What the app does, each as a command: they ask the daemon, which they start when it isn't running. */
+const GROUPS: Record<string, Group> = {
+  page: PAGES,
+  folder: FOLDERS,
+  skill: SKILLS,
+  server: SERVERS,
+  routine: ROUTINES,
+  team: TEAM,
+  machine: MACHINE,
+  key: KEY,
+  app: APPS,
+  instructions: INSTRUCTIONS,
+  session: SESSIONS,
+};
 
 const USAGE = `Usage: grenier <command>
 
 Commands:
   run -- <command>           Run an agent through Grenier, which counts what it costs
   mcp serve                  Grenier's MCP server over stdio, as the apps it is added to start it
+  status                     ${STATUS.summary}
+${Object.entries(GROUPS)
+  .map(([name, group]) => `  ${name.padEnd(27)}${group.summary}`)
+  .join("\n")}
+
+Each takes help, as in: grenier page help
 
 Options:
   -h, --help                 Show this help
   -v, --version              Show the version`;
 
 /** Runs one command and returns its exit code: 0 done, 1 failed, 2 wrong usage, or the command's own for `run`. */
-export async function run(argv: string[], io: Io): Promise<number> {
+export async function run(argv: string[], io: Io, admin: Admin = daemonAdmin(io)): Promise<number> {
   const [command, ...rest] = argv;
   try {
+    const group = command ? GROUPS[command] : undefined;
+    if (group) return await runGroup(command as string, group, rest, io, admin);
+    if (command === "status")
+      return await runGroup(
+        "status",
+        { summary: STATUS.summary, commands: { show: STATUS } },
+        ["show", ...rest],
+        io,
+        admin,
+      );
     switch (command) {
       case "-v":
       case "--version":

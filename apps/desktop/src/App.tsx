@@ -1,6 +1,6 @@
 import type { Overview, Synced } from "@grenier/core/api";
 import { ArrowLeft, ArrowRight, CircleHelp, Command as CommandIcon, FilePlus, Plus, RefreshCw } from "lucide-react";
-import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityProvider } from "./activity.tsx";
 import { api, sendPageView } from "./api.ts";
 import { since } from "./format.ts";
@@ -42,6 +42,10 @@ export interface ViewProps {
   member: boolean;
   /** The team this machine is in, null in none, undefined while the shell doesn't know yet. */
   team: Overview["team"] | undefined;
+  /** In a team, and its admin: they add and change what the team shares. */
+  admin: boolean;
+  /** What the shell knows of this machine and its team, and why it doesn't when it failed; `changed` reloads it. */
+  overview: { data: Overview | null; error: string | null };
 }
 
 export type { ViewName };
@@ -105,12 +109,10 @@ function Shell() {
   const [item, setItem] = useState<string | null>(null);
   usePrefs();
   const reloadOverview = overview.reload;
-  const sync = useAction(reloadOverview);
-  const syncRun = useRef(sync.run);
-  syncRun.current = sync.run;
+  const { run: runSync } = useAction(reloadOverview);
   const syncNow = useCallback(
     () =>
-      void syncRun.current(
+      void runSync(
         "sync",
         async () => {
           const done = await api<Synced>("/sync", { method: "POST" });
@@ -118,7 +120,7 @@ function Shell() {
         },
         "Syncing",
       ),
-    [],
+    [runSync],
   );
 
   const go = useCallback(
@@ -200,7 +202,6 @@ function Shell() {
   }
 
   const View = VIEWS[route.place];
-  const waiting = overview.error ? 0 : (overview.data?.waiting ?? 0);
 
   return (
     <ItemTitleProvider value={setItem}>
@@ -233,16 +234,7 @@ function Shell() {
           }}
         />
         <Banner overview={overview.data} error={overview.error} retry={reloadOverview} toTeam={() => go("team")} />
-        <Sidebar
-          current={route.place}
-          go={go}
-          counts={{
-            knowledge: {
-              value: waiting,
-              title: `${waiting === 1 ? "1 record" : `${waiting} records`} not sent to the team yet`,
-            },
-          }}
-        />
+        <Sidebar current={route.place} go={go} />
         <View
           key={route.place}
           item={route.item}
@@ -250,6 +242,8 @@ function Shell() {
           changed={reloadOverview}
           member={overview.data?.role === "member"}
           team={overview.data ? team : undefined}
+          admin={Boolean(team) && overview.data?.role !== "member"}
+          overview={overview}
         />
         <StatusBar overview={overview.data} error={overview.error} go={go} retry={reloadOverview} />
         {palette && <Palette openPage={(id) => go("knowledge", id)} onClose={() => setPalette(false)} />}

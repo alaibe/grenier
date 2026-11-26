@@ -7,11 +7,11 @@ import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Where } from "../../../apps/cli/src/agents/index.ts";
 import { install, share } from "../../../apps/cli/src/installs.ts";
+import { manifestOf } from "../../../apps/cli/src/skill-files.ts";
 import {
   addLocalSkill,
   localSkill,
   localSkills,
-  manifestOf,
   removeLocalSkill,
   saveLocalSkill,
   skillFilesIn,

@@ -6,7 +6,7 @@ import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Where } from "../../../apps/cli/src/agents/index.ts";
 import { readServers } from "../../../apps/cli/src/agents/toml.ts";
-import { serverToShare } from "../../../apps/cli/src/installs.ts";
+import { serverToShare } from "../../../apps/cli/src/server-config.ts";
 import {
   addServer,
   changeServer,

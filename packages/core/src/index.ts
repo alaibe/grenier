@@ -1,12 +1,13 @@
+export { fromBase64, fromBase64Url, hex, randomHex, toBase64, toBase64Url } from "./bytes.ts";
 export {
   type Config,
   ConfigError,
   defaultConfig,
   type ModelPrice,
-  modelPriceSchema,
   parseConfig,
   parsePrices,
 } from "./config.ts";
+export { bearer, DEVICE_NAME, folderName, MEMBER_NAME } from "./names.ts";
 export {
   canonicalJson,
   copiedLines,
@@ -18,21 +19,18 @@ export {
   untrusted,
 } from "./policy.ts";
 export {
-  BUILTIN_TYPES,
   builtinType,
   customType,
   type FieldDef,
   folderProblem,
   joinCode,
   MEMBER_WRITES,
-  MEMORY_KINDS,
   memberMay,
   type RecordShape,
   ROUTINE_MODES,
   recordProblem,
   repoTop,
   secretIn,
-  TASK_STATUSES,
   type TypeDef,
 } from "./records.ts";
 export {
@@ -50,5 +48,6 @@ export {
   sharedHash,
   taskFor,
 } from "./routines.ts";
+export { ftsMatch, searchWords } from "./search.ts";
 export { RECORD_PARTS, SEALED_PARTS, TEAM_PROTOCOL, topName } from "./team.ts";
 export { newVaultKey, open, seal, VaultError } from "./vault.ts";

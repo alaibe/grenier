@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { store, stored } from "../storage.ts";
 
 export type Theme = "dark" | "light" | "system";
 
@@ -13,18 +14,10 @@ const KEY = "grenier.prefs";
 const DEFAULTS: Prefs = { theme: "system", tips: true };
 const listeners = new Set<() => void>();
 
-function read(): Prefs {
-  try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Prefs>) };
-  } catch {
-    return DEFAULTS;
-  }
-}
-
-let current = read();
+let current: Prefs = { ...DEFAULTS, ...stored<Partial<Prefs>>(KEY, {}) };
 
 /** Dark, Light, or the system's, on the root (patterns/app-shell.md#root-element). */
-export function applyTheme(theme: Theme) {
+function applyTheme(theme: Theme) {
   if (theme === "system") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
 }
@@ -39,9 +32,7 @@ export function usePrefs(): [Prefs, (change: Partial<Prefs>) => void] {
   );
   const set = useCallback((change: Partial<Prefs>) => {
     current = { ...current, ...change };
-    try {
-      localStorage.setItem(KEY, JSON.stringify(current));
-    } catch {}
+    store(KEY, current);
     for (const listener of listeners) listener();
   }, []);
   useEffect(() => applyTheme(prefs.theme), [prefs.theme]);

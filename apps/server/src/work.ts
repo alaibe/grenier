@@ -1,7 +1,7 @@
 import { nextDue, taskFor } from "@grenier/core/routines";
 import {
   type Device,
-  type Member,
+  jsonBody,
   problem,
   type Row,
   randomId,
@@ -10,6 +10,7 @@ import {
   type TeamApp,
   type TeamData,
 } from "./data.ts";
+import { recordFrom } from "./records.ts";
 
 const LEASE = 5 * 60 * 1000;
 /** How long a machine that declined a routine's task is not offered it again. */
@@ -43,7 +44,7 @@ export function workRoutes(app: TeamApp, team: TeamData): void {
   });
 
   app.post("/api/runs", async (c) => {
-    const run = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+    const run = await jsonBody(c);
     if (typeof run.id !== "string" || typeof run.routineId !== "string")
       return problem(400, "a run needs id and routineId");
     const device = c.get("device").id;
@@ -112,13 +113,13 @@ function offer(team: TeamData, device: Device): { task: StoredRecord; routine: S
        ORDER BY created_at`,
       device.id,
     )
-    .map((row) => team.record(row));
+    .map(recordFrom);
   // A task and its routine go only to the machines of someone who reads both their top folders.
   const tops = new Map<string, string[]>();
   const reads = (memberId: string, top: string) => {
     if (!tops.has(memberId)) {
       const member = team.one("SELECT id, name, role FROM members WHERE id = ?", memberId);
-      tops.set(memberId, member ? team.topsOf(member as unknown as Member) : []);
+      tops.set(memberId, member ? team.topsOf({ id: memberId }) : []);
     }
     return tops.get(memberId)?.includes(top) ?? false;
   };
@@ -169,7 +170,7 @@ export async function schedule(team: TeamData): Promise<void> {
   for (const row of team.sql(
     "SELECT * FROM records WHERE type = 'Routine' AND retired_at IS NULL AND sealed IS NULL AND json_extract(fields, '$.schedule') <> ''",
   )) {
-    const routine = team.record(row);
+    const routine = recordFrom(row);
     const next = nextDue(String(routine.fields.schedule ?? ""), now);
     if (next === null) continue;
     scheduled.add(routine.id);
@@ -205,8 +206,6 @@ export async function fileDue(team: TeamData): Promise<void> {
           team,
           routine,
           `${routine.title}, ${new Date(row.next_at as number).toISOString().slice(0, 16).replace("T", " ")} UTC`,
-          "",
-          "schedule",
         );
     }
     const next = nextDue(String(routine?.fields.schedule ?? ""), now);
@@ -218,16 +217,14 @@ export async function fileDue(team: TeamData): Promise<void> {
 }
 
 /** A routine's task, filed by the store itself when its schedule falls due. */
-function file(team: TeamData, routine: StoredRecord, title: string, body: string, by: string): StoredRecord {
+function file(team: TeamData, routine: StoredRecord, title: string): void {
   const now = Date.now();
-  const member: Member = { id: by, name: by, role: "member" };
-  const device: Device = { id: by, name: by, memberId: by };
   const task: StoredRecord = {
     id: randomId(),
     kind: null,
     folder: "",
-    author: by,
-    device: by,
+    author: "schedule",
+    device: "schedule",
     sessionId: null,
     createdAt: now,
     updatedAt: now,
@@ -235,8 +232,7 @@ function file(team: TeamData, routine: StoredRecord, title: string, body: string
     version: team.nextVersion(),
     anchors: [],
     sealed: null,
-    ...taskFor(routine, title, body),
+    ...taskFor(routine, title, ""),
   };
-  team.put(task, member, device);
-  return task;
+  team.put(task, "schedule", "schedule");
 }

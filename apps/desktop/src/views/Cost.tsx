@@ -1,4 +1,4 @@
-import type { Overview, PausedSession, ReportRow, SessionRow } from "@grenier/core/api";
+import type { PausedSession, ReportRow, SessionRow } from "@grenier/core/api";
 import { Play } from "lucide-react";
 import { useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
@@ -13,8 +13,8 @@ import { Notice, Problem } from "../ui/notice.tsx";
 import { Page, Section } from "../ui/page.tsx";
 import { Stat, Stats } from "../ui/stat.tsx";
 import { Table } from "../ui/table.tsx";
+import { usePolling } from "./polling.ts";
 
-const load = () => api<Overview>("/overview");
 const loadPaused = () => api<{ sessions: PausedSession[] }>("/sessions/paused");
 const REFRESH_MS = 30_000;
 
@@ -27,20 +27,15 @@ function lastDays(n: number): string[] {
   });
 }
 
-const total = (rows: ReportRow[], pick: (row: ReportRow) => number) => rows.reduce((sum, row) => sum + pick(row), 0);
+const total = <T,>(rows: T[], pick: (row: T) => number) => rows.reduce((sum, row) => sum + pick(row), 0);
 
-export function Cost({ changed }: ViewProps) {
-  const { data, error, reload } = useLoad(load);
+export function Cost({ changed: reload, overview }: ViewProps) {
+  const { data, error } = overview;
+  usePolling(reload, REFRESH_MS);
   useEffect(() => {
-    // Nothing to refresh while the window is hidden; it catches up when it is shown again.
-    const timer = window.setInterval(() => {
-      if (!document.hidden) reload();
-    }, REFRESH_MS);
+    // A window shown again catches up at once.
     window.addEventListener("focus", reload);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", reload);
-    };
+    return () => window.removeEventListener("focus", reload);
   }, [reload]);
 
   const days = data?.days ?? [];
@@ -53,15 +48,7 @@ export function Cost({ changed }: ViewProps) {
         intro="Your agents' requests through Grenier in the last 7 days, priced at API rates. Cached is what Anthropic's prompt cache took off."
       >
         <Problem error={error} />
-        {data && data.paused > 0 && (
-          <Paused
-            key={data.paused}
-            changed={() => {
-              reload();
-              changed();
-            }}
-          />
-        )}
+        {data && data.paused > 0 && <Paused key={data.paused} changed={reload} />}
         {!data && !error && <Skeleton rows={6} shape="table" />}
         {data && days.length === 0 && (
           <Empty boot="no requests yet">
@@ -170,8 +157,8 @@ function Sessions({ rows }: { rows: SessionRow[] }) {
         foot={
           <>
             <td colSpan={2}>Total</td>
-            <td className="num">{money(rows.reduce((sum, row) => sum + row.cost, 0))}</td>
-            <td className="num">{money(rows.reduce((sum, row) => sum + row.saved, 0))}</td>
+            <td className="num">{money(total(rows, (row) => row.cost))}</td>
+            <td className="num">{money(total(rows, (row) => row.saved))}</td>
           </>
         }
       >

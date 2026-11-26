@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { secretIn } from "@grenier/core";
 import type { LocalServer, ServerChange } from "@grenier/core/api";
@@ -11,17 +10,16 @@ import {
   isAgent,
   type McpClient,
   presentAgents,
+  readJson,
   type ServerEntry,
+  serversIn,
   type Where,
 } from "./agents/index.ts";
-import { CREDENTIAL_FLAG } from "./installs.ts";
 import { Refusal } from "./io.ts";
+import { BAD_SERVER_NAME, CREDENTIAL_FLAG, KEY_NAME, SERVER_NAME, templateNames } from "./server-config.ts";
 
 /** What the app shows in place of a key in a server's arguments or URL. */
 export const MASK = "••••";
-
-/** A server's name: letters, digits, `.`, `_` and `-`; `grenier` and `grenier-…` are Grenier's own. */
-const NAME = /^[\w.-]{1,60}$/;
 
 type Entry = ServerEntry;
 type Scope = LocalServer["scope"];
@@ -59,7 +57,8 @@ function view(client: McpClient, scope: Scope, where: string | null, name: strin
   const url = typeof entry.url === "string" ? entry.url : null;
   const transport = entry.type === "sse" ? "sse" : url ? "http" : "stdio";
   return {
-    id: JSON.stringify([client.id, scope, where, name]),
+    id: serverId(client.id, scope, where, name),
+    app: client.id,
     name,
     client: client.label,
     scope,
@@ -103,18 +102,16 @@ export async function localServers(store: Store, where: Where): Promise<LocalSer
     projects = {};
   }
   for (const [project, settings] of Object.entries(projects).sort(([a], [b]) => a.localeCompare(b))) {
-    for (const [name, entry] of Object.entries((settings.mcpServers ?? {}) as Record<string, Entry>)) {
+    for (const [name, entry] of Object.entries(serversIn(settings))) {
       out.push(view(CLAUDE_CODE, "project", project, name, entry));
     }
-    const shared = join(project, ".mcp.json");
-    if (!existsSync(shared)) continue;
-    let file: Record<string, unknown>;
+    let shared: Record<string, unknown>;
     try {
-      file = JSON.parse(readFileSync(shared, "utf8")) as Record<string, unknown>;
+      shared = readJson(join(project, ".mcp.json"));
     } catch {
       continue;
     }
-    for (const [name, entry] of Object.entries((file.mcpServers ?? {}) as Record<string, Entry>)) {
+    for (const [name, entry] of Object.entries(serversIn(shared))) {
       out.push(view(CLAUDE_CODE, "repo", project, name, entry));
     }
   }
@@ -125,6 +122,9 @@ export async function localServers(store: Store, where: Where): Promise<LocalSer
 export function claudeProjects(where: Where): string[] {
   return Object.keys(CLAUDE_CODE.projects(where)).sort();
 }
+
+const serverId = (client: App, scope: Scope, where: string | null, name: string) =>
+  JSON.stringify([client, scope, where, name]);
 
 function parse(id: string): [App, Scope, string | null, string] {
   try {
@@ -154,7 +154,7 @@ function edit(where: Where, id: string, change: (servers: Record<string, Entry>,
 function changed(before: unknown, change: Record<string, string | null> | undefined): Record<string, string> | null {
   const out = { ...((before ?? {}) as Record<string, string>) };
   for (const [key, value] of Object.entries(change ?? {})) {
-    if (!/^[\w-]{1,80}$/.test(key)) throw new Refusal(`${key} is not a name a variable or a header takes`);
+    if (!KEY_NAME.test(key)) throw new Refusal(`${key} is not a name a variable or a header takes`);
     if (value === null) delete out[key];
     else out[key] = value;
   }
@@ -201,7 +201,7 @@ export function addServer(
   input: { project?: string | null; name: string; entry: Entry },
 ): LocalServer["id"] {
   const name = input.name.trim();
-  if (!NAME.test(name)) throw new Refusal("a server's name takes letters, digits, ., _ and -");
+  if (!SERVER_NAME.test(name)) throw new Refusal(BAD_SERVER_NAME);
   if (name === "grenier" || name.startsWith("grenier-")) throw new Refusal("names starting with grenier are Grenier's");
   const taken = () => {
     throw new Refusal(`there is a server named ${name} there already`);
@@ -211,7 +211,7 @@ export function addServer(
       if (servers[name]) taken();
       servers[name] = input.entry;
     });
-    return JSON.stringify([CLAUDE_CODE.id, "project", input.project, name]);
+    return serverId(CLAUDE_CODE.id, "project", input.project, name);
   }
   const agents = presentAgents(where);
   if (agents.some((agent) => agent.servers(where)[name])) taken();
@@ -220,7 +220,7 @@ export function addServer(
       servers[name] = input.entry;
     });
   }
-  return JSON.stringify([agents[0]?.id ?? CLAUDE_CODE.id, "user", null, name]);
+  return serverId(agents[0]?.id ?? CLAUDE_CODE.id, "user", null, name);
 }
 
 export function removeServer(where: Where, id: string): void {
@@ -229,43 +229,15 @@ export function removeServer(where: Where, id: string): void {
   });
 }
 
-/** A server's entry from the app's form: a command and its arguments, or a URL, with the values the person typed. */
-export function entryOf(input: {
-  url?: unknown;
-  command?: unknown;
-  args?: unknown;
-  env?: unknown;
-  headers?: unknown;
-}): Entry {
-  const pairs = (value: unknown) =>
-    Object.fromEntries(Object.entries((value ?? {}) as Record<string, unknown>).map(([k, v]) => [k, String(v)]));
-  const url = typeof input.url === "string" ? input.url.trim() : "";
-  if (url) {
-    try {
-      new URL(url);
-    } catch (error) {
-      throw new Refusal((error as Error).message);
-    }
-    const headers = pairs(input.headers);
-    return { type: "http", url, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
-  }
-  const command = typeof input.command === "string" ? input.command.trim() : "";
-  if (!command) throw new Refusal("a server has a URL, or a command to run");
-  const env = pairs(input.env);
-  return { type: "stdio", command, args: strings(input.args), ...(Object.keys(env).length > 0 ? { env } : {}) };
-}
-
 /**
  * A server of this person's as the team would share it: each environment variable and header becomes a key each
  * teammate types, so none of this person's values leave; arguments and a URL that carry a key are refused.
  */
-export function shareable(where: Where, id: string): { config: Entry; credentials: string[] } {
+export function shareable(where: Where, id: string): { name: string; config: Entry; credentials: string[] } {
   const [clientId, scope, project, name] = parse(id);
   const client = clientOf(clientId);
   const servers =
-    scope === "project"
-      ? ((CLAUDE_CODE.projects(where)[project ?? ""]?.mcpServers ?? {}) as Record<string, Entry>)
-      : (client?.servers(where) ?? {});
+    scope === "project" ? serversIn(CLAUDE_CODE.projects(where)[project ?? ""] ?? {}) : (client?.servers(where) ?? {});
   const entry = servers[name];
   if (!entry || name === "grenier") throw new Refusal(`there is no server ${name} to share`);
   if (typeof entry.url === "string") {
@@ -276,8 +248,8 @@ export function shareable(where: Where, id: string): { config: Entry; credential
         return [header, /^bearer /i.test(value) ? `Bearer {${key}}` : `{${key}}`];
       }),
     );
-    const credentials = Object.values(headers).map((template) => /\{(\w+)\}/.exec(template)?.[1] as string);
-    return { config: { type: entry.type === "sse" ? "sse" : "http", url: entry.url, headers }, credentials };
+    const credentials = Object.values(headers).flatMap(templateNames);
+    return { name, config: { type: entry.type === "sse" ? "sse" : "http", url: entry.url, headers }, credentials };
   }
-  return { config: { command: entry.command, args: strings(entry.args) }, credentials: names(entry.env) };
+  return { name, config: { command: entry.command, args: strings(entry.args) }, credentials: names(entry.env) };
 }

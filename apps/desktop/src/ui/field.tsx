@@ -2,12 +2,10 @@ import { ChevronDown, Search } from "lucide-react";
 import { type ComponentProps, createContext, type ReactNode, useContext, useId } from "react";
 import { Keys } from "./keycap.tsx";
 import type { Shortcut } from "./keys.ts";
-import { Status } from "./tag.tsx";
 
 interface FieldIds {
   id: string;
   describedBy: string | undefined;
-  invalid: boolean;
 }
 
 const FieldContext = createContext<FieldIds | null>(null);
@@ -15,37 +13,20 @@ const FieldContext = createContext<FieldIds | null>(null);
 /** Up to three words, a label is the mono label role; longer ones stay in sentence case (input.md#anatomy). */
 const labelClass = (label: string) => (label.trim().split(/\s+/).length > 3 ? "label label-long" : "label");
 
-/** A label above its control, then help or the error that says how to fix it (components/input.md). */
-export function Field({
-  label,
-  help,
-  error,
-  children,
-}: {
-  label: string;
-  help?: ReactNode;
-  error?: string | null | undefined;
-  children: ReactNode;
-}) {
+/** A label above its control, then the help that says what to type (components/input.md). */
+export function Field({ label, help, children }: { label: string; help?: ReactNode; children: ReactNode }) {
   const id = useId();
-  const below = error || help ? `${id}-below` : undefined;
+  const below = help ? `${id}-below` : undefined;
   return (
     <div className="field">
       <label className={labelClass(label)} htmlFor={id}>
         {label}
       </label>
-      <FieldContext value={{ id, describedBy: below, invalid: Boolean(error) }}>{children}</FieldContext>
-      {error ? (
-        <p className="field-error" id={below}>
-          <Status kind="err" />
-          {error}
+      <FieldContext value={{ id, describedBy: below }}>{children}</FieldContext>
+      {help && (
+        <p className="field-help" id={below}>
+          {help}
         </p>
-      ) : (
-        help && (
-          <p className="field-help" id={below}>
-            {help}
-          </p>
-        )
       )}
     </div>
   );
@@ -53,9 +34,7 @@ export function Field({
 
 function useField() {
   const field = useContext(FieldContext);
-  return field
-    ? { id: field.id, "aria-describedby": field.describedBy, "aria-invalid": field.invalid || undefined }
-    : {};
+  return field ? { id: field.id, "aria-describedby": field.describedBy } : {};
 }
 
 type Plain<T extends "input" | "textarea" | "select"> = Omit<ComponentProps<T>, "className" | "style">;

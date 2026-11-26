@@ -1,20 +1,21 @@
-import { repoTop, topName, untrusted } from "@grenier/core";
-import type { FullRecord, Link, Store } from "@grenier/store";
+import { repoTop, searchWords, topName, untrusted } from "@grenier/core";
+import type { RecordRow } from "@grenier/core/api";
+import type { FullRecord, Store } from "@grenier/store";
 import { cosine } from "./embeddings.ts";
 import { contentHashes, type Reader, type Repo, readable, type StoreDeps } from "./records.ts";
 
 /** A full-text match on at least this many of the question's terms makes a record a candidate. */
 const SHARED_TERMS = 2;
 /** A cosine at or above this makes a record a candidate on its own. */
-export const SIMILAR = 0.45;
+const SIMILAR = 0.45;
 const STOPWORDS = new Set(
   "a an and are as at be been by can could do does did for from has have how i in is it its of on or should so that the their them then there these this to was we were what when where which who why will with would you your".split(
     " ",
   ),
 );
 
-export function terms(question: string): string[] {
-  const words = question.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+function terms(question: string): string[] {
+  const words = searchWords(question);
   return [...new Set(words.filter((word) => word.length > 1 && !STOPWORDS.has(word)))];
 }
 
@@ -23,7 +24,7 @@ function stem(word: string): string {
   return word.replace(/(ing|ed|es|s)$/, "").padEnd(3, word);
 }
 
-export type Status = "hit" | "stale" | "unchecked";
+export type Status = RecordRow["status"];
 
 export interface Checked {
   status: Status;
@@ -55,25 +56,8 @@ export async function check(deps: StoreDeps, record: FullRecord): Promise<Checke
   return { status: unchecked ? "unchecked" : "hit", changed: [] };
 }
 
-export interface Found {
-  id: string;
-  type: string;
-  kind: string | null;
-  title: string;
-  body: string;
-  fields: Record<string, unknown>;
-  top: string;
-  /** Where it sits in its top folder. */
-  folder: string;
-  author: string;
-  updatedAt: number;
-  status: Status;
-  changed: string[];
-  anchors: FullRecord["anchors"];
-  links: FullRecord["links"];
-  /** How close it is to the question (cosine), when embeddings are on. */
-  similarity?: number;
-}
+/** A record as a read gives it: with whether the code it was written from is unchanged. */
+export type Found = RecordRow;
 
 async function found(deps: StoreDeps, record: FullRecord, similarity?: number): Promise<Found> {
   const { status, changed } = await check(deps, record);
@@ -103,7 +87,7 @@ export interface RecallResult {
 }
 
 /** Whether a record sits in `folder` or below it; every record does for an empty folder. */
-export function inFolder(record: { folder: string }, folder: string | undefined): boolean {
+function inFolder(record: { folder: string }, folder: string | undefined): boolean {
   return !folder || record.folder === folder || record.folder.startsWith(`${folder}/`);
 }
 
@@ -194,7 +178,7 @@ async function projectRepos(store: Store, tops: readonly string[], repoId: strin
 
 export interface QueryResult {
   records: Found[];
-  /** For one record asked by id or title: what it links to, and what links to it. */
+  /** For one record asked by id: what it links to, and what links to it. */
   linked?: Found[];
 }
 
@@ -203,12 +187,9 @@ export async function query(
   reader: Reader | null,
   input: {
     id?: string;
-    title?: string;
     type?: string;
     top?: string;
     folder?: string;
-    fields?: Record<string, string>;
-    linkedTo?: { kind: Link["kind"]; ref: string };
     retired?: boolean;
     limit?: number;
   },
@@ -217,12 +198,8 @@ export async function query(
   if (input.top) tops = tops.filter((top) => top === input.top);
   const limit = Math.min(input.limit ?? 50, 200);
 
-  if (input.id || input.title) {
-    const one = input.id
-      ? await deps.store.records.get(input.id)
-      : (await deps.store.records.list({ tops, ...(input.type ? { type: input.type } : {}) })).find(
-          (record) => record.title.toLowerCase() === input.title?.trim().toLowerCase(),
-        );
+  if (input.id) {
+    const one = await deps.store.records.get(input.id);
     if (!one || !tops.includes(one.top)) return { records: [] };
     const outgoing: FullRecord[] = [];
     for (const link of one.links.filter((entry) => entry.kind === "record")) {
@@ -240,15 +217,10 @@ export async function query(
   const listed = await deps.store.records.list({
     tops,
     ...(input.type ? { type: input.type } : {}),
-    ...(input.linkedTo ? { linkedTo: input.linkedTo } : {}),
     ...(input.retired ? { retired: true } : {}),
     limit: 1000,
   });
-  const matching = listed.filter(
-    (record) =>
-      inFolder(record, input.folder) &&
-      Object.entries(input.fields ?? {}).every(([name, value]) => String(record.fields[name] ?? "") === value),
-  );
+  const matching = listed.filter((record) => inFolder(record, input.folder));
   return { records: await Promise.all(matching.slice(0, limit).map((record) => found(deps, record))) };
 }
 

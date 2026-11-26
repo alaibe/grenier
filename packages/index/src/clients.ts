@@ -1,16 +1,10 @@
-import { sha256 } from "@grenier/core";
+import { MEMBER_NAME, sha256, toBase64Url } from "@grenier/core";
 import type { Store } from "@grenier/store";
 import { type Reader, StoreUseError } from "./records.ts";
 
-function base64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 /** Only the hash is kept. */
-export async function newClientToken(): Promise<{ token: string; hash: string }> {
-  const token = `gc_${base64Url(crypto.getRandomValues(new Uint8Array(32)))}`;
+async function newClientToken(): Promise<{ token: string; hash: string }> {
+  const token = `gc_${toBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`;
   return { token, hash: await sha256(token) };
 }
 
@@ -33,7 +27,7 @@ export async function resolveScopes(store: Store, scopes: readonly string[]): Pr
 
 /** Returns the client's token, shown once. */
 export async function addClient(store: Store, name: string, scopes: string[]): Promise<string> {
-  if (!/^[\w.@-]{1,64}$/.test(name)) throw new StoreUseError("an app's name takes letters, digits and . _ @ -");
+  if (!MEMBER_NAME.test(name)) throw new StoreUseError("an app's name takes letters, digits and . _ @ -");
   if ((await store.clients.list()).some((client) => client.name === name)) {
     throw new StoreUseError(`there is already an app named ${name}: revoke it first`);
   }

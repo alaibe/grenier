@@ -17,8 +17,9 @@ import { AGENT_TEXTS } from "@grenier/gateway";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
+import { agentRunning } from "../../../apps/cli/src/agents/index.ts";
 import { run } from "../../../apps/cli/src/cli.ts";
-import { agentArgs, asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
+import { asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
 import { daemonState } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
 
@@ -73,7 +74,8 @@ describe("grenier --version and help", () => {
       ["--frobnicate"],
       ["today", "extra"],
       ["mcp", "install", "claude-code"],
-      ["status"],
+      ["status", "extra"],
+      ["page", "frobnicate"],
     ]) {
       const result = await grenier(...argv);
       expect(result.code).toBe(2);
@@ -174,25 +176,25 @@ describe("grenier run", () => {
       "hello",
       "",
     ]);
-    expect(agentArgs("/usr/bin/codex", ["-c", 'openai_base_url="x"'], "y", null)).toEqual([
+    expect(agentRunning("/usr/bin/codex")?.runArgs(["-c", 'openai_base_url="x"'], null, "y")).toEqual([
       "-c",
       'openai_base_url="x"',
     ]);
   });
 
   it("tells Claude Code and Codex in a repository to call get first, unless the command gives its own prompt", () => {
-    expect(asksFirst("/usr/local/bin/claude", ["-p", "hi"], true)).toBe(true);
-    expect(agentArgs("claude", ["-p", "hi"], "y", "Call get.")).toEqual([
+    expect(asksFirst(agentRunning("/usr/local/bin/claude"), ["-p", "hi"], true)).toBe(true);
+    expect(agentRunning("claude")?.runArgs(["-p", "hi"], "Call get.", "y")).toEqual([
       "--append-system-prompt",
       "Call get.",
       "-p",
       "hi",
     ]);
     expect(AGENT_TEXTS.mcp).toContain("get with your question");
-    expect(asksFirst("claude", ["-p", "hi"], false)).toBe(false);
-    expect(asksFirst("codex", ["exec"], true)).toBe(true);
-    expect(asksFirst("codex", ["-c", 'developer_instructions="mine"'], true)).toBe(false);
-    expect(agentArgs("codex", ["exec"], "http://p", "Call get.")).toEqual([
+    expect(asksFirst(agentRunning("claude"), ["-p", "hi"], false)).toBe(false);
+    expect(asksFirst(agentRunning("codex"), ["exec"], true)).toBe(true);
+    expect(asksFirst(agentRunning("codex"), ["-c", 'developer_instructions="mine"'], true)).toBe(false);
+    expect(agentRunning("codex")?.runArgs(["exec"], "Call get.", "http://p")).toEqual([
       "-c",
       'developer_instructions="Call get."',
       "-c",
@@ -200,7 +202,7 @@ describe("grenier run", () => {
       "exec",
     ]);
     for (const own of ["--append-system-prompt", "--system-prompt-file=prompt.md", "--append-system-prompt-file"]) {
-      expect(asksFirst("claude", [own, "x"], true)).toBe(false);
+      expect(asksFirst(agentRunning("claude"), [own, "x"], true)).toBe(false);
     }
   });
 });

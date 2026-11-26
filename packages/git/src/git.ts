@@ -43,11 +43,19 @@ export async function repoId(root: string): Promise<string | null> {
 
 /** A path inside the repository, relative to its root with forward slashes, or null for one outside it. */
 export function repoPath(root: string, path: string): string | null {
-  const absolute = isAbsolute(path) ? path : resolve(root, path);
-  const inside = relative(root, absolute);
-  if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) return null;
-  return inside.split(sep).join("/");
+  const inside = within(root, isAbsolute(path) ? path : resolve(root, path));
+  return inside === null ? null : inside.split(sep).join("/");
 }
+
+/** A path relative to a folder it is inside, or null for the folder itself or one outside it. */
+function within(root: string, path: string): string | null {
+  const inside = relative(root, path);
+  return inside === "" || inside.startsWith("..") || isAbsolute(inside) ? null : inside;
+}
+
+/** Whether the start of a file holds a NUL byte, as a binary file's does. */
+const binary = (text: string | Uint8Array) =>
+  typeof text === "string" ? text.slice(0, 8000).includes("\u0000") : text.subarray(0, 8000).includes(0);
 
 /** Each file's blob hash as it is now in the work tree, staged or not; null for a file that is gone. */
 export async function blobHashes(root: string, paths: readonly string[]): Promise<Map<string, string | null>> {
@@ -81,21 +89,20 @@ export async function trackedFiles(root: string): Promise<{ path: string; blob: 
 }
 
 /** The most a file Grenier reads from a work tree may weigh. */
-export const MAX_TEXT_BYTES = 1_000_000;
+const MAX_TEXT_BYTES = 1_000_000;
 
 /** A work-tree text file, or null when missing, binary, too large, or outside the root once links are followed. */
 export async function repoText(root: string, path: string, maxBytes = MAX_TEXT_BYTES): Promise<string | null> {
   try {
     const realRoot = await realpath(root);
     const real = await realpath(resolve(realRoot, path));
-    const inside = relative(realRoot, real);
-    if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) return null;
+    if (within(realRoot, real) === null) return null;
     const file = await open(real, "r");
     try {
       const stat = await file.stat();
       if (!stat.isFile() || stat.size > maxBytes) return null;
       const bytes = await file.readFile();
-      if (bytes.subarray(0, 8000).includes(0)) return null;
+      if (binary(bytes)) return null;
       return new TextDecoder().decode(bytes);
     } finally {
       await file.close();
@@ -110,7 +117,7 @@ export async function blobText(root: string, blob: string): Promise<string | nul
   if (!/^[0-9a-f]{40,64}$/.test(blob)) return null;
   try {
     const text = await git(root, ["cat-file", "-p", blob]);
-    return text.slice(0, 8000).includes("\u0000") ? null : text;
+    return binary(text) ? null : text;
   } catch {
     return null;
   }

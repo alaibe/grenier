@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { joinCode, sha256 } from "@grenier/core";
 import type { Deployed, Joining, Synced } from "@grenier/core/api";
@@ -5,10 +6,10 @@ import { type TeamClient, TeamError, teamApi } from "@grenier/index";
 import { Hono } from "hono";
 import { deployTeamStore } from "../deploy.ts";
 import { Refusal } from "../io.ts";
-import { deviceName, ensureBaseTops, ensurePersonalKey } from "../runtime.ts";
-import { newTeamToken, parseInvite, saveTeam } from "../team.ts";
+import { deviceName } from "../runtime.ts";
+import { enterTeam, newTeamToken, parseInvite } from "../team.ts";
 import type { AdminDeps } from "./admin.ts";
-import { bodyOf } from "./body.ts";
+import { bodyOf } from "./request.ts";
 
 /** The team store: its pages with this device's token, joining or deploying one, and a round of sync now. */
 export function teamRoutes(deps: AdminDeps): Hono {
@@ -39,9 +40,7 @@ export function teamRoutes(deps: AdminDeps): Hono {
     }
     const fetchImpl = deps.fetch ?? fetch;
     const { token, hash } = newTeamToken();
-    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(
-      "",
-    );
+    const nonce = randomBytes(16).toString("hex");
     const response = await fetchImpl(new URL("/api/join", invite.url), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -63,12 +62,7 @@ export function teamRoutes(deps: AdminDeps): Hono {
     const poll = async () => {
       try {
         const me = await teamApi<{ name: string; me: string; role: string }>(team, "/api/me");
-        saveTeam(deps.paths, invite.url, token);
-        await store.state.set("team_member", me.name);
-        await store.state.set("team_me_top", me.me);
-        await store.state.set("team_role", me.role);
-        await ensureBaseTops(store);
-        ensurePersonalKey(deps.paths);
+        await enterTeam(deps.paths, store, { url: invite.url, token, member: me.name, role: me.role, meTop: me.me });
         joining = { state: "joined", url: invite.url, member: me.name };
         deps.joined({ url: invite.url, token });
         return;

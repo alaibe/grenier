@@ -14,7 +14,6 @@ const FOCUSABLE =
  */
 export function Dialog({
   title,
-  label,
   children,
   action,
   danger = false,
@@ -26,8 +25,6 @@ export function Dialog({
   onCancel,
 }: {
   title: string;
-  /** Above the title, in the label role: DELETE ACCOUNT. */
-  label?: string;
   children?: ReactNode;
   /** Names the consequence: "Retire the page", never "OK". */
   action: string;
@@ -97,7 +94,6 @@ export function Dialog({
           }}
         >
           <header className="dialog-header">
-            {label && <span className="label">{label}</span>}
             <h2 className="dialog-title" id={heading}>
               {title}
             </h2>

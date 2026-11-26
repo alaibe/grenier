@@ -1,4 +1,4 @@
-import type { FoundSkill, LocalSkill, SharedState } from "@grenier/core/api";
+import type { FoundSkill, LocalSkill } from "@grenier/core/api";
 import { FilePlus, Link2, Search, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
@@ -6,20 +6,19 @@ import { api } from "../api.ts";
 import { count } from "../format.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
 import { ListDetail } from "../shell/regions.tsx";
-import { installTag } from "../states.ts";
 import { Button, IconButton } from "../ui/button.tsx";
 import { Dialog } from "../ui/dialog.tsx";
 import { Empty, Skeleton } from "../ui/empty.tsx";
 import { Field, Input, SearchField, Textarea } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Problem } from "../ui/notice.tsx";
-import { Status, Tag } from "../ui/tag.tsx";
-import { Tree, type TreeNode, toTree, useFolding } from "../ui/tree.tsx";
+import { Tag } from "../ui/tag.tsx";
+import { Tree, type TreeNode, useFolding } from "../ui/tree.tsx";
+import { useListSearch } from "./list-search.tsx";
 import { LocalSkillView, TeamSkillView } from "./SkillDetail.tsx";
+import { teamGroup, useShared } from "./shared-entry.tsx";
 
 const loadLocal = () => api<{ skills: LocalSkill[] }>("/skills").then((answer) => answer.skills);
-const loadTeam = () =>
-  api<{ shared: SharedState[] }>("/installs").then((answer) => answer.shared.filter((entry) => entry.type === "Skill"));
 
 /** Where a new skill goes: the person's own skills, or the team's. */
 type Group = "me" | "team";
@@ -144,27 +143,26 @@ function WriteSkill({ to, added, cancel }: { to: Group; added: (id: string) => v
   );
 }
 
-/** Folders start open, except Synced and Plugins. Kept in this window only. */
-const closedFirst = (id: string) => id === "me/synced" || id === "me/plugins";
+/** Folders start open, except each agent's Synced and Plugins. Kept in this window only. */
+const closedFirst = (id: string) => /^me\/[^/]+\/(synced|plugins)$/.test(id);
 
-export function Skills({ item, go, member, team }: ViewProps) {
+export function Skills({ item, go, team, admin }: ViewProps) {
   const local = useLoad(loadLocal);
-  const loadShared = useCallback(() => (team ? loadTeam() : Promise.resolve([])), [team]);
-  const shared = useLoad(loadShared);
+  const shared = useShared("Skill", Boolean(team));
   const [open, setOpen] = useFolding(closedFirst);
   const [adding, setAdding] = useState<Adding | null>(null);
-  const [words, setWords] = useState("");
-  const search = useRef<HTMLInputElement>(null);
-  const query = words.trim().toLowerCase();
-  const matches = (name: string, description: string) =>
-    !query || name.toLowerCase().includes(query) || description.toLowerCase().includes(query);
-  const admin = Boolean(team) && !member;
   const reload = () => {
     local.reload();
     shared.reload();
   };
   const select = useCallback((id: string) => go("skills", id), [go]);
 
+  const {
+    field: searchField,
+    words,
+    query,
+    matches,
+  } = useListSearch("skills.search", "Search the skills", "Search skills");
   const commands = useMemo<Command[]>(
     () => [
       {
@@ -175,14 +173,6 @@ export function Skills({ item, go, member, team }: ViewProps) {
         also: ["mod+n"],
         hint: { in: "list", says: "new", order: 20 },
         run: () => setAdding({ to: "me", how: "write" }),
-      },
-      {
-        id: "skills.search",
-        label: "Search the skills",
-        keys: "/",
-        also: ["mod+f"],
-        hint: { in: "list", says: "search", order: 30 },
-        run: () => search.current?.focus(),
       },
       {
         id: "skills.find",
@@ -235,38 +225,18 @@ export function Skills({ item, go, member, team }: ViewProps) {
     },
     ...(team
       ? [
-          {
-            id: "team/",
-            name: "Team",
-            group: true,
-            meta: "shared",
-            ...(admin ? { actions: adds("team") } : {}),
-            children: (shared.data ?? [])
-              .filter((entry) => matches(entry.title, entry.description))
-              .map((entry) => ({
-                id: `team:${entry.id}`,
-                name: entry.title,
-                icon: Sparkles,
-                meta: <Status {...installTag(entry.state)} />,
-              })),
-          },
+          teamGroup(
+            (shared.data ?? []).filter((entry) => matches(entry.title, entry.description)),
+            Sparkles,
+            admin && adds("team"),
+          ),
         ]
       : []),
   ];
 
   const list = (
     <>
-      <div className="border-b border-line p-3">
-        <SearchField
-          ref={search}
-          label="Search the skills"
-          placeholder="Search skills"
-          live
-          value={words}
-          onChange={(event) => setWords(event.currentTarget.value)}
-          onKeyDown={toTree}
-        />
-      </div>
+      {searchField}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Problem error={local.error ?? shared.error} />
         {local.error ? null : !local.data ? (

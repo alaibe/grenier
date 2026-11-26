@@ -12,8 +12,6 @@
 
 @theme {
   --breakpoint-*: initial;
-  --breakpoint-md: 860px;
-  --breakpoint-lg: 1100px;
   --animate-*: initial;
   --animate-pulse: pulse 1.6s var(--ease-in-out) infinite;
 
@@ -118,10 +116,6 @@
     background: var(--hover);
     border-radius: var(--radius-sm);
     font: var(--text-sm) var(--font-mono);
-  }
-  pre code {
-    padding: 0;
-    background: none;
   }
 
   /* A row's or a table row's own actions show on hover and on keyboard focus. */

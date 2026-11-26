@@ -1,12 +1,12 @@
-import type { FoundServer, LocalServer, SharedState } from "@grenier/core/api";
+import type { FoundServer, LocalServer } from "@grenier/core/api";
+import { folderName } from "@grenier/core/names";
+import { serverName } from "@grenier/core/server-name";
 import { Plug, Plus } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
-import { serverName } from "../server-name.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
 import { ListDetail } from "../shell/regions.tsx";
-import { installTag } from "../states.ts";
 import { Button, IconButton } from "../ui/button.tsx";
 import { Dialog } from "../ui/dialog.tsx";
 import { Empty, Skeleton } from "../ui/empty.tsx";
@@ -14,16 +14,14 @@ import { Field, Input, SearchField, Select, Textarea } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Problem } from "../ui/notice.tsx";
 import { Segmented } from "../ui/segmented.tsx";
-import { Status, Tag } from "../ui/tag.tsx";
-import { Tree, type TreeNode, toTree, useFolding } from "../ui/tree.tsx";
+import { Tag } from "../ui/tag.tsx";
+import { Tree, type TreeNode, useFolding } from "../ui/tree.tsx";
+import { useListSearch } from "./list-search.tsx";
 import { LocalServerView, TeamServerView } from "./ServerDetail.tsx";
+import { KeysDialog, teamGroup, useShared } from "./shared-entry.tsx";
 
 const loadLocal = () => api<{ servers: LocalServer[] }>("/servers").then((answer) => answer.servers);
 const loadProjects = () => api<{ projects: string[] }>("/servers/projects").then((answer) => answer.projects);
-const loadTeam = () =>
-  api<{ shared: SharedState[] }>("/installs").then((answer) =>
-    answer.shared.filter((entry) => entry.type === "McpServer"),
-  );
 
 /** Where a new server goes: the person's agents, or the team's. */
 type Group = "me" | "team";
@@ -88,28 +86,22 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
 
   if (keysFor) {
     return (
-      <Dialog
+      <KeysDialog
         title={`Add ${nameOf(keysFor)}`}
         action="Add the server"
+        names={keysFor.credentials}
         busy={action.busy !== null}
+        problem={action.problem}
         onCancel={() => setKeysFor(null)}
-        onAction={(form) =>
+        onKeys={(keys) =>
           mine("/servers/registry", {
             name: nameOf(keysFor),
             config: keysFor.config,
             credentials: keysFor.credentials,
-            keys: Object.fromEntries(keysFor.credentials.map((name) => [name, String(form.get(name) ?? "")])),
+            keys,
           })
         }
-      >
-        <p>Your keys go only into its entry in your agents' configs: never to the team, a log or a store.</p>
-        <Problem error={action.problem} />
-        {keysFor.credentials.map((name) => (
-          <Field key={name} label={name}>
-            <Input name={name} type="password" mono required autoComplete="off" />
-          </Field>
-        ))}
-      </Dialog>
+      />
     );
   }
 
@@ -135,19 +127,18 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
         const pairs = pairsOf(String(form.get("pairs") ?? ""));
         const command = lines(String(form.get("command") ?? "").replace(/ +/g, "\n"));
         const name = String(form.get("title") ?? "");
+        const config = url
+          ? { url, headers: pairs }
+          : { command: command[0] ?? "", args: command.slice(1), env: pairs };
         if (to === "me") {
-          mine("/servers", {
-            name,
-            project: String(form.get("project") ?? ""),
-            ...(url ? { url, headers: pairs } : { command: command[0] ?? "", args: command.slice(1), env: pairs }),
-          });
+          mine("/servers", { name, project: String(form.get("project") ?? ""), ...config });
           return;
         }
         const plain = lines(String(form.get("keys") ?? "").replace(/,/g, "\n"));
         share({
           title: name,
           description: String(form.get("description") ?? ""),
-          config: url ? { url, headers: pairs } : { command: command[0] ?? "", args: command.slice(1), env: pairs },
+          config,
           credentials: [...new Set([...templateNames(pairs), ...plain])],
         });
       }}
@@ -252,29 +243,27 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
   );
 }
 
-/** Folders start open, except each project's and each app's. Kept in this window only. */
-const closedFirst = (id: string) => id.startsWith("me/projects/") || id.startsWith("me/apps/");
-
-const base = (path: string) => path.split("/").filter(Boolean).at(-1) ?? path;
+/** Folders start open, except each project's. Kept in this window only. */
+const closedFirst = (id: string) => id.startsWith("me/") && id.includes("/projects/");
 
 /** The MCP servers this person's agents get, beside the team's: listed, added, changed and installed. */
-export function Mcp({ item, go, member, team }: ViewProps) {
+export function Mcp({ item, go, team, admin }: ViewProps) {
   const local = useLoad(loadLocal);
-  const loadShared = useCallback(() => (team ? loadTeam() : Promise.resolve([])), [team]);
-  const shared = useLoad(loadShared);
+  const shared = useShared("McpServer", Boolean(team));
   const [open, setOpen] = useFolding(closedFirst);
   const [adding, setAdding] = useState<Group | null>(null);
-  const [words, setWords] = useState("");
-  const search = useRef<HTMLInputElement>(null);
-  const admin = Boolean(team) && !member;
-  const query = words.trim().toLowerCase();
-  const matches = (...texts: (string | null)[]) => !query || texts.some((text) => text?.toLowerCase().includes(query));
   const reload = () => {
     local.reload();
     shared.reload();
   };
   const select = useCallback((id: string) => go("mcp", id), [go]);
 
+  const {
+    field: searchField,
+    words,
+    query,
+    matches,
+  } = useListSearch("mcp.search", "Search the servers", "Search servers");
   const commands = useMemo<Command[]>(
     () => [
       {
@@ -285,14 +274,6 @@ export function Mcp({ item, go, member, team }: ViewProps) {
         also: ["mod+n"],
         hint: { in: "list", says: "new", order: 20 },
         run: () => setAdding("me"),
-      },
-      {
-        id: "mcp.search",
-        label: "Search the servers",
-        keys: "/",
-        also: ["mod+f"],
-        hint: { in: "list", says: "search", order: 30 },
-        run: () => search.current?.focus(),
       },
     ],
     [],
@@ -317,7 +298,7 @@ export function Mcp({ item, go, member, team }: ViewProps) {
     }
     const projects = [...by].map(([where, inside]) => ({
       id: `me/${client}/projects/${where}/`,
-      name: base(where),
+      name: folderName(where),
       meta: <span title={where}>{where}</span>,
       children: inside.map(leaf),
     }));
@@ -343,38 +324,12 @@ export function Mcp({ item, go, member, team }: ViewProps) {
       actions: adds("me"),
       children: clients.map(ofClient),
     },
-    ...(team
-      ? [
-          {
-            id: "team/",
-            name: "Team",
-            group: true,
-            meta: "shared",
-            ...(admin ? { actions: adds("team") } : {}),
-            children: teamRows.map((entry) => ({
-              id: `team:${entry.id}`,
-              name: entry.title,
-              icon: Plug,
-              meta: <Status {...installTag(entry.state)} />,
-            })),
-          },
-        ]
-      : []),
+    ...(team ? [teamGroup(teamRows, Plug, admin && adds("team"))] : []),
   ];
 
   const list = (
     <>
-      <div className="border-b border-line p-3">
-        <SearchField
-          ref={search}
-          label="Search the servers"
-          placeholder="Search servers"
-          live
-          value={words}
-          onChange={(event) => setWords(event.currentTarget.value)}
-          onKeyDown={toTree}
-        />
-      </div>
+      {searchField}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Problem error={local.error ?? shared.error} />
         {local.error ? null : !local.data ? (
