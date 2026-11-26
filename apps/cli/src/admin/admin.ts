@@ -46,7 +46,7 @@ const APP_ORIGINS = new Set([
   "tauri://localhost",
   "http://tauri.localhost",
   "https://tauri.localhost",
-  "http://localhost:1420",
+  "http://localhost:1440",
 ]);
 
 function problem(status: number, message: string): Response {

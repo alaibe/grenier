@@ -51,7 +51,7 @@ jobs:
           nohup node scripts/demo.mjs > "$RUNNER_TEMP/demo.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/demo.pid"
           for _ in $(seq 1 180); do
-            if curl -fsS -o /dev/null http://localhost:1420/demo; then exit 0; fi
+            if curl -fsS -o /dev/null http://localhost:1440/demo; then exit 0; fi
             sleep 1
           done
           cat "$RUNNER_TEMP/demo.log"

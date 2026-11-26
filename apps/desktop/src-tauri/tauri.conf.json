@@ -5,7 +5,7 @@
   "identifier": "cc.laibe.grenier",
   "build": {
     "beforeDevCommand": "pnpm --dir ../.. build && pnpm sidecar && pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1440",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },

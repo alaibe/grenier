@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 OUT="$SITE_CHECKOUT/public/sites/grenier/screenshots"
 mkdir -p "$OUT"
 
-DEMO="${DEMO_URL:-http://localhost:1420}"
+DEMO="${DEMO_URL:-http://localhost:1440}"
 curl -fsS -o /dev/null --max-time 10 "$DEMO/demo" || {
     echo "No demo at $DEMO/demo. Start it with pnpm demo, or set DEMO_URL." >&2
     exit 1

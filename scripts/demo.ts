@@ -1,4 +1,4 @@
-// The desktop app on made-up data at http://localhost:1420, for the site's screenshots; ~/.grenier is never touched.
+// The desktop app on made-up data at http://localhost:1440, for the site's screenshots; ~/.grenier is never touched.
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -475,7 +475,7 @@ execFileSync(process.execPath, [vite, "build", "--outDir", ui, "--emptyOutDir", 
 });
 const preview = spawn(
   process.execPath,
-  [vite, "preview", "--outDir", ui, "--port", "1420", "--strictPort", "--host", "localhost"],
+  [vite, "preview", "--outDir", ui, "--port", "1440", "--strictPort", "--host", "localhost"],
   {
     cwd: join(ROOT, "apps/desktop"),
     stdio: ["ignore", "ignore", "inherit"],
@@ -491,7 +491,7 @@ process.on("exit", () => {
 // The team store's web view, served by the same Worker build, signed in once as marie.
 const weblink = await teamApi<{ path: string }>(marie, "/api/weblinks", { method: "POST" });
 process.stdout.write(
-  `Grenier's demo: http://localhost:1420/demo#knowledge (or #knowledge/${project}, #cost, #routines, #skills, #mcp, #team, #settings), and the team store's web view at ${teamUrl}${weblink.path}. Ctrl-C stops it.\n`,
+  `Grenier's demo: http://localhost:1440/demo#knowledge (or #knowledge/${project}, #cost, #routines, #skills, #mcp, #team, #settings), and the team store's web view at ${teamUrl}${weblink.path}. Ctrl-C stops it.\n`,
 );
 await new Promise<void>((resolve) => {
   process.once("SIGINT", () => resolve());
