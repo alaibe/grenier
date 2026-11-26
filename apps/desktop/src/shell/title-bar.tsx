@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Command, PanelLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight, Command } from "lucide-react";
 import { IconButton } from "../ui/button.tsx";
 import { mac } from "../ui/keys.ts";
 
@@ -9,20 +9,16 @@ import { mac } from "../ui/keys.ts";
 export function TitleBar({
   place,
   item,
-  collapsed,
   canBack,
   canForward,
-  onToggleSidebar,
   onBack,
   onForward,
   onCommands,
 }: {
   place: string;
   item: string | null;
-  collapsed: boolean;
   canBack: boolean;
   canForward: boolean;
-  onToggleSidebar: () => void;
   onBack: () => void;
   onForward: () => void;
   onCommands: () => void;
@@ -33,9 +29,6 @@ export function TitleBar({
       className="titlebar-region flex items-center gap-1 border-b border-line bg-void pr-2 font-mono text-sm select-none"
       style={{ paddingLeft: mac ? "var(--layout-titlebar-mac-inset)" : "var(--space-2)" }}
     >
-      {collapsed && (
-        <IconButton label="Show the sidebar" keys="mod+\" icon={PanelLeft} size="sm" onClick={onToggleSidebar} />
-      )}
       <IconButton label="Back" keys="mod+[" icon={ArrowLeft} size="sm" disabled={!canBack} onClick={onBack} />
       <IconButton label="Forward" keys="mod+]" icon={ArrowRight} size="sm" disabled={!canForward} onClick={onForward} />
       <p data-tauri-drag-region className="ml-2 min-w-0 flex-1 truncate">

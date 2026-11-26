@@ -40,7 +40,7 @@ A team's shared memory for people and their AI agents: a pnpm workspace in TypeS
 
 ## Design
 
-- The desktop app follows the laibe design system (`git.laibe.cc/anthony/design`) as of its 2026-11-25 changelog
+- The desktop app follows the laibe design system (`git.laibe.cc/anthony/design`) as of its 2026-11-26 changelog
   entry, with the `gold` accent (`data-accent="gold"` in `apps/desktop/index.html`). Before changing its UI, read the
   system's `principles.md` and the `components/` pages the change touches.
 - Grenier's icon is the system's icon template with Grenier's glyph, a roof and its lit round window:

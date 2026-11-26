@@ -1,14 +1,5 @@
 import type { Overview, Synced } from "@grenier/core/api";
-import {
-  ArrowLeft,
-  ArrowRight,
-  CircleHelp,
-  Command as CommandIcon,
-  FilePlus,
-  PanelLeft,
-  Plus,
-  RefreshCw,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, CircleHelp, Command as CommandIcon, FilePlus, Plus, RefreshCw } from "lucide-react";
 import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityProvider } from "./activity.tsx";
 import { api, sendPageView } from "./api.ts";
@@ -20,7 +11,7 @@ import { usePrefs } from "./shell/prefs.ts";
 import { ItemTitleProvider, type RegionName } from "./shell/regions.tsx";
 import { useRouter } from "./shell/router.ts";
 import { Shortcuts } from "./shell/shortcuts.tsx";
-import { Sidebar, useSidebar } from "./shell/sidebar.tsx";
+import { Sidebar } from "./shell/sidebar.tsx";
 import { StatusBar } from "./shell/status-bar.tsx";
 import { TitleBar } from "./shell/title-bar.tsx";
 import { LitPoint } from "./ui/brand.tsx";
@@ -106,7 +97,6 @@ function Shell() {
   const router = useRouter();
   const { route, navigate, back, forward } = router;
   const overview = useLoad(loadOverview);
-  const sidebar = useSidebar();
   const [palette, setPalette] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
   const [item, setItem] = useState<string | null>(null);
@@ -181,12 +171,11 @@ function Shell() {
         : []),
       { id: "back", label: "Back", icon: ArrowLeft, keys: "mod+[", run: back },
       { id: "forward", label: "Forward", icon: ArrowRight, keys: "mod+]", run: forward },
-      { id: "sidebar", label: "Show or hide the sidebar", icon: PanelLeft, keys: "mod+\\", run: sidebar.toggle },
       { id: "region-next", label: "Next region", keys: "f6", run: () => cycleRegions(1) },
       { id: "region-back", label: "Previous region", keys: "shift+f6", run: () => cycleRegions(-1) },
       { id: "shortcuts", label: "Keyboard shortcuts", icon: CircleHelp, keys: "?", run: () => setShortcuts(true) },
     ];
-  }, [go, back, forward, sidebar.toggle, team]);
+  }, [go, back, forward, team]);
   useCommands(commands, "shell");
 
   // The splash: the attic window on the dark, until the daemon first answers.
@@ -213,17 +202,14 @@ function Shell() {
         style={
           {
             "--titlebar-height": mac ? "var(--layout-titlebar-mac)" : "var(--layout-titlebar)",
-            "--sidebar-width": `${sidebar.width}px`,
           } as React.CSSProperties
         }
       >
         <TitleBar
           place={place}
           item={item}
-          collapsed={sidebar.collapsed}
           canBack={router.canBack}
           canForward={router.canForward}
-          onToggleSidebar={sidebar.toggle}
           onBack={back}
           onForward={forward}
           onCommands={() => setPalette(true)}
@@ -232,16 +218,12 @@ function Shell() {
         <Sidebar
           current={route.place}
           go={go}
-          collapsed={sidebar.collapsed}
-          width={sidebar.width}
           counts={{
             knowledge: {
               value: waiting,
               title: `${waiting === 1 ? "1 record" : `${waiting} records`} not sent to the team yet`,
             },
           }}
-          onResize={sidebar.resize}
-          onReset={sidebar.reset}
         />
         <View
           key={route.place}

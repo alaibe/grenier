@@ -7,7 +7,8 @@ interface Tip {
   keys: string | undefined;
   x: number;
   y: number;
-  below: boolean;
+  /** Above its target, below it near the window's top, or beside it (`data-tip-side="end"`, the sidebar's rail). */
+  side: "above" | "below" | "end";
 }
 
 const DELAY_MS = 500;
@@ -49,13 +50,18 @@ export function TooltipLayer() {
       timer = setTimeout(
         () => {
           const box = element.getBoundingClientRect();
+          const keys = element.getAttribute("data-keys") ?? undefined;
+          if (element.getAttribute("data-tip-side") === "end") {
+            setTip({ text, keys, x: box.right + 8, y: box.top + box.height / 2, side: "end" });
+            return;
+          }
           const below = box.top < 40;
           setTip({
             text,
-            keys: element.getAttribute("data-keys") ?? undefined,
+            keys,
             x: Math.min(Math.max(box.left + box.width / 2, 150), window.innerWidth - 150),
-            y: below ? box.bottom + 6 : box.top - 6,
-            below,
+            y: below ? box.bottom + 8 : box.top - 8,
+            side: below ? "below" : "above",
           });
         },
         Date.now() < warmUntil ? 0 : delay,
@@ -94,7 +100,7 @@ export function TooltipLayer() {
         left: tip.x,
         top: tip.y,
         bottom: "auto",
-        translate: tip.below ? "-50% 0" : "-50% -100%",
+        translate: { above: "-50% -100%", below: "-50% 0", end: "0 -50%" }[tip.side],
       }}
     >
       {tip.text}

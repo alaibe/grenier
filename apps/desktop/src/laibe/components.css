@@ -66,7 +66,8 @@ textarea.input { height: auto; padding: var(--space-2) var(--space-3); line-heig
 .row-one { height: var(--control-md); grid-template-areas: "lead title meta"; }
 .row:hover { background: var(--hover); }
 .row[aria-selected="true"] { background: var(--accent-soft); }
-.row[aria-selected="true"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--accent); }
+/* The leading-edge marker of the selected row, the palette's selection and the current place. */
+.row[aria-selected="true"]::before, .palette-item[aria-selected="true"]::before, .sidebar-item[aria-current="page"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--accent); }
 .list:focus-visible .row[aria-selected="true"]::before { box-shadow: var(--glow-text); }
 .row[data-multi] { background: var(--selection); }
 .row-lead { grid-area: lead; display: grid; place-items: center; }
@@ -78,16 +79,17 @@ textarea.input { height: auto; padding: var(--space-2) var(--space-3); line-heig
 .row-preview { grid-area: preview; overflow: hidden; color: var(--muted); font: var(--text-sm)/var(--leading-snug) var(--font-sans); white-space: nowrap; text-overflow: ellipsis; }
 .row-tags { grid-area: tags; display: flex; gap: var(--space-1); }
 
-/* Sidebar: components/sidebar.md */
-.sidebar { display: flex; flex-direction: column; width: var(--layout-sidebar); padding-bottom: var(--space-3); background: var(--side); border-right: 1px solid var(--line); }
-.sidebar-app { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); font: 600 var(--text-sm)/1 var(--font-mono); }
-.sidebar-group { padding: var(--space-4) var(--space-4) var(--space-1); }
-.sidebar-item { display: flex; align-items: center; gap: var(--space-2); height: var(--control-sm); margin: 0 var(--space-2); padding: 0 var(--space-2); border-radius: var(--radius-md); color: var(--fg); font: 500 var(--text-sm)/1 var(--font-mono); text-decoration: none; }
-.sidebar-item .icon { color: var(--muted); }
-.sidebar-item:hover { background: var(--hover); }
-.sidebar-item[aria-current="page"] { background: var(--accent-soft); }
-.sidebar-item[aria-current="page"] .icon, .sidebar-item[aria-current="page"] .sidebar-count, .sidebar-item[data-news] .sidebar-count { color: var(--accent); }
-.sidebar-count { margin-left: auto; color: var(--muted); font: var(--text-xs)/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Sidebar: components/sidebar.md. Each item is also a .badge-host. */
+.sidebar, .sidebar-end { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); }
+.sidebar { --ring: var(--side); width: var(--layout-sidebar); padding-bottom: var(--space-2); background: var(--side); border-right: 1px solid var(--line); }
+.sidebar-app { display: grid; place-items: center; height: var(--space-12); }
+.sidebar-group { width: var(--space-6); border-top: 1px solid var(--line); }
+.sidebar-end { margin-top: auto; padding-top: var(--space-2); }
+.sidebar-item { border-radius: var(--radius-md); text-decoration: none; }
+.sidebar-item:hover { background: var(--hover); color: var(--fg); }
+.sidebar-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+.sidebar-item[aria-current="page"]::before { inset: var(--space-1) auto var(--space-1) calc(-1 * var(--space-2)); }
+.sidebar-item[data-drop] { outline: 1px dashed var(--accent); }
 
 /* Status bar: components/status-bar.md */
 .statusbar { display: flex; align-items: center; gap: var(--space-2); height: var(--layout-statusbar); padding: 0 var(--space-3); overflow: hidden; background: var(--void); border-top: 1px solid var(--line); color: var(--muted); font: 500 var(--text-2xs)/1 var(--font-mono); white-space: nowrap; }
@@ -120,7 +122,6 @@ textarea.input { height: auto; padding: var(--space-2) var(--space-3); line-heig
 .palette-item mark { background: none; color: var(--accent); }
 .palette-item > .kbd, .palette-item > .keys { margin-left: auto; }
 .palette-item[aria-selected="true"] { background: var(--accent-soft); }
-.palette-item[aria-selected="true"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--accent); }
 .palette-footer { display: flex; align-items: center; gap: var(--space-4); height: var(--control-sm); padding: 0 var(--space-4); background: var(--void); border-radius: 0 0 var(--radius-md) var(--radius-md); color: var(--muted); font: var(--text-2xs)/1 var(--font-mono); }
 
 /* Menu: components/menu.md */
@@ -317,8 +318,9 @@ textarea.input { height: auto; padding: var(--space-2) var(--space-3); line-heig
 /* Tooltip: components/tooltip.md */
 .tooltip-anchor { position: relative; display: inline-flex; }
 .tooltip { position: absolute; bottom: calc(100% + var(--space-2)); left: 50%; translate: -50% 0; z-index: var(--layer-popover); display: inline-flex; align-items: center; gap: var(--space-2); max-width: var(--layout-tooltip); padding: var(--space-1) var(--space-2); background: var(--void); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--fg); font: var(--text-xs)/var(--leading-snug) var(--font-mono); white-space: nowrap; pointer-events: none; }
+.tooltip-end { bottom: auto; top: 50%; left: calc(100% + var(--space-2)); translate: 0 -50%; }
 
-/* Avatar and badge: components/avatar-and-badge.md */
+/* Avatar and badge: components/avatar-and-badge.md. Rings take --ring, the surface they sit on; bg unless a surface sets it. */
 .avatar { --size: 28px; position: relative; display: inline-grid; place-items: center; width: var(--size); height: var(--size); flex: none; background: var(--hover); border-radius: var(--radius-full); color: var(--muted); font: 600 calc(var(--size) * 0.4)/1 var(--font-mono); text-transform: uppercase; }
 .avatar-16 { --size: 16px; }
 .avatar-20 { --size: 20px; }
@@ -326,15 +328,15 @@ textarea.input { height: auto; padding: var(--space-2) var(--space-3); line-heig
 .avatar-square { border-radius: var(--radius-sm); }
 .avatar-square .icon { width: calc(var(--size) * 0.55); height: calc(var(--size) * 0.55); }
 .avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
-.avatar-presence { position: absolute; right: 0; bottom: 0; width: calc(var(--size) * 0.3); height: calc(var(--size) * 0.3); border-radius: var(--radius-full); background: var(--success); box-shadow: 0 0 0 2px var(--bg); }
+.avatar-presence { position: absolute; right: 0; bottom: 0; width: calc(var(--size) * 0.3); height: calc(var(--size) * 0.3); border-radius: var(--radius-full); background: var(--success); box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .avatar-presence[data-away] { background: var(--subtle); }
 .avatar-stack { display: inline-flex; align-items: center; }
-.avatar-stack .avatar { box-shadow: 0 0 0 2px var(--bg); }
+.avatar-stack .avatar { box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .avatar-stack .avatar + .avatar { margin-left: calc(var(--size) * -0.3); }
 .avatar-more { margin-left: var(--space-1); color: var(--muted); font: var(--text-2xs)/1 var(--font-mono); }
 
 .badge-host { position: relative; display: inline-grid; place-items: center; width: var(--control-md); height: var(--control-md); color: var(--muted); }
 .badge-host .icon { width: 20px; height: 20px; }
-.badge { position: absolute; top: 0; right: calc(-1 * var(--space-1)); min-width: var(--space-4); height: var(--space-4); padding: 0 var(--space-1); background: var(--accent); border-radius: var(--radius-full); box-shadow: 0 0 0 2px var(--bg); color: var(--on-accent); font: 600 var(--text-2xs)/var(--space-4) var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
+.badge { position: absolute; top: 0; right: calc(-1 * var(--space-1)); min-width: var(--space-4); height: var(--space-4); padding: 0 var(--space-1); background: var(--accent); border-radius: var(--radius-full); box-shadow: 0 0 0 2px var(--ring, var(--bg)); color: var(--on-accent); font: 600 var(--text-2xs)/var(--space-4) var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
 .badge-info { background: var(--hover); color: var(--muted); }
 .badge-dot { position: absolute; top: var(--space-1); right: var(--space-1); width: var(--size-dot); height: var(--size-dot); border-radius: var(--radius-full); background: var(--accent); box-shadow: 0 0 6px var(--accent); }

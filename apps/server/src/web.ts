@@ -20,7 +20,9 @@ html, body { height: 100%; overflow: hidden; }
 select.input { cursor: pointer; }
 ::selection { background: var(--selection); }
 .shell { display: grid; height: 100dvh; grid-template: "side main" minmax(0, 1fr) "status status" var(--layout-statusbar) / var(--layout-sidebar) minmax(0, 1fr); }
-.shell > .sidebar { grid-area: side; min-height: 0; overflow-y: auto; }
+.shell > .sidebar { grid-area: side; z-index: var(--layer-bars); min-height: 0; }
+#nav { display: contents; }
+.sidebar-item:not(:hover, :focus-visible) > .tooltip { display: none; }
 .content { grid-area: main; display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; }
 .content[data-list] { grid-template-columns: var(--layout-list) minmax(0, 1fr); }
 .content > #list { display: none; min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); }
@@ -50,7 +52,7 @@ pre code { padding: 0; background: none; }
 </head>
 <body>
 <div class="shell">
-<nav class="sidebar" aria-label="Places"><div class="sidebar-app"><svg width="20" height="20" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="115" fill="#04050d"/><g fill="none" stroke="#fec000" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"><path d="M108 294 L256 166 L404 294"/><circle cx="256" cy="320" r="50" fill="#fff4de" stroke="none"/><path d="M256 284 V356 M220 320 H292" stroke="#04050d" stroke-width="12"/></g></svg>Grenier</div><div id="nav"></div></nav>
+<nav class="sidebar" aria-label="Places"><div class="sidebar-app"><svg width="20" height="20" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="115" fill="#04050d"/><g fill="none" stroke="#fec000" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"><path d="M108 294 L256 166 L404 294"/><circle cx="256" cy="320" r="50" fill="#fff4de" stroke="none"/><path d="M256 284 V356 M220 320 H292" stroke="#04050d" stroke-width="12"/></g></svg></div><div id="nav"></div></nav>
 <main class="content" id="content"><section id="list" aria-label="Records"></section><section id="main" tabindex="-1"></section></main>
 <footer class="statusbar" id="status"></footer>
 </div>
@@ -244,7 +246,7 @@ async function signIn() {
     }
     places.find(([key]) => key === name)[2]();
   };
-  nav.replaceChildren(...places.map(([key, label]) => el("a", { class: "sidebar-item", href: "#" + key, "data-place": key, onclick: (event) => { event.preventDefault(); go(key); } }, icon(key), label)));
+  nav.replaceChildren(...places.map(([key, label]) => el("a", { class: "sidebar-item badge-host", href: "#" + key, "data-place": key, "aria-label": label, onclick: (event) => { event.preventDefault(); go(key); } }, icon(key), el("span", { class: "tooltip tooltip-end", role: "tooltip", "aria-hidden": "true", text: label }))));
   for (const [key, , , letter] of places) keys["g " + letter] = () => go(key);
   go("store");
 }

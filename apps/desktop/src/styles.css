@@ -56,7 +56,7 @@
       "banner banner" auto
       "side main" minmax(0, 1fr)
       "status status" var(--layout-statusbar)
-      / var(--sidebar-width) minmax(0, 1fr);
+      / var(--layout-sidebar) minmax(0, 1fr);
   }
   .shell > .titlebar-region {
     grid-area: title;
@@ -68,7 +68,6 @@
   }
   .shell > .sidebar {
     grid-area: side;
-    position: relative;
     min-height: 0;
     overflow: hidden auto;
   }
