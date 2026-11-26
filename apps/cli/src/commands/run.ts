@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
-import { ASK_FIRST } from "@grenier/gateway";
+import { AGENT_TEXTS } from "@grenier/gateway";
 import { repoId, repoRoot } from "@grenier/git";
+import { agentTexts } from "../agent-texts.ts";
 import { startDaemon } from "../daemon.ts";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
 import { newSessionId } from "../runtime.ts";
@@ -11,11 +12,11 @@ export interface RunDependencies {
 }
 
 export const ASKED_FIRST =
-  "grenier: asked Claude Code to call recall before exploring (--append-system-prompt; pass your own to skip it)";
+  "grenier: asked Claude Code to call get before exploring (--append-system-prompt; pass your own to skip it)";
 
 const SYSTEM_PROMPT_FLAG = /^--(append-)?system-prompt(-file)?(=|$)/;
 
-/** Whether Claude Code gets ASK_FIRST: in a repository, unless the command gives its own system prompt. */
+/** Whether Claude Code gets Grenier's system prompt: in a repository, unless the command gives its own. */
 export function asksFirst(program: string, args: readonly string[], inRepository: boolean): boolean {
   return (
     inRepository && /^claude(\.exe)?$/i.test(basename(program)) && !args.some((arg) => SYSTEM_PROMPT_FLAG.test(arg))
@@ -27,9 +28,10 @@ export function agentArgs(
   program: string,
   args: readonly string[],
   openaiBaseUrl: string,
-  askFirst: boolean,
+  /** The system prompt to append, or null. */
+  prompt: string | null,
 ): string[] {
-  if (askFirst) return ["--append-system-prompt", ASK_FIRST, ...args];
+  if (prompt) return ["--append-system-prompt", prompt, ...args];
   const codex = /^codex(\.exe)?$/i.test(basename(program));
   if (!codex || args.some((arg) => /^openai_base_url\s*=/.test(arg) || /^--config=openai_base_url/.test(arg))) {
     return [...args];
@@ -67,7 +69,8 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
   if (askFirst) io.err(ASKED_FIRST);
 
   const code = await new Promise<number>((resolve) => {
-    const child = spawn(program, agentArgs(program, args, openaiBaseUrl, askFirst), {
+    const prompt = askFirst ? (agentTexts(paths.home).run ?? AGENT_TEXTS.run) : null;
+    const child = spawn(program, agentArgs(program, args, openaiBaseUrl, prompt), {
       stdio: "inherit",
       cwd: io.cwd,
       env: { ...io.env, ANTHROPIC_BASE_URL: baseUrl, OPENAI_BASE_URL: openaiBaseUrl, GRENIER_SESSION: id },

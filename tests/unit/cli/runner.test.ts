@@ -221,7 +221,7 @@ describe("a machine that takes the team's routine runs", () => {
     answer = async (runner) => {
       const running = await store.runs.list({ routineId: routine.id });
       const guard = runner.guard((await store.sessions.get(running[0]?.sessionId as string)) as never);
-      for (const tool of ["exec_command", "mcp__grenier__recall", "apply_patch", "mcp__linear__update_issue"]) {
+      for (const tool of ["exec_command", "mcp__grenier__get", "apply_patch", "mcp__linear__update_issue"]) {
         seen[tool] = guard?.allows(tool) ?? false;
       }
       return { code: 0, text: "The router is in router.ts." };
@@ -234,7 +234,7 @@ describe("a machine that takes the team's routine runs", () => {
     expect(calls[0]?.args.slice(0, 3)).toEqual(["exec", "--sandbox", "read-only"]);
     expect(seen).toEqual({
       exec_command: true,
-      mcp__grenier__recall: true,
+      mcp__grenier__get: true,
       apply_patch: false,
       mcp__linear__update_issue: false,
     });

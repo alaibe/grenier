@@ -41,27 +41,18 @@ export interface RememberInput {
   sessionId?: string;
 }
 
-export type Consent = { action: "share" } | { action: "me" } | { action: "cancel" } | { action: "edit"; body: string };
-
-/** Asks the person; null when the client cannot ask, and the record then stays in `me`. */
-export type AskConsent = (record: {
-  type: string;
-  title: string;
-  body: string;
-  top: string;
-}) => Promise<Consent | null>;
-
-export function needsConsent(record: {
+/** An answer or a summary worked out from the repository's files: kept in that repository's folder. */
+export function aboutCode(record: {
   type: string;
   kind?: string | null;
   anchors: readonly { kind: FullRecord["anchors"][number]["kind"] }[];
 }): boolean {
-  const aboutCode =
+  return (
     record.type === "Memory" &&
     (record.kind === "answer" || record.kind === "summary") &&
     record.anchors.length > 0 &&
-    record.anchors.every((anchor) => anchor.kind === "git");
-  return !aboutCode;
+    record.anchors.every((anchor) => anchor.kind === "git")
+  );
 }
 
 /** An answer to a question already answered in the same repository replaces that one. */
@@ -70,13 +61,12 @@ export async function remember(
   reader: Reader | null,
   repo: Repo | null,
   input: RememberInput,
-  ask?: AskConsent,
-): Promise<{ id: string; top: string; status: "kept" | "kept in me" }> {
+): Promise<{ id: string; top: string }> {
   const now = (deps.now ?? Date.now)();
   const type = input.type ?? "Memory";
   const kind = type === "Memory" ? (input.kind ?? (input.fields?.kind as string | undefined) ?? "fact") : null;
   const fields: Record<string, unknown> = { ...(input.fields ?? {}), ...(kind ? { kind } : {}) };
-  let body = (input.body ?? "").trim();
+  const body = (input.body ?? "").trim();
   const title = input.title.trim();
 
   const anchors: FullRecord["anchors"] = [];
@@ -106,7 +96,7 @@ export async function remember(
   const member = (await deps.store.state.get("team_role")) === "member";
   if (!top) {
     if (repo && anchors.some((anchor) => anchor.kind === "git")) top = repoTop(repo.id);
-    else top = writable.includes("team") && !member ? "team" : "me";
+    else top = "me";
   }
   if (top !== "me" && !(await deps.store.tops.get(top))) throw new StoreUseError(`there is no top folder ${top}`);
   if (reader && top !== "me" && !writable.includes(top)) throw new StoreUseError(`this client may not write to ${top}`);
@@ -136,16 +126,9 @@ export async function remember(
     links.push({ kind: "repo", ref: repo.id });
   }
 
-  // Refused before asking: the person is not asked to share what the team store would refuse.
+  // Refused here: the team store would refuse it too.
   if (member && !memberMay(existing, { top, type, title, folder, body, fields }, "me", true)) {
     throw new StoreUseError(`the record is refused: ${MEMBER_WRITES}`);
-  }
-
-  if (top !== "me" && ask && needsConsent({ type, kind, anchors })) {
-    const answer = await ask({ type, title, body, top });
-    if (answer === null || answer.action === "me") top = "me";
-    else if (answer.action === "cancel") throw new StoreUseError("the person chose not to keep it");
-    else if (answer.action === "edit") body = answer.body.trim();
   }
 
   const record: RecordInput = {
@@ -168,7 +151,7 @@ export async function remember(
     links,
   };
   await write(deps, record, existing);
-  return { id: record.id, top, status: top === "me" && input.top !== "me" ? "kept in me" : "kept" };
+  return { id: record.id, top };
 }
 
 /** The parts a change touches: every one for a new record. */

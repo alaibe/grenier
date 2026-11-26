@@ -57,7 +57,7 @@ export function claudeAgent(question: string, mcpConfig: string): string[] {
     mcpConfig,
     "--strict-mcp-config",
     "--allowedTools",
-    "mcp__grenier__recall,mcp__grenier__remember,mcp__grenier__file_summary,mcp__grenier__repo_map,Read,Grep,Glob,LS",
+    "mcp__grenier__get,mcp__grenier__set,Read,Grep,Glob,LS",
   ];
 }
 

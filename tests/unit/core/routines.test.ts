@@ -10,7 +10,7 @@ const routine = (fields: Record<string, unknown>, body = "Update, then test.") =
 describe("what a routine's run may call", () => {
   it("reads only, until its machine lets it act; then anything, auto mode judging each call", () => {
     for (const mode of ["read-only", "shadow"] as const) {
-      for (const tool of [...READ_TOOLS, "mcp__grenier__recall", "mcp__linear__list_issues"]) {
+      for (const tool of [...READ_TOOLS, "mcp__grenier__get", "mcp__linear__list_issues"]) {
         expect(mayCall("claude", mode, tool)).toBe(true);
       }
       expect(mayCall("claude", mode, "Edit")).toBe(false);
@@ -26,7 +26,7 @@ describe("what a routine's run may call", () => {
   });
 
   it("leaves Codex its own tools, inside its sandbox, and holds its patch tool and MCP tools to the mode", () => {
-    for (const tool of ["exec_command", "write_stdin", "update_plan", "local_shell", "mcp__grenier__recall"]) {
+    for (const tool of ["exec_command", "write_stdin", "update_plan", "local_shell", "mcp__grenier__get"]) {
       expect(mayCall("codex", "read-only", tool)).toBe(true);
     }
     expect(mayCall("codex", "read-only", "apply_patch")).toBe(false);
@@ -41,7 +41,7 @@ describe("what a routine's run may call", () => {
     expect(readsByName("mcp__github__merge_pull_request")).toBe(false);
     expect(readsByName("Read")).toBe(false);
     expect(isAction("Read")).toBe(false);
-    expect(isAction("mcp__grenier__remember")).toBe(false);
+    expect(isAction("mcp__grenier__set")).toBe(false);
     expect(isAction("Edit")).toBe(true);
     expect(isAction("exec_command", "codex")).toBe(false);
     expect(isAction("apply_patch", "codex")).toBe(true);

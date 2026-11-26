@@ -21,7 +21,17 @@ const READ_BY: Record<string, string> = {
   "CLAUDE.md": "Claude Code reads it",
   "AGENTS.md": "Codex and most other agents read it",
   "CLAUDE.local.md": "Claude Code reads it, kept out of git",
+  "grenier run": "Claude Code reads it: grenier run adds it to its system prompt, in a repository",
+  "MCP server": "Every agent connected to Grenier reads it, as the MCP server's instructions",
+  get: "Every agent connected to Grenier reads it, to know when to call get",
+  set: "Every agent connected to Grenier reads it, to know when to call set and where its records go",
 };
+
+/** A file's title: where it applies, then its name. */
+const titleOf = (file: InstructionFile) =>
+  file.group === "project"
+    ? `${file.project} / ${file.name}`
+    : `${file.group === "every" ? "Every project" : "Grenier"} / ${file.name}`;
 
 /** One file in the live-preview editor; a save names the version it started from, so it never writes over an agent's. */
 function InstructionEditor({ file, changed }: { file: InstructionFile; changed: () => void }) {
@@ -35,7 +45,8 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
     current.reload();
     changed();
   });
-  useItemTitle(file.project ? `${file.project} / ${file.name}` : file.name);
+  useItemTitle(titleOf(file));
+  const grenier = file.group === "grenier";
   useEffect(() => {
     if (current.data) setText(current.data.text);
   }, [current.data]);
@@ -46,7 +57,12 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
         method: "PUT",
         body: { text: text ?? "", hash: current.data?.hash ?? null },
       });
-      return file.exists ? `Saved ${file.name}` : `Made ${file.name}`;
+      return file.exists || grenier ? `Saved ${file.name}` : `Made ${file.name}`;
+    });
+  const reset = () =>
+    void action.run("reset", async () => {
+      await api(`/instructions/one?id=${encodeURIComponent(file.id)}`, { method: "DELETE" });
+      return `Put back Grenier's ${file.name}`;
     });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: save reads the text as it is when it runs
@@ -73,19 +89,30 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
         <p className="min-w-0 flex-1 truncate text-muted" title={file.path}>
           {file.path}
         </p>
-        <span className="text-xs text-muted">{dirty ? "Edited" : file.exists ? "Saved" : "Not made yet"}</span>
+        <span className="text-xs text-muted">
+          {dirty ? "Edited" : grenier ? (file.exists ? "Yours" : "Grenier's") : file.exists ? "Saved" : "Not made yet"}
+        </span>
+        {grenier && file.exists && (
+          <Button size="sm" icon={RotateCcw} busy={action.busy === "reset"} onClick={reset}>
+            Reset to default
+          </Button>
+        )}
         <Primary size="sm" keys="mod+enter" busy={action.busy === "save"} disabled={!dirty} onClick={save}>
-          {file.exists ? "Save" : "Make the file"}
+          {file.exists || grenier ? "Save" : "Make the file"}
         </Primary>
       </header>
       <div className="mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24">
-        <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">
-          {file.project ? `${file.project} / ${file.name}` : `Every project / ${file.name}`}
-        </h1>
+        <h1 className="font-mono text-xl leading-tight font-semibold tracking-tight">{titleOf(file)}</h1>
         <p className="mt-2 font-mono text-xs text-muted">
           {READ_BY[file.name]}
-          {file.project ? ` in ${file.project}` : ", in every project"}.
+          {file.group === "project" ? ` in ${file.project}` : file.group === "every" ? ", in every project" : ""}.
         </p>
+        {grenier && (
+          <p className="mt-2 text-sm text-muted">
+            Your version applies from the next session that starts: a new grenier run, or the next time an app starts
+            Grenier's MCP server.
+          </p>
+        )}
         <div className="mt-4 grid gap-2 empty:hidden">
           {action.problem && (
             <Notice
@@ -147,13 +174,18 @@ export function Instructions({ item, go }: ViewProps) {
     id: file.id,
     name: file.name,
     icon: FileText,
-    ...(file.exists ? {} : { meta: <Tag>none</Tag> }),
+    ...(file.exists ? {} : { meta: <Tag>{file.group === "grenier" ? "default" : "none"}</Tag> }),
   });
   const projects = [...new Set(all.flatMap((file) => (file.project ? [file.project] : [])))].filter(
     (project) => !query || project.toLowerCase().includes(query),
   );
   const nodes: TreeNode[] = [
-    { id: "every/", name: "Every project", group: true, children: all.filter((file) => !file.project).map(leaf) },
+    {
+      id: "every/",
+      name: "Every project",
+      group: true,
+      children: all.filter((file) => file.group === "every").map(leaf),
+    },
     {
       id: "projects/",
       name: "Projects",
@@ -164,6 +196,13 @@ export function Instructions({ item, go }: ViewProps) {
         name: project,
         children: all.filter((file) => file.project === project).map(leaf),
       })),
+    },
+    {
+      id: "grenier/",
+      name: "Grenier",
+      group: true,
+      meta: "what it tells agents",
+      children: all.filter((file) => file.group === "grenier").map(leaf),
     },
   ];
   // The groups start open and each project's folder closed; opening a file opens its folder, and closes nothing.

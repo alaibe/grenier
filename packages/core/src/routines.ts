@@ -7,13 +7,7 @@ export type RoutineMode = (typeof ROUTINE_MODES)[number];
 export const READ_TOOLS = ["Read", "Grep", "Glob", "LS", "NotebookRead", "TodoWrite"] as const;
 
 /** Grenier's own tools: a run reads the store and writes its output there. */
-export const STORE_TOOLS = [
-  "mcp__grenier__recall",
-  "mcp__grenier__query",
-  "mcp__grenier__remember",
-  "mcp__grenier__file_summary",
-  "mcp__grenier__repo_map",
-] as const;
+export const STORE_TOOLS = ["mcp__grenier__get", "mcp__grenier__set"] as const;
 
 /** An MCP tool whose name says it only reads: list_, get_, search_ and the like. */
 export function readsByName(tool: string): boolean {

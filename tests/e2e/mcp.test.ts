@@ -70,18 +70,18 @@ describe("the MCP server of the built binary", () => {
     await client.connect(transport);
     try {
       const question = "Where is the proxy defined?";
-      expect(structured(await client.callTool({ name: "recall", arguments: { query: question } })).status).toBe("miss");
+      expect(structured(await client.callTool({ name: "get", arguments: { query: question } })).status).toBe("miss");
       await client.callTool({
-        name: "remember",
+        name: "set",
         arguments: { kind: "answer", title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
       });
-      expect(structured(await client.callTool({ name: "recall", arguments: { query: question } }))).toMatchObject({
+      expect(structured(await client.callTool({ name: "get", arguments: { query: question } }))).toMatchObject({
         status: "hit",
         results: [{ title: question }],
       });
 
       writeFileSync(join(repo, "proxy.ts"), "export const proxy = 2;\n");
-      expect(structured(await client.callTool({ name: "recall", arguments: { query: question } }))).toMatchObject({
+      expect(structured(await client.callTool({ name: "get", arguments: { query: question } }))).toMatchObject({
         status: "stale",
         results: [{ changed: ["proxy.ts"] }],
       });

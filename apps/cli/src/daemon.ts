@@ -11,6 +11,7 @@ import { openSqliteStore } from "@grenier/store/sqlite";
 import { serve } from "@hono/node-server";
 import { version } from "../package.json";
 import { createAdmin } from "./admin/admin.ts";
+import { agentTexts } from "./agent-texts.ts";
 import { removeRetired } from "./installs.ts";
 import { environment, type Io, Refusal } from "./io.ts";
 import { TeamLink } from "./link.ts";
@@ -182,7 +183,14 @@ export async function runDaemon(io: Io): Promise<number> {
     notify,
     runGuard: async (session) => runner.guard(session),
     log: io.err,
-    mcp: { files: gitFiles, embedder, resolveRepo: repoResolver(null), me: () => identity(store, rules), version },
+    mcp: {
+      files: gitFiles,
+      embedder,
+      resolveRepo: repoResolver(null),
+      me: () => identity(store, rules),
+      version,
+      texts: () => agentTexts(paths.home),
+    },
     admin,
   });
 

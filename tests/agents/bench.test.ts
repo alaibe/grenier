@@ -39,8 +39,8 @@ interface Request {
   messages?: { role: string; content: string | Content[] }[];
 }
 
-const ASK = "mcp__grenier__recall";
-const RECORD = "mcp__grenier__remember";
+const ASK = "mcp__grenier__get";
+const RECORD = "mcp__grenier__set";
 /** Input tokens of the call made once ToolSearch has loaded Grenier's tools: small next to the prompt. */
 const LOADED = 500;
 

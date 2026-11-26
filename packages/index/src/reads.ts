@@ -1,7 +1,7 @@
 import { repoTop, topName, untrusted } from "@grenier/core";
 import type { FullRecord, Link, Store } from "@grenier/store";
 import { cosine } from "./embeddings.ts";
-import { contentHashes, ensureRepoTop, inRepo, type Reader, type Repo, readable, type StoreDeps } from "./records.ts";
+import { contentHashes, type Reader, type Repo, readable, type StoreDeps } from "./records.ts";
 
 /** A full-text match on at least this many of the question's terms makes a record a candidate. */
 const SHARED_TERMS = 2;
@@ -121,7 +121,6 @@ export async function recall(
     count?: boolean;
   },
 ): Promise<RecallResult> {
-  if (input.repo) await ensureRepoTop(deps.store, input.repo);
   let tops = (await readable(deps.store, reader)).map((top) => top.id);
   if (input.top) tops = tops.filter((top) => top === input.top);
   const here = input.repo ? repoTop(input.repo.id) : null;
@@ -251,64 +250,6 @@ export async function query(
       Object.entries(input.fields ?? {}).every(([name, value]) => String(record.fields[name] ?? "") === value),
   );
   return { records: await Promise.all(matching.slice(0, limit).map((record) => found(deps, record))) };
-}
-
-export async function fileSummary(
-  deps: StoreDeps,
-  repo: Repo,
-  input: { path: string },
-): Promise<{ status: "hit" | "miss"; path: string; summary?: string; notice?: string }> {
-  const [path] = inRepo(deps, repo, [input.path]);
-  if (!path) return { status: "miss", path: input.path };
-  const top = await ensureRepoTop(deps.store, repo);
-  const hash = (await contentHashes(deps, repo, [path])).get(path);
-  const summary = (await deps.store.records.list({ tops: [top], type: "Memory", kind: "summary" })).find(
-    (record) => record.fields.path === path && record.anchors.some((a) => a.ref === path && a.version === hash),
-  );
-  if (!summary) return { status: "miss", path };
-  const { records, notice } = untrusted({ records: [summary] });
-  return { status: "hit", path, summary: records[0]?.body ?? "", notice };
-}
-
-export interface RepoMapEntry {
-  path: string;
-  kind: "directory" | "file";
-  files: number;
-  /** Redacted and marked untrusted, as every record's text leaves. */
-  summary?: string;
-  /** True when the summary was recorded for content that has changed since. */
-  stale?: boolean;
-}
-
-export async function repoMap(deps: StoreDeps, repo: Repo): Promise<{ entries: RepoMapEntry[]; notice: string }> {
-  const folder = await ensureRepoTop(deps.store, repo);
-  const tracked = await deps.files.tracked(repo.root);
-  const summaries = new Map<string, FullRecord>();
-  for (const record of await deps.store.records.list({ tops: [folder], type: "Memory", kind: "summary" })) {
-    const path = String(record.fields.path ?? "");
-    if (path && !summaries.has(path)) summaries.set(path, record);
-  }
-  const top = new Map<string, RepoMapEntry>();
-  for (const { path } of tracked) {
-    const slash = path.indexOf("/");
-    const name = slash === -1 ? path : path.slice(0, slash);
-    const entry = top.get(name) ?? { path: name, kind: slash === -1 ? "file" : "directory", files: 0 };
-    entry.files += 1;
-    top.set(name, entry);
-  }
-  const entries = [...top.values()].sort((a, b) =>
-    a.kind === b.kind ? a.path.localeCompare(b.path) : a.kind === "directory" ? -1 : 1,
-  );
-  const shown = untrusted({ records: entries.flatMap((entry) => summaries.get(entry.path) ?? []) });
-  const bodies = new Map(shown.records.map((record) => [record.id, record.body]));
-  for (const entry of entries) {
-    const summary = summaries.get(entry.path);
-    if (!summary) continue;
-    entry.summary = bodies.get(summary.id) ?? "";
-    const hash = (await contentHashes(deps, repo, [entry.path])).get(entry.path);
-    entry.stale = !summary.anchors.some((anchor) => anchor.ref === entry.path && anchor.version === hash);
-  }
-  return { entries, notice: shown.notice };
 }
 
 /** Every record leaves redacted and marked untrusted, its folder as a folder path, the way agents name where to write. */

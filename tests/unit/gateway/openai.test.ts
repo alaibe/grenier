@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { fakeUpstream, sse, type TestGateway, testGateway } from "../../support/gateway.ts";
 
 const RESPONSES = new Uint8Array(readFileSync(new URL("../../fixtures/openai/responses-stream.sse", import.meta.url)));
-/** Codex reading with its shell and Grenier's recall, then patching a file: Responses API events as it streams them. */
+/** Codex reading with its shell and Grenier's get, then patching a file: Responses API events as it streams them. */
 const TOOL_CALLS = new Uint8Array(
   readFileSync(new URL("../../fixtures/openai/responses-tool-calls.sse", import.meta.url)),
 );
@@ -108,13 +108,13 @@ describe("a Codex routine's run", () => {
   }
   const send = () => gateway.request("/s/run1/openai/v1/responses", openaiRequest({ model: "gpt-5.1-codex" }));
 
-  it("cuts a read-only run's stream before apply_patch, and lets its shell and Grenier's recall through", async () => {
+  it("cuts a read-only run's stream before apply_patch, and lets its shell and Grenier's get through", async () => {
     const { asked, cut, upstream } = codexRun("read-only", () => sse(TOOL_CALLS));
     const text = await (await send()).text();
-    expect(asked).toEqual(["exec_command", "mcp__grenier__recall", "apply_patch"]);
+    expect(asked).toEqual(["exec_command", "mcp__grenier__get", "apply_patch"]);
     expect(cut).toEqual(["apply_patch"]);
     expect(text).toContain('"name":"exec_command"');
-    expect(text).toContain('"name":"recall"');
+    expect(text).toContain('"name":"get"');
     expect(text).not.toContain('"name":"apply_patch"');
     expect(text).not.toContain("*** Begin Patch");
     expect(text.trimEnd().split("\n\n").at(-1)).toMatch(/^event: response\.failed\ndata: .*may not call apply_patch/);
@@ -125,7 +125,7 @@ describe("a Codex routine's run", () => {
   it("passes a run that may act through byte for byte, asking once for each call", async () => {
     const { asked, cut } = codexRun("on", () => sse(TOOL_CALLS));
     expect(new Uint8Array(await (await send()).arrayBuffer())).toEqual(TOOL_CALLS);
-    expect(asked).toEqual(["exec_command", "mcp__grenier__recall", "apply_patch"]);
+    expect(asked).toEqual(["exec_command", "mcp__grenier__get", "apply_patch"]);
     expect(cut).toEqual([]);
   });
 

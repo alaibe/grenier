@@ -1,4 +1,4 @@
-import { deliver, fileSummary, recall, remember, repoMap } from "@grenier/index";
+import { deliver, recall, remember } from "@grenier/index";
 import { describe, expect, it } from "vitest";
 import { deps, PERSON, repo } from "./harness.ts";
 
@@ -20,26 +20,18 @@ describe("deliver", () => {
 });
 
 describe("summaries", () => {
-  it("keeps a file's summary until the file changes, and maps the repository with them", async () => {
+  it("finds a file's summary by what it says, until the file changes", async () => {
     await remember(deps, null, repo.repo, {
       kind: "summary",
       title: "src",
       body: "The router and the server.",
       files: ["src"],
     });
-    expect(await fileSummary(deps, repo.repo, { path: "src" })).toMatchObject({
-      status: "hit",
-      path: "src",
-      summary: expect.stringContaining("\nThe router and the server.\n"),
-    });
-    const map = await repoMap(deps, repo.repo);
-    expect(map.entries.find((entry) => entry.path === "src")).toMatchObject({
-      summary: expect.stringContaining("\nThe router and the server.\n"),
-      stale: false,
-    });
+    const found = await recall(deps, null, { query: "the router and the server", repo: repo.repo });
+    expect(found.results[0]).toMatchObject({ title: "src", status: "hit" });
     repo.write("src/new.ts", "export {};\n");
     repo.git("add", ".");
-    expect((await fileSummary(deps, repo.repo, { path: "src" })).status).toBe("miss");
-    expect((await repoMap(deps, repo.repo)).entries.find((entry) => entry.path === "src")?.stale).toBe(true);
+    const again = await recall(deps, null, { query: "the router and the server", repo: repo.repo });
+    expect(again.results[0]).toMatchObject({ title: "src", status: "stale" });
   });
 });

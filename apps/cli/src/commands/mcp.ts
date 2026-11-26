@@ -4,6 +4,7 @@ import { readerFor } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { version } from "../../package.json";
+import { agentTexts } from "../agent-texts.ts";
 import { environment, type Io } from "../io.ts";
 import { embedderLoader, ensureBaseTops, identity, repoResolver } from "../runtime.ts";
 
@@ -21,6 +22,7 @@ export async function serve(io: Io): Promise<number> {
     reader: () => readerFor(store, io.env.GRENIER_CLIENT_TOKEN),
     me: () => identity(store, config),
     version,
+    texts: () => agentTexts(paths.home),
     ...(io.env.GRENIER_SESSION ? { sessionId: io.env.GRENIER_SESSION } : {}),
     ...(io.env.GRENIER_RUN_TOP ? { runTop: io.env.GRENIER_RUN_TOP } : {}),
   });

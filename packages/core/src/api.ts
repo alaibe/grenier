@@ -264,13 +264,16 @@ export interface SharedState {
 
 /** An instructions file agents read: one for every project, or one of a project's in the work folder. */
 export interface InstructionFile {
-  /** `global/<file>` or `project/<folder>/<file>`. */
+  /** `global/<file>`, `project/<folder>/<file>` or `grenier/<text>`. */
   id: string;
-  /** CLAUDE.md, AGENTS.md or CLAUDE.local.md. */
+  /** CLAUDE.md, AGENTS.md or CLAUDE.local.md, or the name of a text Grenier gives agents. */
   name: string;
-  /** The project's folder name; null for the files every project gets. */
+  /** What every project gets, one project's, or what Grenier tells agents. */
+  group: "every" | "project" | "grenier";
+  /** The project's folder name, for a project's file. */
   project: string | null;
   path: string;
+  /** For Grenier's texts: whether the person has their own version, or Grenier's shows. */
   exists: boolean;
 }
 

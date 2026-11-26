@@ -17,13 +17,13 @@ describe("the remote MCP server", () => {
     const tools = await json<{ result: { tools: { name: string }[] } }>(
       await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
     );
-    expect(tools.result.tools.map((tool) => tool.name)).toEqual(["recall", "query"]);
+    expect(tools.result.tools.map((tool) => tool.name)).toEqual(["get"]);
     const found = await json<{ result: { structuredContent: { results: { body: string }[] } } }>(
       await rpc({
         jsonrpc: "2.0",
         id: 3,
         method: "tools/call",
-        params: { name: "recall", arguments: { query: "deploys friday" } },
+        params: { name: "get", arguments: { query: "deploys friday" } },
       }),
     );
     expect(found.result.structuredContent.results[0]?.body).toMatch(/^<untrusted-data-[0-9a-f]+ id="r1"/);
@@ -55,9 +55,9 @@ describe("the remote MCP server", () => {
           }),
         )
       ).result;
-    const recalled = await tool(bob, "recall", { query: "deploys" });
-    const queried = await tool(bob, "query", { id: "r1" });
-    const listed = await tool(bob, "query", { type: "Memory" });
+    const recalled = await tool(bob, "get", { query: "deploys" });
+    const queried = await tool(bob, "get", { id: "r1" });
+    const listed = await tool(bob, "get", { type: "Memory" });
     for (const [answer, shown] of [
       [recalled, recalled.structuredContent.results?.[0]],
       [queried, queried.structuredContent.records?.[0]],

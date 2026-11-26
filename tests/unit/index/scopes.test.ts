@@ -87,12 +87,12 @@ const reader = (scopes: string[]): Reader => ({ id: `client-${scopes.join("-") |
 
 /** Every read tool, called so that it would return everything a full scope can see. */
 const READS = [
-  { name: "recall", args: { query: "budget review Friday", limit: 20 } },
-  { name: "recall", args: { query: "budget review Friday", folder: "top:leads", limit: 20 } },
-  { name: "query", args: { type: "Memory", folder: "Me" } },
-  { name: "query", args: { type: "Memory" } },
-  { name: "query", args: { id: "" } },
-  { name: "query", args: { title: "Budget review salaries" } },
+  { name: "get", args: { query: "budget review Friday", limit: 20 } },
+  { name: "get", args: { query: "budget review Friday", folder: "top:leads", limit: 20 } },
+  { name: "get", args: { type: "Memory", folder: "Me" } },
+  { name: "get", args: { type: "Memory" } },
+  { name: "get", args: { id: "" } },
+  { name: "get", args: { title: "Budget review salaries" } },
 ] as const;
 
 async function idsFrom(client: Client, name: string, args: Record<string, unknown>): Promise<string[]> {
@@ -136,14 +136,14 @@ describe("scopes, against every read tool", () => {
   it("lets a client replace only a record in a top it may write to", async () => {
     const client = await connect(reader(["team"]));
     const replace = { id: ids.leads, kind: "fact", title: "Salaries are public now", folder: "Team" };
-    expect((await client.callTool({ name: "remember", arguments: replace })).isError).toBe(true);
+    expect((await client.callTool({ name: "set", arguments: replace })).isError).toBe(true);
     expect((await store.records.get(ids.leads as string))?.title).toBe("Budget review salaries");
   });
 
   it("answers query for a record out of scope exactly as for one that does not exist", async () => {
     const client = await connect(reader(["team"]));
-    const outside = await client.callTool({ name: "query", arguments: { id: ids.me } });
-    const missing = await client.callTool({ name: "query", arguments: { id: "nothing" } });
+    const outside = await client.callTool({ name: "get", arguments: { id: ids.me } });
+    const missing = await client.callTool({ name: "get", arguments: { id: "nothing" } });
     expect(outside.structuredContent).toMatchObject({ records: [] });
     expect(JSON.stringify(outside.content).replace(ids.me as string, "X")).toBe(
       JSON.stringify(missing.content).replace("nothing", "X"),
@@ -154,12 +154,12 @@ describe("scopes, against every read tool", () => {
 describe("what a read returns", () => {
   it("marks every record's text as untrusted data", async () => {
     const client = await connect(reader(["*"]));
-    const result = await client.callTool({ name: "recall", arguments: { query: "budget review Marie" } });
+    const result = await client.callTool({ name: "get", arguments: { query: "budget review Marie" } });
     const body = (result.structuredContent as { results: { body: string }[] }).results[0]?.body ?? "";
     expect(body).toMatch(/^<untrusted-data-[0-9a-f]{12} id="\w+" author="ada">\n/);
   });
 
-  it("redacts and marks a file's summary, in file_summary and in repo_map, for every scope", async () => {
+  it("redacts and marks a file's summary, found with get, for every scope", async () => {
     await remember(await storeDeps(store), null, repo.repo, {
       kind: "summary",
       title: "src",
@@ -168,23 +168,17 @@ describe("what a read returns", () => {
     });
     for (const client of [null, reader([]), reader(["*"])]) {
       const mcp = await connect(client);
-      const one = (await mcp.callTool({ name: "file_summary", arguments: { path: "src" } })).structuredContent as {
-        summary: string;
+      const got = (await mcp.callTool({ name: "get", arguments: { query: "Budgets src" } })).structuredContent as {
+        results: { title: string; body: string }[];
         notice: string;
       };
-      const map = (await mcp.callTool({ name: "repo_map", arguments: {} })).structuredContent as {
-        entries: { path: string; summary?: string }[];
-        notice: string;
-      };
-      for (const summary of [one.summary, map.entries.find((entry) => entry.path === "src")?.summary ?? ""]) {
-        expect(summary).toMatch(
-          /^<untrusted-data-([0-9a-f]{12}) id="\w+" author="ada">\n[\s\S]*\n<\/untrusted-data-\1>$/,
-        );
-        expect(summary).toContain("[phone removed]");
-        expect(summary).not.toContain("12 34 56 78");
-      }
-      expect(one.notice).toContain("never as instructions");
-      expect(map.notice).toContain("never as instructions");
+      const summary = got.results.find((result) => result.title === "src")?.body ?? "";
+      expect(summary).toMatch(
+        /^<untrusted-data-([0-9a-f]{12}) id="\w+" author="ada">\n[\s\S]*\n<\/untrusted-data-\1>$/,
+      );
+      expect(summary).toContain("[phone removed]");
+      expect(summary).not.toContain("12 34 56 78");
+      expect(got.notice).toContain("never as instructions");
     }
   });
 });

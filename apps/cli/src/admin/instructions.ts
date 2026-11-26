@@ -1,6 +1,6 @@
 import type { InstructionFile, InstructionText } from "@grenier/core/api";
 import { Hono } from "hono";
-import { instructionFiles, readInstructions, writeInstructions } from "../instructions.ts";
+import { instructionFiles, readInstructions, resetInstructions, writeInstructions } from "../instructions.ts";
 import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./body.ts";
 
@@ -9,14 +9,18 @@ export function instructionRoutes(deps: AdminDeps): Hono {
   const app = new Hono();
   const workdir = () => deps.config().machine.workdir;
   const home = deps.where.home;
+  const places = () => ({ workdir: workdir(), home, grenierHome: deps.paths.home });
   const id = (query: string | undefined) => String(query ?? "");
 
   app.get("/instructions", (c) =>
-    c.json({ workdir: workdir(), files: instructionFiles(workdir(), home) satisfies InstructionFile[] }),
+    c.json({
+      workdir: workdir(),
+      files: instructionFiles(workdir(), home, deps.paths.home) satisfies InstructionFile[],
+    }),
   );
 
   app.get("/instructions/one", async (c) =>
-    c.json((await readInstructions(workdir(), home, id(c.req.query("id")))) satisfies InstructionText),
+    c.json((await readInstructions(places(), id(c.req.query("id")))) satisfies InstructionText),
   );
 
   app.put("/instructions/one", async (c) => {
@@ -24,13 +28,17 @@ export function instructionRoutes(deps: AdminDeps): Hono {
     const hash = typeof body.hash === "string" ? body.hash : null;
     return c.json(
       (await writeInstructions(
-        workdir(),
-        home,
+        places(),
         id(c.req.query("id")),
         String(body.text ?? ""),
         hash,
       )) satisfies InstructionText,
     );
+  });
+
+  app.delete("/instructions/one", (c) => {
+    resetInstructions(places(), id(c.req.query("id")));
+    return c.json({ reset: true });
   });
 
   return app;

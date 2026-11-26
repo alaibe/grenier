@@ -207,6 +207,13 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
   const sorted = useMemo(
     () =>
       [...(tops.data ?? [])]
+        // A repository's folder shows once something is kept in it.
+        .filter(
+          (top) =>
+            top.kind !== "repo" ||
+            (pages.data ?? []).some((page) => page.top === top.id) ||
+            emptyFolders.empty.some((id) => id.startsWith(`${top.id}/`)),
+        )
         .sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || byName.compare(a.name, b.name))
         .map((top) => ({
           top,

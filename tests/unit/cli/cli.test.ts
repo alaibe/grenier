@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type GrenierPaths, resolvePaths } from "@grenier/core/node";
-import { ASK_FIRST } from "@grenier/gateway";
+import { AGENT_TEXTS } from "@grenier/gateway";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
@@ -174,16 +174,21 @@ describe("grenier run", () => {
       "hello",
       "",
     ]);
-    expect(agentArgs("/usr/bin/codex", ["-c", 'openai_base_url="x"'], "y", false)).toEqual([
+    expect(agentArgs("/usr/bin/codex", ["-c", 'openai_base_url="x"'], "y", null)).toEqual([
       "-c",
       'openai_base_url="x"',
     ]);
   });
 
-  it("tells Claude Code in a repository to recall first, unless it gives its own system prompt", () => {
+  it("tells Claude Code in a repository to call get first, unless it gives its own system prompt", () => {
     expect(asksFirst("/usr/local/bin/claude", ["-p", "hi"], true)).toBe(true);
-    expect(agentArgs("claude", ["-p", "hi"], "y", true)).toEqual(["--append-system-prompt", ASK_FIRST, "-p", "hi"]);
-    expect(ASK_FIRST).toContain("mcp__grenier__recall");
+    expect(agentArgs("claude", ["-p", "hi"], "y", "Call get.")).toEqual([
+      "--append-system-prompt",
+      "Call get.",
+      "-p",
+      "hi",
+    ]);
+    expect(AGENT_TEXTS.run).toContain("mcp__grenier__get");
     expect(asksFirst("claude", ["-p", "hi"], false)).toBe(false);
     expect(asksFirst("codex", ["exec"], true)).toBe(false);
     for (const own of ["--append-system-prompt", "--system-prompt-file=prompt.md", "--append-system-prompt-file"]) {

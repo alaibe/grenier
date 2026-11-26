@@ -20,13 +20,13 @@ event: response.output_item.done
 data: {"type":"response.output_item.done","sequence_number":6,"output_index":1,"item":{"id":"fc_1","type":"function_call","status":"completed","arguments":"{\"cmd\":\"rg -n route src\"}","call_id":"call_exec","name":"exec_command"}}
 
 event: response.output_item.added
-data: {"type":"response.output_item.added","sequence_number":7,"output_index":2,"item":{"id":"fc_2","type":"function_call","status":"in_progress","arguments":"","call_id":"call_recall","namespace":"mcp__grenier__","name":"recall"}}
+data: {"type":"response.output_item.added","sequence_number":7,"output_index":2,"item":{"id":"fc_2","type":"function_call","status":"in_progress","arguments":"","call_id":"call_recall","namespace":"mcp__grenier__","name":"get"}}
 
 event: response.function_call_arguments.done
 data: {"type":"response.function_call_arguments.done","sequence_number":8,"item_id":"fc_2","output_index":2,"arguments":"{\"query\":\"Where are requests routed?\"}"}
 
 event: response.output_item.done
-data: {"type":"response.output_item.done","sequence_number":9,"output_index":2,"item":{"id":"fc_2","type":"function_call","status":"completed","arguments":"{\"query\":\"Where are requests routed?\"}","call_id":"call_recall","namespace":"mcp__grenier__","name":"recall"}}
+data: {"type":"response.output_item.done","sequence_number":9,"output_index":2,"item":{"id":"fc_2","type":"function_call","status":"completed","arguments":"{\"query\":\"Where are requests routed?\"}","call_id":"call_recall","namespace":"mcp__grenier__","name":"get"}}
 
 event: response.output_item.added
 data: {"type":"response.output_item.added","sequence_number":10,"output_index":3,"item":{"id":"ctc_1","type":"custom_tool_call","status":"in_progress","call_id":"call_patch","name":"apply_patch","input":""}}
