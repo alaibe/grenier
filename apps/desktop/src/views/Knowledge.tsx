@@ -1,17 +1,18 @@
 import type { PageRow, RecordRow, Top } from "@grenier/core/api";
 import { topName } from "@grenier/core/team";
-import { FilePlus, FileText, FolderPlus, Pencil } from "lucide-react";
+import { FilePlus, FileText, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
-import { api } from "../api.ts";
+import { api, searchRecords } from "../api.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
 import { ListDetail } from "../shell/regions.tsx";
 import { IconButton } from "../ui/button.tsx";
+import { Dialog } from "../ui/dialog.tsx";
 import { Empty, Skeleton } from "../ui/empty.tsx";
 import { Input, SearchField } from "../ui/field.tsx";
-import { useLoad } from "../ui/load.ts";
+import { useAction, useLoad } from "../ui/load.ts";
 import { Problem } from "../ui/notice.tsx";
-import { Tree, type TreeNode, visibleRows } from "../ui/tree.tsx";
+import { Tree, type TreeDrag, type TreeNode, visibleRows } from "../ui/tree.tsx";
 import { type FolderPath, folderPath, PageEditor, type Target } from "./PageEditor.tsx";
 
 const loadTops = () => api<{ tops: Top[] }>("/tops").then((answer) => answer.tops);
@@ -27,22 +28,24 @@ interface Folder {
 
 const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-/** One top folder's tree: folders first, then pages, each by name. */
-function treeOf(pages: PageRow[]): Folder {
+/** One top folder's tree, with the empty folders made here: folders first, then pages, each by name. */
+function treeOf(pages: PageRow[], empty: string[]): Folder {
   const top: Folder = { name: "", path: "", folders: [], pages: [] };
-  for (const page of pages) {
+  const ensure = (path: string) => {
     let folder = top;
-    for (const name of page.folder ? page.folder.split("/") : []) {
-      const path = folder.path ? `${folder.path}/${name}` : name;
+    for (const name of path ? path.split("/") : []) {
+      const at = folder.path ? `${folder.path}/${name}` : name;
       let next = folder.folders.find((entry) => entry.name === name);
       if (!next) {
-        next = { name, path, folders: [], pages: [] };
+        next = { name, path: at, folders: [], pages: [] };
         folder.folders.push(next);
       }
       folder = next;
     }
-    folder.pages.push(page);
-  }
+    return folder;
+  };
+  for (const page of pages) ensure(page.folder).pages.push(page);
+  empty.forEach(ensure);
   const sort = (folder: Folder) => {
     folder.folders.sort((a, b) => byName.compare(a.name, b.name));
     folder.pages.sort((a, b) => byName.compare(a.title, b.title));
@@ -52,11 +55,75 @@ function treeOf(pages: PageRow[]): Folder {
   return top;
 }
 
+/** The path of the folder a folder sits in: "" for one at the top. */
+const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
+
+const NO_SLASH = "A folder's name has no /. Name it again without one.";
+
+/** Whether a folder holds a page, itself or in a folder under it. */
+const holds = (folder: Folder): boolean => folder.pages.length > 0 || folder.folders.some(holds);
+
 function foldersIn(folder: Folder): string[] {
   return folder.folders.flatMap((child) => [child.path, ...foldersIn(child)]);
 }
 
 const FOLDING_KEY = "grenier.knowledge.folding";
+const EMPTY_KEY = "grenier.knowledge.empty";
+
+/** Folders made here that hold no page yet, as "top/path": the store only knows a folder by its pages. */
+function useEmptyFolders(pages: PageRow[] | null) {
+  const [empty, setEmpty] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(EMPTY_KEY) ?? "[]") as string[];
+    } catch {
+      return [];
+    }
+  });
+  const keep = useCallback((next: (current: string[]) => string[]) => {
+    setEmpty((current) => {
+      const value = next(current);
+      if (value.length === current.length && value.every((id, at) => id === current[at])) return current;
+      try {
+        localStorage.setItem(EMPTY_KEY, JSON.stringify(value));
+      } catch {}
+      return value;
+    });
+  }, []);
+  // A folder that now holds a page, or a folder under it, no longer needs keeping.
+  useEffect(() => {
+    if (!pages) return;
+    keep((current) =>
+      current.filter((id) => {
+        const inside = (page: PageRow) => {
+          const at = `${page.top}/${page.folder}`;
+          return at === id || at.startsWith(`${id}/`);
+        };
+        return !pages.some(inside) && !current.some((other) => other.startsWith(`${id}/`));
+      }),
+    );
+  }, [pages, keep]);
+  return {
+    empty,
+    add: useCallback((top: string, path: string) => keep((current) => [...current, `${top}/${path}`]), [keep]),
+    remove: useCallback(
+      (top: string, path: string) =>
+        keep((current) => current.filter((id) => id !== `${top}/${path}` && !id.startsWith(`${top}/${path}/`))),
+      [keep],
+    ),
+    /** After a folder's move: the empty folders it held move with it. */
+    move: useCallback(
+      (top: string, from: string, toTop: string, to: string) =>
+        keep((current) =>
+          current.map((id) =>
+            id === `${top}/${from}` || id.startsWith(`${top}/${from}/`)
+              ? `${toTop}/${to}${id.slice(top.length + 1 + from.length)}`
+              : id,
+          ),
+        ),
+      [keep],
+    ),
+  };
+}
 
 /** A folder's node id; a top folder's ends with "/", as its path is empty. */
 const folderId = (top: string, path: string) => `${top}/${path}`;
@@ -89,6 +156,19 @@ function useFolding(): [(id: string) => boolean, (id: string, open: boolean) => 
   return [unfolded, fold];
 }
 
+/** A row dragged onto a folder: both by their tree ids. */
+interface Moving {
+  dragged: string;
+  into: string;
+}
+
+/** A move into another top folder, waiting for the person's yes. */
+interface Crossing extends Moving {
+  from: Top;
+  to: Top;
+  name: string;
+}
+
 const ORDER: Record<Top["kind"], number> = { me: 0, team: 1, repo: 2, custom: 3 };
 
 const SAYS: Record<Top["kind"], string> = {
@@ -109,11 +189,13 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
   const tops = useLoad(loadTops);
   const pages = useLoad(loadPages);
   const [unfolded, fold] = useFolding();
+  const emptyFolders = useEmptyFolders(pages.data);
   const [words, setWords] = useState("");
   const [cursor, setCursor] = useState<string | null>(item && item !== "new" ? pageId(item) : null);
   const [newIn, setNewIn] = useState<Target | null>(null);
   const [editing, setEditing] = useState<{ id: string; kind: "rename" | "folder" } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [crossing, setCrossing] = useState<Crossing | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const searching = words.trim().length >= 2;
 
@@ -127,8 +209,14 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
     () =>
       [...(tops.data ?? [])]
         .sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || byName.compare(a.name, b.name))
-        .map((top) => ({ top, tree: treeOf((pages.data ?? []).filter((page) => page.top === top.id)) })),
-    [tops.data, pages.data],
+        .map((top) => ({
+          top,
+          tree: treeOf(
+            (pages.data ?? []).filter((page) => page.top === top.id),
+            emptyFolders.empty.filter((id) => id.startsWith(`${top.id}/`)).map((id) => id.slice(top.id.length + 1)),
+          ),
+        })),
+    [tops.data, pages.data, emptyFolders.empty],
   );
   const folderPaths: FolderPath[] = useMemo(
     () =>
@@ -143,6 +231,7 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
   );
 
   const writes = (top: Top) => !member || top.kind === "me";
+  const moving = useAction(reload);
   const startPage = useCallback(
     (target: Target) => {
       setNewIn(target);
@@ -162,18 +251,24 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
     for (let depth = 1; depth <= names.length; depth++) fold(folderId(page.top, names.slice(0, depth).join("/")), true);
   }, [item, pages.data, fold]);
 
+  /** Moves a folder and every page under it, the empty folders it holds, and whether it shows them. */
+  const moveFolder = async (top: string, from: string, toTop: string, to: string) => {
+    await api("/folders/move", { body: { top, from, to, toTop } });
+    emptyFolders.move(top, from, toTop, to);
+    fold(folderId(toTop, to), unfolded(folderId(top, from)));
+  };
+
   const rename = async (top: string, from: Folder, event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = String(new FormData(event.currentTarget).get("name") ?? "").trim();
     setEditing(null);
     if (!name || name === from.name) return;
-    if (name.includes("/")) return setProblem("A folder's name has no /. Name it again without one.");
-    const parent = from.path.slice(0, Math.max(0, from.path.length - from.name.length - 1));
+    if (name.includes("/")) return setProblem(NO_SLASH);
+    const parent = parentOf(from.path);
     const to = parent ? `${parent}/${name}` : name;
     try {
-      await api("/folders/move", { body: { top, from: from.path, to } });
+      await moveFolder(top, from.path, top, to);
       setProblem(null);
-      fold(folderId(top, to), unfolded(folderId(top, from.path)));
       reload();
     } catch (error) {
       setProblem((error as Error).message);
@@ -216,7 +311,7 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
           onClick={() => startPage({ top: top.id, folder: folder.path })}
         />
         <IconButton
-          label="New folder here: it holds its first page once saved"
+          label="New folder here"
           icon={FolderPlus}
           size="sm"
           onClick={() => {
@@ -226,6 +321,14 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
         />
         {folder.path && (
           <IconButton label="Rename" icon={Pencil} size="sm" onClick={() => setEditing({ id, kind: "rename" })} />
+        )}
+        {folder.path && !holds(folder) && (
+          <IconButton
+            label="Remove this empty folder"
+            icon={Trash2}
+            size="sm"
+            onClick={() => emptyFolders.remove(top.id, folder.path)}
+          />
         )}
       </>
     );
@@ -244,8 +347,12 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
                 event.preventDefault();
                 const name = String(new FormData(event.currentTarget).get("name") ?? "").trim();
                 setEditing(null);
-                if (name && !name.includes("/"))
-                  startPage({ top: top.id, folder: folder.path ? `${folder.path}/${name}` : name });
+                if (!name) return;
+                if (name.includes("/")) return setProblem(NO_SLASH);
+                const path = folder.path ? `${folder.path}/${name}` : name;
+                emptyFolders.add(top.id, path);
+                fold(folderId(top.id, path), true);
+                setCursor(folderId(top.id, path));
               }),
             },
           ]
@@ -281,6 +388,76 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
     actions: folderActions(top, tree),
     children: nodesOf(top, tree),
   }));
+
+  /** Each folder row's top folder and path, by its id. */
+  const places = useMemo(() => {
+    const out = new Map<string, { top: Top; path: string; name: string }>();
+    for (const { top, tree } of sorted) {
+      const add = (folder: Folder) => {
+        out.set(folderId(top.id, folder.path), { top, path: folder.path, name: folder.name || topName(top) });
+        folder.folders.forEach(add);
+      };
+      add(tree);
+    }
+    return out;
+  }, [sorted]);
+  const byId = useMemo(() => new Map((pages.data ?? []).map((page) => [pageId(page.id), page])), [pages.data]);
+  const pageRow = (id: string) => byId.get(id);
+  const topOf = (id: string) => {
+    const top = pageRow(id)?.top;
+    return top ? tops.data?.find((entry) => entry.id === top) : places.get(id)?.top;
+  };
+
+  const run = ({ dragged, into }: Moving) => {
+    const place = places.get(into);
+    if (!place) return;
+    const page = pageRow(dragged);
+    const from = places.get(dragged);
+    void moving.run("move", async () => {
+      if (page) {
+        await api(`/records/${encodeURIComponent(page.id)}`, {
+          method: "PUT",
+          body: { top: place.top.id, folder: place.path },
+        });
+        return `Moved ${page.title} to ${folderPath(tops.data ?? [], place.top.id, place.path)}`;
+      }
+      if (!from) return undefined;
+      await moveFolder(from.top.id, from.path, place.top.id, place.path ? `${place.path}/${from.name}` : from.name);
+      return `Moved ${from.name} to ${folderPath(tops.data ?? [], place.top.id, place.path)}`;
+    });
+  };
+
+  const drag: TreeDrag = {
+    can: (node) => {
+      const page = pageRow(node.id);
+      if (page) return tops.data?.some((top) => top.id === page.top && writes(top)) ?? false;
+      const place = places.get(node.id);
+      return place !== undefined && place.path !== "" && writes(place.top) && editing === null;
+    },
+    into: (dragged, over) => {
+      const page = pageRow(over.id);
+      const into = page ? folderId(page.top, page.folder) : over.id;
+      const place = places.get(into);
+      if (!place || !writes(place.top)) return null;
+      const moved = pageRow(dragged);
+      if (moved) return moved.top === place.top.id && moved.folder === place.path ? null : into;
+      const from = places.get(dragged);
+      if (!from) return null;
+      if (from.top.id === place.top.id) {
+        if (place.path === parentOf(from.path) || place.path === from.path || place.path.startsWith(`${from.path}/`))
+          return null;
+      }
+      return into;
+    },
+    drop: (dragged, into) => {
+      const to = places.get(into)?.top;
+      const from = topOf(dragged);
+      const name = pageRow(dragged)?.title ?? places.get(dragged)?.name ?? "";
+      // Into another top folder, other people see it, or no longer do: that is asked first.
+      if (to && from && from.id !== to.id) setCrossing({ dragged, into, from, to, name });
+      else run({ dragged, into });
+    },
+  };
 
   const rows = visibleRows(nodes, unfolded);
   const fallback = firstFolder(tops.data ?? [], member);
@@ -371,7 +548,7 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Problem error={tops.error ?? pages.error ?? problem} />
+        <Problem error={tops.error ?? pages.error ?? problem ?? moving.problem} />
         {!tops.data || !pages.data ? (
           <Skeleton rows={8} />
         ) : searching ? (
@@ -392,7 +569,24 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
               const page = pageOf(node);
               if (page) open(page);
             }}
+            drag={drag}
           />
+        )}
+        {crossing && (
+          <Dialog
+            title={`Move to ${topName(crossing.to)}?`}
+            action="Move"
+            onCancel={() => setCrossing(null)}
+            onAction={() => {
+              setCrossing(null);
+              run(crossing);
+            }}
+          >
+            <p>
+              {crossing.name} moves from {topName(crossing.from)} ({SAYS[crossing.from.kind]}) to {topName(crossing.to)}{" "}
+              ({SAYS[crossing.to.kind]}): who can see it changes.
+            </p>
+          </Dialog>
         )}
       </div>
     </>
@@ -436,10 +630,7 @@ function Found({
   current: string | null;
   open: (id: string) => void;
 }) {
-  const load = useCallback(
-    () => api<{ records: RecordRow[] }>(`/records?q=${encodeURIComponent(words)}`).then((answer) => answer.records),
-    [words],
-  );
+  const load = useCallback(() => searchRecords<RecordRow>(words), [words]);
   const { data, error } = useLoad(load);
   const [cursor, setCursor] = useState<string | null>(current ? pageId(current) : null);
   if (error) return <Problem error={error} />;

@@ -7,29 +7,38 @@ import type {
   Link,
   LinkedRecord,
   RecordFull,
-  RecordRow,
   Saved,
   TeamRecord,
   Top,
 } from "@grenier/core/api";
 import { topName } from "@grenier/core/team";
-import { Check, ChevronDown, ChevronUp, FileText, Undo2 } from "lucide-react";
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Archive,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  FolderInput,
+  History as HistoryIcon,
+  Undo2,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api.ts";
 import { hunks, lineDiff } from "../diff.ts";
+import { MarkdownEditor } from "../editor/markdown-editor.tsx";
 import { ago, exact } from "../format.ts";
-import { Markdown } from "../markdown.tsx";
 import { type Command, useCommands } from "../shell/commands.tsx";
 import { useItemTitle } from "../shell/regions.tsx";
-import { Button, Primary } from "../ui/button.tsx";
-import { ConfirmButton } from "../ui/dialog.tsx";
+import { Button, IconButton, Primary } from "../ui/button.tsx";
+import { Dialog, useConfirm } from "../ui/dialog.tsx";
 import { Skeleton } from "../ui/empty.tsx";
-import { Field, Select, Textarea } from "../ui/field.tsx";
+import { Field, Select } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
+import { Menu } from "../ui/menu.tsx";
 import { Notice, Problem } from "../ui/notice.tsx";
 import { Section } from "../ui/page.tsx";
-import { Segmented } from "../ui/segmented.tsx";
-import { RowActions, Table } from "../ui/table.tsx";
+import { Table } from "../ui/table.tsx";
 import { Status, Tag } from "../ui/tag.tsx";
 import { Tree } from "../ui/tree.tsx";
 
@@ -88,6 +97,10 @@ export function PageEditor({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [base, setBase] = useState(0);
   const [conflict, setConflict] = useState<TeamRecord | null>(null);
+  const [history, setHistory] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const text = useRef<{ focus: () => void }>(null);
+  const { ask, dialog } = useConfirm();
   const action = useAction();
   useItemTitle(record.data?.title ?? (id ? null : "New page"));
 
@@ -186,19 +199,157 @@ export function PageEditor({
   const kind =
     record.data && record.data.type !== "Doc" ? [record.data.type, record.data.kind].filter(Boolean).join(" · ") : null;
 
+  const dirty =
+    !record.data ||
+    draft.title !== record.data.title ||
+    draft.body !== record.data.body ||
+    draft.top !== record.data.top ||
+    draft.folder !== record.data.folder;
+  const retire = () =>
+    ask({
+      title: `Retire “${record.data?.title ?? ""}”?`,
+      body:
+        draft.top === "me"
+          ? "It leaves your pages and your agents stop reading it. Its history stays."
+          : "It leaves the pages of everyone who reads this folder, and their agents stop reading it. Its history stays.",
+      action: "Retire the page",
+      run: () =>
+        void action.run("retire", async () => {
+          await api(`/records/${encodeURIComponent(record.data?.id ?? "")}`, { method: "DELETE" });
+          changed();
+          closed();
+          return "Retired the page";
+        }),
+    });
+
   return (
-    <article className="mx-auto w-full max-w-(--layout-reading) px-6 pt-6 pb-12" data-verb="save">
-      <header className="mb-4 flex items-end gap-3">
-        <div className="min-w-0 flex-1">
-          <Field label="Folder">
-            <Select
-              disabled={!editable}
-              value={pathKey(here)}
-              onChange={(event) => {
-                const path = choices.find((entry) => pathKey(entry) === event.currentTarget.value);
-                if (path) set({ top: path.top, folder: path.folder });
-              }}
+    <div className="flex h-full min-h-0">
+      <article className="flex min-w-0 flex-1 flex-col overflow-y-auto" data-verb="save">
+        <header className="sticky top-0 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg px-4 font-mono text-sm">
+          <p className="min-w-0 flex-1 truncate text-muted" title="Where it is">
+            {folderPath(tops, draft.top, draft.folder)}
+          </p>
+          {editable && (
+            <span className="text-xs text-muted">{dirty ? (id ? "Edited" : "Not saved yet") : "Saved"}</span>
+          )}
+          {record.data && (
+            <IconButton
+              label={history ? "Hide the history" : "History"}
+              icon={HistoryIcon}
+              size="sm"
+              aria-pressed={history}
+              onClick={() => setHistory(!history)}
+            />
+          )}
+          {editable && (
+            <Menu
+              label="More"
+              items={[
+                { label: "Move to…", icon: FolderInput, run: () => setMoving(true) },
+                ...(record.data && !record.data.retiredAt
+                  ? [{ label: "Retire", icon: Archive, danger: true, run: retire }]
+                  : []),
+              ]}
+            />
+          )}
+          {editable && (
+            <Primary
+              size="sm"
+              keys="mod+enter"
+              busy={action.busy === "save"}
+              disabled={!dirty && !conflict}
+              onClick={() => save(conflict?.version ?? base)}
             >
+              {conflict ? "Keep mine" : "Save"}
+            </Primary>
+          )}
+        </header>
+
+        <div className="mx-auto w-full max-w-(--layout-reading) px-6 pt-10 pb-24">
+          <input
+            className="w-full bg-transparent font-mono text-xl leading-tight font-semibold tracking-tight outline-none placeholder:text-muted"
+            aria-label="Title"
+            placeholder="Untitled"
+            readOnly={!editable}
+            value={draft.title}
+            onChange={(event) => set({ title: event.currentTarget.value })}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.metaKey || event.ctrlKey) return;
+              event.preventDefault();
+              text.current?.focus();
+            }}
+          />
+          {record.data && (
+            <p className="mt-2 font-mono text-xs text-muted tabular-nums">
+              {kind && `${kind} · `}by {record.data.author} on {record.data.device} ·{" "}
+              <time title={exact(record.data.updatedAt)}>changed {ago(record.data.updatedAt)}</time>
+              {record.data.hits > 0 && ` · used ${record.data.hits} times`}
+            </p>
+          )}
+
+          <div className="mt-4 grid gap-2 empty:hidden">
+            <Problem error={action.problem} />
+            {conflict && (
+              <Notice
+                kind="warn"
+                more={`Theirs is titled “${conflict.title}”${conflict.body !== draft.body ? ", and its text differs" : ""}. Keep mine saves over it.`}
+                action={
+                  <Button size="sm" onClick={() => take(conflict)}>
+                    Take theirs
+                  </Button>
+                }
+              >
+                {conflict.author} saved version {conflict.version} while you were editing.
+              </Notice>
+            )}
+            {record.data?.retiredAt && <Notice kind="info">Retired {ago(record.data.retiredAt)}.</Notice>}
+            {!editable && <Notice kind="info">Only an admin changes the pages here.</Notice>}
+            {id && <Presence id={id} />}
+            {record.data?.type === "Suggestion" && <Suggestion record={record.data} back={closed} />}
+          </div>
+
+          <div className="mt-6">
+            <MarkdownEditor
+              ref={text}
+              key={id ?? "new"}
+              value={draft.body}
+              editable={editable}
+              label="Text, in Markdown"
+              onChange={(body) => set({ body })}
+              onLink={(link) =>
+                setDraft(
+                  (now) => now && { ...now, links: [...now.links.filter((entry) => entry.ref !== link.ref), link] },
+                )
+              }
+              open={open}
+            />
+          </div>
+
+          {record.data && (
+            <div className="mt-12">
+              <Anchors record={record.data} />
+              <Linked title="Links to" items={record.data.linksTo} open={open} />
+              <Linked title="Linked from" items={record.data.linkedFrom} open={open} />
+            </div>
+          )}
+        </div>
+      </article>
+      {history && record.data && (
+        <HistoryPanel id={record.data.id} restore={(snapshot) => set(snapshot)} close={() => setHistory(false)} />
+      )}
+      {moving && (
+        <Dialog
+          title="Move the page"
+          action="Move"
+          onCancel={() => setMoving(false)}
+          onAction={(form) => {
+            setMoving(false);
+            const path = choices.find((entry) => pathKey(entry) === form.get("folder"));
+            if (path) set({ top: path.top, folder: path.folder });
+          }}
+        >
+          <Field label="Folder" help="Save makes the move.">
+            <Select name="folder" defaultValue={pathKey(here)}>
               {choices.map((path) => (
                 <option key={pathKey(path)} value={pathKey(path)}>
                   {path.label}
@@ -206,91 +357,10 @@ export function PageEditor({
               ))}
             </Select>
           </Field>
-        </div>
-        {editable && (
-          <div className="flex shrink-0 items-center gap-2">
-            {record.data && !record.data.retiredAt && (
-              <ConfirmButton
-                label="Retire"
-                disabled={action.busy !== null}
-                title={`Retire “${record.data.title}”?`}
-                body={
-                  draft.top === "me"
-                    ? "It leaves your pages and your agents stop reading it. Its history stays."
-                    : "It leaves the pages of everyone who reads this folder, and their agents stop reading it. Its history stays."
-                }
-                action="Retire the page"
-                run={() =>
-                  void action.run("retire", async () => {
-                    await api(`/records/${encodeURIComponent(record.data?.id ?? "")}`, { method: "DELETE" });
-                    changed();
-                    closed();
-                    return "Retired the page";
-                  })
-                }
-              />
-            )}
-            <Primary keys="mod+enter" busy={action.busy === "save"} onClick={() => save(conflict?.version ?? base)}>
-              {conflict ? "Keep mine" : "Save"}
-            </Primary>
-          </div>
-        )}
-      </header>
-      <input
-        className="w-full bg-transparent font-mono text-xl leading-tight font-semibold tracking-tight outline-none placeholder:text-muted"
-        aria-label="Title"
-        placeholder="Untitled"
-        readOnly={!editable}
-        value={draft.title}
-        onChange={(event) => set({ title: event.currentTarget.value })}
-      />
-      {record.data && (
-        <p className="mt-1 font-mono text-xs text-muted tabular-nums">
-          {kind && `${kind} · `}by {record.data.author} on {record.data.device} ·{" "}
-          <time title={exact(record.data.updatedAt)}>changed {ago(record.data.updatedAt)}</time>
-          {record.data.hits > 0 && ` · used ${record.data.hits} times`}
-        </p>
+        </Dialog>
       )}
-
-      <div className="mt-4 grid gap-2">
-        <Problem error={action.problem} />
-        {conflict && (
-          <Notice
-            kind="warn"
-            more={`Theirs is titled “${conflict.title}”${conflict.body !== draft.body ? ", and its text differs" : ""}. Keep mine saves over it.`}
-            action={
-              <Button size="sm" onClick={() => take(conflict)}>
-                Take theirs
-              </Button>
-            }
-          >
-            {conflict.author} saved version {conflict.version} while you were editing.
-          </Notice>
-        )}
-        {record.data?.retiredAt && <Notice kind="info">Retired {ago(record.data.retiredAt)}.</Notice>}
-        {!editable && <Notice kind="info">Only an admin changes the pages here.</Notice>}
-        {id && <Presence id={id} />}
-        {record.data?.type === "Suggestion" && <Suggestion record={record.data} back={closed} />}
-      </div>
-
-      <Body
-        editable={editable}
-        text={draft.body}
-        onChange={(body, link) =>
-          set({ body, ...(link ? { links: [...draft.links.filter((entry) => entry.ref !== link.ref), link] } : {}) })
-        }
-        open={open}
-      />
-
-      {record.data && (
-        <div className="mt-8">
-          <Anchors record={record.data} />
-          <Linked title="Links to" items={record.data.linksTo} open={open} />
-          <Linked title="Linked from" items={record.data.linkedFrom} open={open} />
-          <History id={record.data.id} restore={(snapshot) => set(snapshot)} />
-        </div>
-      )}
-    </article>
+      {dialog}
+    </div>
   );
 
   function take(theirs: TeamRecord) {
@@ -298,142 +368,6 @@ export function PageEditor({
     setBase(theirs.version);
     setConflict(null);
   }
-}
-
-/** The text: Markdown, with @ to link another page. */
-function Body({
-  editable,
-  text,
-  onChange,
-  open,
-}: {
-  editable: boolean;
-  text: string;
-  onChange: (body: string, link?: Link) => void;
-  open: (id: string) => void;
-}) {
-  const [writing, setWriting] = useState(() => editable && text.trim() === "");
-  const preview = !editable || !writing;
-  const [mention, setMention] = useState<{ word: string; start: number } | null>(null);
-  const [matches, setMatches] = useState<RecordRow[]>([]);
-  const [highlighted, setHighlighted] = useState(0);
-  const area = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (!mention || mention.word.length < 2) {
-      setMatches([]);
-      return;
-    }
-    let current = true;
-    api<{ records: RecordRow[] }>(`/records?q=${encodeURIComponent(mention.word)}`)
-      .then((answer) => {
-        if (!current) return;
-        setMatches(answer.records.slice(0, 6));
-        setHighlighted(0);
-      })
-      .catch(() => current && setMatches([]));
-    return () => {
-      current = false;
-    };
-  }, [mention]);
-
-  const look = (value: string, caret: number) => {
-    const found = /(^|\s)@([^\s@][^@\n]{0,40})?$/.exec(value.slice(0, caret));
-    setMention(found ? { word: found[2] ?? "", start: caret - (found[2] ?? "").length - 1 } : null);
-  };
-
-  const insert = (match: RecordRow) => {
-    if (!mention) return;
-    const start = mention.start;
-    const replacement = `[${match.title}](record:${match.id})`;
-    onChange(`${text.slice(0, start)}${replacement}${text.slice(start + mention.word.length + 1)}`, {
-      kind: "record",
-      ref: match.id,
-    });
-    setMention(null);
-    requestAnimationFrame(() => {
-      area.current?.focus();
-      area.current?.setSelectionRange(start + replacement.length, start + replacement.length);
-    });
-  };
-
-  const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!mention || matches.length === 0) return;
-    if (event.key === "ArrowDown") setHighlighted((index) => (index + 1) % matches.length);
-    else if (event.key === "ArrowUp") setHighlighted((index) => (index - 1 + matches.length) % matches.length);
-    else if (event.key === "Enter" && !event.metaKey && !event.ctrlKey) {
-      const match = matches[highlighted];
-      if (match) insert(match);
-    } else if (event.key === "Escape") setMention(null);
-    else return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  return (
-    <section className="mt-6">
-      {editable && (
-        <div className="mb-3 flex justify-end">
-          <Segmented
-            label="Text view"
-            options={[
-              ["write", "Write"],
-              ["preview", "Preview"],
-            ]}
-            value={preview ? "preview" : "write"}
-            onChange={(view) => setWriting(view === "write")}
-          />
-        </div>
-      )}
-      {preview && !text.trim() && <p className="text-muted">Nothing written yet.</p>}
-      {preview && text.trim() && <Markdown text={text} open={open} />}
-      {!preview && (
-        <div className="relative">
-          <Textarea
-            ref={area}
-            rows={18}
-            aria-label="Text, in Markdown"
-            placeholder="Markdown. @ links another page."
-            value={text}
-            onChange={(event) => {
-              onChange(event.currentTarget.value);
-              look(event.currentTarget.value, event.currentTarget.selectionStart);
-            }}
-            onKeyDown={keyDown}
-            onBlur={() => setTimeout(() => setMention(null), 150)}
-          />
-          {mention && matches.length > 0 && (
-            <div
-              className="menu absolute right-3 bottom-3 w-80"
-              style={{ zIndex: "var(--layer-popover)" }}
-              role="listbox"
-              aria-label="Pages to link"
-            >
-              {matches.map((match, index) => (
-                <div
-                  key={match.id}
-                  className="menu-item"
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === highlighted}
-                  data-highlighted={index === highlighted || undefined}
-                  onPointerMove={() => setHighlighted(index)}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    insert(match);
-                  }}
-                  onKeyDown={() => {}}
-                >
-                  <FileText className="icon" aria-hidden="true" />
-                  <span className="truncate">{match.title}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </section>
-  );
 }
 
 /** The files the page was written from, and whether each changed since. */
@@ -549,19 +483,37 @@ function Linked({ title, items, open }: { title: string; items: LinkedRecord[]; 
   );
 }
 
-function History({ id, restore }: { id: string; restore: (draft: Partial<Draft>) => void }) {
+/** Earlier versions beside the page (an inspector): Restore puts one in the editor, Save makes it the latest. */
+function HistoryPanel({
+  id,
+  restore,
+  close,
+}: {
+  id: string;
+  restore: (draft: Partial<Draft>) => void;
+  close: () => void;
+}) {
   const load = useCallback(
     () => api<{ history: HistoryEntry[] }>(`/records/${encodeURIComponent(id)}/history`).then((a) => a.history),
     [id],
   );
   return (
-    <Section
-      title="History"
-      collapsible="page.history"
-      description="Restore puts a version in the editor; Save makes it the latest."
+    <aside
+      className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-line bg-panel"
+      aria-label="History"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        close();
+      }}
     >
+      <header className="sticky top-0 flex h-12 shrink-0 items-center justify-between border-b border-line bg-panel px-4">
+        <h2 className="font-mono text-sm font-semibold">History</h2>
+        <IconButton label="Close the history" icon={X} size="sm" onClick={close} />
+      </header>
+      <p className="px-4 pt-3 text-sm text-muted">Restore puts a version in the editor; Save makes it the latest.</p>
       <Versions load={load} restore={restore} />
-    </Section>
+    </aside>
   );
 }
 
@@ -574,48 +526,37 @@ function Versions({
 }) {
   const { data, error } = useLoad(load);
   if (error) return <Problem error={error} />;
-  if (!data) return <Skeleton rows={3} shape="table" />;
-  if (data.length === 0) return <p className="text-muted">No earlier version.</p>;
+  if (!data) return <Skeleton rows={3} shape="text" />;
+  if (data.length === 0) return <p className="px-4 py-3 text-muted">No earlier version.</p>;
   return (
-    <Table
-      label="Versions"
-      head={
-        <>
-          <th className="num">Version</th>
-          <th>By</th>
-          <th>Saved</th>
-          <th>
-            <span className="sr-only">Actions</span>
-          </th>
-        </>
-      }
-    >
+    <ol className="py-2" aria-label="Versions">
       {[...data].reverse().map((entry) => (
-        <tr key={entry.version}>
-          <td className="num mono">{entry.version}</td>
-          <td>
-            {entry.author}
-            {entry.device ? ` on ${entry.device}` : ""}
-          </td>
-          <td className="mono">{exact(entry.ts)}</td>
-          <RowActions>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={Undo2}
-              onClick={() =>
-                restore({
-                  ...(typeof entry.snapshot.title === "string" ? { title: entry.snapshot.title } : {}),
-                  ...(typeof entry.snapshot.body === "string" ? { body: entry.snapshot.body } : {}),
-                })
-              }
-            >
-              Restore
-            </Button>
-          </RowActions>
-        </tr>
+        <li key={entry.version} className="group flex items-center gap-2 px-4 py-2 hover:bg-hover">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm">
+              {entry.author}
+              {entry.device ? ` on ${entry.device}` : ""}
+            </p>
+            <p className="font-mono text-xs text-muted tabular-nums">
+              v{entry.version} · <time title={exact(entry.ts)}>{ago(entry.ts)}</time>
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={Undo2}
+            onClick={() =>
+              restore({
+                ...(typeof entry.snapshot.title === "string" ? { title: entry.snapshot.title } : {}),
+                ...(typeof entry.snapshot.body === "string" ? { body: entry.snapshot.body } : {}),
+              })
+            }
+          >
+            Restore
+          </Button>
+        </li>
       ))}
-    </Table>
+    </ol>
   );
 }
 

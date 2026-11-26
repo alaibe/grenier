@@ -1,5 +1,5 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
-import type { KeyboardEvent, ReactNode } from "react";
+import { type DragEvent, type KeyboardEvent, type ReactNode, useState } from "react";
 
 export interface TreeNode {
   id: string;
@@ -38,6 +38,16 @@ export function visibleRows(
   ]);
 }
 
+/** Moving rows by dragging them: what may move, and which row a drop over another lands in. */
+export interface TreeDrag {
+  can: (node: TreeNode) => boolean;
+  /** The folder a drop of `dragged` over `over` goes into, or null where it can't. */
+  into: (dragged: string, over: TreeNode) => string | null;
+  drop: (dragged: string, into: string) => void;
+}
+
+const DRAGGED = "application/x-grenier-tree";
+
 /**
  * Folders and their items as one-line rows (components/row.md): the selected one in accent-soft with its bar, glowing
  * while the tree has focus. J/K or ↓/↑ move, → opens a folder or goes in, ← closes it or goes up, Enter opens.
@@ -50,6 +60,7 @@ export function Tree({
   onSelect,
   onToggle,
   onOpen,
+  drag,
 }: {
   label: string;
   nodes: TreeNode[];
@@ -60,7 +71,10 @@ export function Tree({
   onToggle: (id: string, open: boolean) => void;
   /** Enter on an item that isn't a folder. */
   onOpen: (node: TreeNode) => void;
+  drag?: TreeDrag;
 }) {
+  const [dragged, setDragged] = useState<string | null>(null);
+  const [target, setTarget] = useState<string | null>(null);
   const rows = visibleRows(nodes, open);
   // Without a single folder, the tree is a list.
   const flat = !rows.some((row) => row.node.children);
@@ -112,6 +126,14 @@ export function Tree({
         const folder = node.children !== undefined;
         const unfolded = folder && open(node.id);
         const Glyph = node.icon;
+        const draggable = drag?.can(node) ?? false;
+        const over = (event: DragEvent<HTMLDivElement>) => {
+          const into = dragged && drag ? drag.into(dragged, node) : null;
+          if (into === null) return setTarget(null);
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setTarget(into);
+        };
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: a treeitem or an option, by its role
           // biome-ignore lint/a11y/useAriaPropsSupportedByRole: a treeitem or an option, by its role
@@ -123,6 +145,33 @@ export function Tree({
             aria-level={flat ? undefined : depth + 1}
             aria-selected={node.id === selected}
             aria-expanded={folder ? unfolded : undefined}
+            data-drop={node.id === target || undefined}
+            draggable={draggable || undefined}
+            onDragStart={
+              draggable
+                ? (event) => {
+                    event.dataTransfer.setData(DRAGGED, node.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    setDragged(node.id);
+                  }
+                : undefined
+            }
+            onDragEnd={() => {
+              setDragged(null);
+              setTarget(null);
+            }}
+            onDragOver={drag ? over : undefined}
+            onDrop={
+              drag
+                ? (event) => {
+                    setDragged(null);
+                    setTarget(null);
+                    if (!dragged || !target) return;
+                    event.preventDefault();
+                    drag.drop(dragged, target);
+                  }
+                : undefined
+            }
             style={{ paddingLeft: `calc(var(--space-3) + ${depth} * var(--space-4))` }}
             onClick={(event) => {
               if ((event.target as Element).closest("button, input, a")) return;

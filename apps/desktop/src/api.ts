@@ -61,6 +61,11 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   return body;
 }
 
+/** The pages closest to some words, as Knowledge's search and `@` links find them. */
+export function searchRecords<T>(words: string): Promise<T[]> {
+  return api<{ records: T[] }>(`/records?q=${encodeURIComponent(words)}`).then((answer) => answer.records);
+}
+
 /** The shell alone decides whether a page view is sent. */
 export function sendPageView(screen: ScreenUrl): void {
   if (!isTauri()) return;
