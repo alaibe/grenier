@@ -147,7 +147,7 @@ export function readJson(path: string): Record<string, unknown> {
 }
 
 /** A path a skill's file may take inside its folder: relative, without `..`, and `/` its only separator. */
-function safePath(path: string): string {
+export function safePath(path: string): string {
   const normal = posix.normalize(path);
   if (isAbsolute(normal) || normal.startsWith("..") || /[\0\\]/.test(normal) || normal === ".") {
     throw new Refusal(`the skill's file ${path} would land outside its folder`);
@@ -155,7 +155,7 @@ function safePath(path: string): string {
   return normal;
 }
 
-function writeSkill(folder: string, files: Record<string, string>): void {
+export function writeSkill(folder: string, files: Record<string, string>): void {
   const paths = Object.keys(files).map(safePath);
   rmSync(folder, { recursive: true, force: true });
   for (const [index, path] of paths.entries()) {

@@ -14,6 +14,7 @@ import {
   uninstall,
 } from "../installs.ts";
 import { Refusal } from "../io.ts";
+import { manifestOf } from "../skills.ts";
 import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./body.ts";
 
@@ -65,19 +66,14 @@ export function installRoutes(deps: AdminDeps): Hono {
   app.post("/installs/skill", async (c) => {
     const input = await bodyOf(c);
     const name = String(input.name ?? "").trim();
-    const description = String(input.description ?? "")
-      .trim()
-      .replace(/\s+/g, " ");
-    const instructions = String(input.instructions ?? "").trim();
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) {
-      return c.json({ error: "a skill's name takes lowercase letters, digits and -" }, 400);
-    }
-    if (!description || !instructions) {
-      return c.json({ error: "a skill needs a description and its instructions" }, 400);
-    }
     const skill = skillFromFiles(
-      // A JSON string is a YAML double-quoted scalar: a ": " or a quote in it stays text.
-      { "SKILL.md": `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n${instructions}\n` },
+      {
+        "SKILL.md": manifestOf({
+          name,
+          description: String(input.description ?? ""),
+          instructions: String(input.instructions ?? ""),
+        }),
+      },
       name,
     );
     const shared = await share(await deps.storeDeps(), {
@@ -114,6 +110,22 @@ export function installRoutes(deps: AdminDeps): Hono {
       : null;
   };
   const missing = { error: "no such skill or MCP server" };
+
+  /** An admin's new SKILL.md for a team skill: a new version, which each machine approves again. */
+  app.put("/installs/:id/skill", async (c) => {
+    const record = await found(c.req.param("id"));
+    if (record?.type !== "Skill") return c.json(missing, 404);
+    const manifest = String((await bodyOf(c)).manifest ?? "");
+    const files = { ...((record.fields.files ?? {}) as Record<string, string>), "SKILL.md": manifest };
+    const skill = skillFromFiles(files, record.title);
+    const shared = await share(await deps.storeDeps(), {
+      type: "Skill",
+      title: record.title,
+      body: "",
+      fields: { files: skill.files },
+    });
+    return c.json({ ...shared, title: record.title } satisfies SharedNow);
+  });
 
   app.post("/installs/:id/rollback", async (c) => {
     const record = await found(c.req.param("id"));

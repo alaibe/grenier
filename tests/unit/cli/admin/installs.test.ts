@@ -84,7 +84,7 @@ describe("adding to the team from the app", () => {
   it("writes a skill from its name, description and instructions", async () => {
     const route = testAdmin(store, home, { storeDeps: async () => deps }).reply;
     const add = (body: Record<string, unknown>) => route("POST", "/installs/skill", body);
-    expect((await add({ name: "Release Notes", description: "x", instructions: "y" }))?.status).toBe(400);
+    expect((await add({ name: "Release Notes", description: "x", instructions: "y" }))?.status).toBe(409);
     expect(
       await add({ name: "release-notes", description: "Writes notes.", instructions: "Read the log." }),
     ).toMatchObject({

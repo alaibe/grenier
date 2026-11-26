@@ -35,6 +35,24 @@ const userHome = join(dir, "home");
 const repo = join(dir, "checkout");
 mkdirSync(home);
 mkdirSync(userHome);
+for (const [name, description, steps] of <[string, string, string][]>[
+  [
+    "changelog",
+    "Writes the changelog entry for the work on this branch.",
+    "## Steps\n\n1. Read the commits since `main`.\n2. Group them by area: **Added**, **Changed**, **Fixed**.\n3. Write one line each, in the past tense.\n",
+  ],
+  [
+    "pr-review",
+    "Reviews a pull request for bugs and the team's conventions.",
+    "Read the diff, then [Checkout's conventions](record:checkout).\n",
+  ],
+]) {
+  mkdirSync(join(userHome, ".claude", "skills", name), { recursive: true });
+  writeFileSync(
+    join(userHome, ".claude", "skills", name, "SKILL.md"),
+    `---\nname: ${name}\ndescription: ${description}\n---\n${steps}`,
+  );
+}
 mkdirSync(join(repo, "src"), { recursive: true });
 
 const git = (...args: string[]) =>

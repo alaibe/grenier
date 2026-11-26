@@ -1,140 +1,133 @@
-import type { FoundSkill, SharedNow } from "@grenier/core/api";
-import { Plus, Share2 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import type { FoundSkill, LocalSkill, SharedState } from "@grenier/core/api";
+import { FilePlus, Link2, Search, Sparkles } from "lucide-react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import { count } from "../format.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
-import { Detail } from "../shell/regions.tsx";
-import { Button, Primary } from "../ui/button.tsx";
+import { ListDetail } from "../shell/regions.tsx";
+import { Button, IconButton } from "../ui/button.tsx";
 import { Dialog } from "../ui/dialog.tsx";
-import { Empty } from "../ui/empty.tsx";
+import { Empty, Skeleton } from "../ui/empty.tsx";
 import { Field, Input, SearchField, Textarea } from "../ui/field.tsx";
-import { useAction } from "../ui/load.ts";
+import { useAction, useLoad } from "../ui/load.ts";
 import { Problem } from "../ui/notice.tsx";
-import { Page, Section } from "../ui/page.tsx";
-import { Table } from "../ui/table.tsx";
-import { Shared } from "./Shared.tsx";
+import { Status, Tag } from "../ui/tag.tsx";
+import { Tree, type TreeNode } from "../ui/tree.tsx";
+import { LocalSkillView, TeamSkillView } from "./SkillDetail.tsx";
 
-/** Skills found on skills.sh, which a click shares with the team from GitHub; each teammate still approves it. */
-function FindSkills({ shared }: { shared: () => void }) {
-  const [found, setFound] = useState<{ words: string; skills: FoundSkill[] } | null>(null);
-  const action = useAction(shared);
-  const field = useRef<HTMLInputElement>(null);
+const loadLocal = () => api<{ skills: LocalSkill[] }>("/skills").then((answer) => answer.skills);
+const loadTeam = () =>
+  api<{ shared: SharedState[] }>("/installs").then((answer) => answer.shared.filter((entry) => entry.type === "Skill"));
 
-  const commands = useMemo<Command[]>(
-    () => [
-      {
-        id: "skills.search",
-        label: "Search skills.sh",
-        keys: "/",
-        also: ["mod+f"],
-        hint: { in: "list", says: "search", order: 30 },
-        run: () => field.current?.focus(),
-      },
-    ],
-    [],
-  );
-  useCommands(commands);
-
-  const add = (skill: FoundSkill) =>
-    void action.run(`share:${skill.id}`, async () => {
-      const done = await api<SharedNow>("/installs/share", { body: { source: skill.source, name: skill.name } });
-      return `${done.updated ? "Shared a new version of" : "Shared"} ${done.title} with the team`;
-    });
-
-  return (
-    <Section
-      heading
-      title="Find a skill"
-      description="Searches skills.sh with the words you type, and nothing else. Share fetches the skill from GitHub into the team, where each teammate reads it before installing it."
-    >
-      <div className="grid gap-3">
-        <form
-          className="max-w-(--layout-reading)"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const words = field.current?.value.trim() ?? "";
-            if (!words) return;
-            void action.run(
-              "search",
-              async () => {
-                const answer = await api<{ skills: FoundSkill[] }>(`/installs/search?q=${encodeURIComponent(words)}`);
-                setFound({ words, skills: answer.skills });
-                return undefined;
-              },
-              "Searching",
-            );
-          }}
-        >
-          <SearchField ref={field} label="Words to search skills.sh for" placeholder="release notes, react, testing…" />
-        </form>
-        <Problem error={action.problem} />
-        {found && found.skills.length === 0 && (
-          <Empty boot="no match" match>
-            No skill on skills.sh holds “{found.words}”. Try fewer words.
-          </Empty>
-        )}
-        {found && found.skills.length > 0 && (
-          <Table
-            label="Skills found"
-            head={
-              <>
-                <th>Skill</th>
-                <th className="num">Installs</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </>
-            }
-          >
-            {found.skills.map((skill) => (
-              <tr key={skill.id}>
-                <td className="py-1.5 whitespace-normal">
-                  <span className="block font-semibold">{skill.name}</span>
-                  <span className="block font-mono text-xs text-muted">{skill.source}</span>
-                </td>
-                <td className="num mono">{count(skill.installs)}</td>
-                <td className="num">
-                  <Button
-                    size="sm"
-                    icon={Share2}
-                    busy={action.busy === `share:${skill.id}`}
-                    disabled={action.busy !== null}
-                    onClick={() => add(skill)}
-                  >
-                    Share with the team
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </Table>
-        )}
-      </div>
-    </Section>
-  );
+/** Where a new skill goes: the person's own skills, or the team's. */
+type Group = "me" | "team";
+interface Adding {
+  to: Group;
+  how: "find" | "write";
 }
 
-/** A skill written in the app: its SKILL.md, from a name, a one-line description and the instructions. */
-function NewSkill({ added, cancel }: { added: () => void; cancel: () => void }) {
-  const action = useAction(added);
+const HERE: Record<SharedState["state"], ReactNode> = {
+  installed: <Status kind="ok" word="installed" />,
+  update: <Status kind="warn" word="update" />,
+  available: <Status kind="draft" word="not here" />,
+};
+
+/** skills.sh's skills that match some words: Add puts one in the person's skills, or shares it with the team. */
+function FindSkill({ to, added, cancel }: { to: Group; added: (id: string) => void; cancel: () => void }) {
+  const [found, setFound] = useState<{ words: string; skills: FoundSkill[] } | null>(null);
+  const field = useRef<HTMLInputElement>(null);
+  const action = useAction();
+  const add = (skill: FoundSkill) =>
+    void action.run(`add:${skill.id}`, async () => {
+      const body = { source: skill.source, name: skill.name };
+      if (to === "me") {
+        const done = await api<{ id: string }>("/skills/found", { body });
+        added(`me:${done.id}`);
+        return `Added ${skill.name} to your skills`;
+      }
+      const done = await api<{ id: string; title: string }>("/installs/share", { body });
+      added(`team:${done.id}`);
+      return `Shared ${done.title} with the team: each teammate installs it, or not`;
+    });
   return (
     <Dialog
       wide
-      title="New skill"
-      action="Share with the team"
+      title={to === "me" ? "Find a skill for you" : "Find a skill for the team"}
+      action="Search"
+      cancel="Close"
+      busy={action.busy === "search"}
+      onCancel={cancel}
+      onAction={() => {
+        const words = field.current?.value.trim() ?? "";
+        if (!words) return;
+        void action.run("search", async () => {
+          const answer = await api<{ skills: FoundSkill[] }>(`/installs/search?q=${encodeURIComponent(words)}`);
+          setFound({ words, skills: answer.skills });
+          return undefined;
+        });
+      }}
+    >
+      <p className="text-muted">
+        Searches skills.sh with the words you type, and nothing else. Add fetches the skill from GitHub
+        {to === "me"
+          ? " into your skills folder."
+          : " into the team, where each teammate reads it before installing it."}
+      </p>
+      <SearchField ref={field} label="Words to search skills.sh for" placeholder="release notes, react, testing…" />
+      <Problem error={action.problem} />
+      {found && found.skills.length === 0 && <p className="text-muted">No skill on skills.sh holds “{found.words}”.</p>}
+      {found && found.skills.length > 0 && (
+        <ul className="grid max-h-80 overflow-y-auto border-y border-line">
+          {found.skills.map((skill) => (
+            <li key={skill.id} className="flex items-center gap-3 border-b border-line py-2 last:border-b-0">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold">{skill.name}</p>
+                <p className="truncate font-mono text-xs text-muted">
+                  {skill.source} · {count(skill.installs)} installs
+                </p>
+              </div>
+              <Button
+                size="sm"
+                busy={action.busy === `add:${skill.id}`}
+                disabled={action.busy !== null}
+                onClick={() => add(skill)}
+              >
+                Add
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Dialog>
+  );
+}
+
+/** A skill written from scratch: its SKILL.md from a name, a one-line description and the instructions. */
+function WriteSkill({ to, added, cancel }: { to: Group; added: (id: string) => void; cancel: () => void }) {
+  const action = useAction();
+  return (
+    <Dialog
+      wide
+      title={to === "me" ? "New skill" : "New skill for the team"}
+      action={to === "me" ? "Add the skill" : "Share with the team"}
       busy={action.busy !== null}
       onCancel={cancel}
       onAction={(form) =>
-        void action.run("skill", async () => {
-          await api("/installs/skill", {
-            body: {
-              name: String(form.get("name") ?? ""),
-              description: String(form.get("description") ?? ""),
-              instructions: String(form.get("instructions") ?? ""),
-            },
-          });
-          return `Shared ${String(form.get("name"))}: each person installs it, or not`;
+        void action.run("write", async () => {
+          const body = {
+            name: String(form.get("name") ?? ""),
+            description: String(form.get("description") ?? ""),
+            instructions: String(form.get("instructions") ?? ""),
+          };
+          if (to === "me") {
+            const done = await api<{ id: string }>("/skills", { body });
+            added(`me:${done.id}`);
+            return `Added ${body.name} to your skills`;
+          }
+          const done = await api<{ id: string }>("/installs/skill", { body });
+          added(`team:${done.id}`);
+          return `Shared ${body.name}: each teammate installs it, or not`;
         })
       }
     >
@@ -156,60 +149,212 @@ function NewSkill({ added, cancel }: { added: () => void; cancel: () => void }) 
   );
 }
 
-export function Skills({ item, go, member }: ViewProps) {
-  const [round, setRound] = useState(0);
-  const again = () => setRound((n) => n + 1);
-  const close = () => go("skills");
+/** Folders start open, except Synced and Plugins. Kept in this window only. */
+const closedFirst = (id: string) => id === "me/synced" || id === "me/plugins";
+
+function useOpen(): [(id: string) => boolean, (id: string, open: boolean) => void] {
+  const [flipped, setFlipped] = useState<Set<string>>(new Set());
+  const open = useCallback((id: string) => flipped.has(id) === closedFirst(id), [flipped]);
+  const set = useCallback(
+    (id: string, next: boolean) =>
+      setFlipped((current) => {
+        if ((current.has(id) === closedFirst(id)) === next) return current;
+        const out = new Set(current);
+        if (out.has(id)) out.delete(id);
+        else out.add(id);
+        return out;
+      }),
+    [],
+  );
+  return [open, set];
+}
+
+export function Skills({ item, go, member, team }: ViewProps) {
+  const local = useLoad(loadLocal);
+  const loadShared = useCallback(() => (team ? loadTeam() : Promise.resolve([])), [team]);
+  const shared = useLoad(loadShared);
+  const [open, setOpen] = useOpen();
+  const [adding, setAdding] = useState<Adding | null>(null);
+  const [words, setWords] = useState("");
+  const search = useRef<HTMLInputElement>(null);
+  const query = words.trim().toLowerCase();
+  const matches = (name: string, description: string) =>
+    !query || name.toLowerCase().includes(query) || description.toLowerCase().includes(query);
+  const admin = Boolean(team) && !member;
+  const reload = () => {
+    local.reload();
+    shared.reload();
+  };
+  const select = useCallback((id: string) => go("skills", id), [go]);
+
   const commands = useMemo<Command[]>(
-    () =>
-      member
-        ? []
-        : [
-            {
-              id: "new-skill",
-              label: "New skill",
-              icon: Plus,
-              keys: "n",
-              also: ["mod+n"],
-              hint: { in: "list", says: "new", order: 20 },
-              run: () => go("skills", "new"),
-            },
-          ],
-    [member, go],
+    () => [
+      {
+        id: "new-skill",
+        label: "New skill",
+        icon: FilePlus,
+        keys: "n",
+        also: ["mod+n"],
+        hint: { in: "list", says: "new", order: 20 },
+        run: () => setAdding({ to: "me", how: "write" }),
+      },
+      {
+        id: "skills.search",
+        label: "Search the skills",
+        keys: "/",
+        also: ["mod+f"],
+        hint: { in: "list", says: "search", order: 30 },
+        run: () => search.current?.focus(),
+      },
+      {
+        id: "skills.find",
+        label: "Find a skill on skills.sh",
+        icon: Search,
+        run: () => setAdding({ to: "me", how: "find" }),
+      },
+    ],
+    [],
   );
   useCommands(commands);
-  return (
-    <Detail title="Skills">
-      <Page
-        title="Skills"
-        intro="What the team shares for its agents. An admin adds a skill; you install it or not. Installing approves it as it is now: a later change waits for your approval again."
-        primary={
-          !member && (
-            <Primary keys="n" onClick={() => go("skills", "new")}>
-              New skill…
-            </Primary>
-          )
-        }
-      >
-        <Section heading title="Shared">
-          <Shared
-            key={round}
-            type="Skill"
-            go={go}
-            none={member ? "No skill shared yet." : "No skill shared yet. Write one, or find one on skills.sh below."}
-          />
-        </Section>
-        {!member && <FindSkills shared={again} />}
-      </Page>
-      {!member && item === "new" && (
-        <NewSkill
-          added={() => {
-            again();
-            close();
+
+  const adds = (to: Group) => (
+    <>
+      <IconButton label="Find on skills.sh" icon={Search} size="sm" onClick={() => setAdding({ to, how: "find" })} />
+      <IconButton label="Write a new skill" icon={FilePlus} size="sm" onClick={() => setAdding({ to, how: "write" })} />
+    </>
+  );
+  const skills = local.data ?? [];
+  const shown = skills.filter((skill) => matches(skill.name, skill.description));
+  const leaf = (skill: LocalSkill): TreeNode => ({
+    id: `me:${skill.id}`,
+    name: skill.name,
+    icon: skill.kind === "linked" ? Link2 : Sparkles,
+    meta: skill.kind === "linked" && <Tag>linked</Tag>,
+  });
+  const synced = shown.filter((skill) => skill.kind === "synced");
+  const plugins = shown.filter((skill) => skill.kind === "plugin");
+  const nodes: TreeNode[] = [
+    {
+      id: "me/",
+      name: "Me",
+      group: true,
+      meta: "this machine",
+      actions: adds("me"),
+      children: [
+        ...shown.filter((skill) => skill.kind === "own" || skill.kind === "linked").map(leaf),
+        ...(synced.length > 0 ? [{ id: "me/synced", name: "Synced", children: synced.map(leaf) }] : []),
+        ...(plugins.length > 0 ? [{ id: "me/plugins", name: "Plugins", children: plugins.map(leaf) }] : []),
+      ],
+    },
+    ...(team
+      ? [
+          {
+            id: "team/",
+            name: "Team",
+            group: true,
+            meta: "shared",
+            ...(admin ? { actions: adds("team") } : {}),
+            children: (shared.data ?? [])
+              .filter((entry) => matches(entry.title, entry.description))
+              .map((entry) => ({
+                id: `team:${entry.id}`,
+                name: entry.title,
+                icon: Sparkles,
+                meta: HERE[entry.state],
+              })),
+          },
+        ]
+      : []),
+  ];
+
+  const list = (
+    <>
+      <div className="border-b border-line p-3">
+        <SearchField
+          ref={search}
+          label="Search the skills"
+          placeholder="Search skills"
+          live
+          value={words}
+          onChange={(event) => setWords(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowDown") return;
+            event.preventDefault();
+            event.currentTarget.closest("[data-region]")?.querySelector<HTMLElement>("[role=tree]")?.focus();
           }}
-          cancel={close}
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Problem error={local.error ?? shared.error} />
+        {local.error ? null : !local.data ? (
+          <Skeleton rows={8} />
+        ) : (
+          <Tree
+            label="Skills"
+            nodes={nodes}
+            selected={item ?? null}
+            open={query ? () => true : open}
+            onSelect={(node) => node.children === undefined && select(node.id)}
+            onToggle={setOpen}
+            onOpen={(node) => select(node.id)}
+          />
+        )}
+        {query &&
+          local.data &&
+          shown.length === 0 &&
+          !shared.data?.some((entry) => matches(entry.title, entry.description)) && (
+            <Empty boot="no match" match>
+              No skill holds “{words.trim()}”. Find one with Find on skills.sh, beside Me.
+            </Empty>
+          )}
+      </div>
+    </>
+  );
+
+  const entry = item?.startsWith("team:") ? shared.data?.find((one) => `team:${one.id}` === item) : undefined;
+  const detail = item?.startsWith("me:") ? (
+    <LocalSkillView
+      key={item}
+      id={item.slice(3)}
+      share={admin}
+      changed={reload}
+      removed={() => go("skills")}
+      open={(id) => go("knowledge", id)}
+    />
+  ) : entry ? (
+    <TeamSkillView key={item} entry={entry} admin={admin} changed={reload} open={(id) => go("knowledge", id)} />
+  ) : local.error ? null : (
+    <Empty boot={local.data && skills.length === 0 && !shared.data?.length ? "no skills yet" : "pick a skill"}>
+      Your skills are the ones Claude Code loads from ~/.claude/skills.
+      {team ? " The team's install here once you approve them." : ""} Find one on skills.sh, or write one.
+    </Empty>
+  );
+
+  return (
+    <ListDetail title="Skills" list={list}>
+      {detail}
+      {adding?.how === "find" && (
+        <FindSkill
+          to={adding.to}
+          added={(id) => {
+            setAdding(null);
+            reload();
+            select(id);
+          }}
+          cancel={() => setAdding(null)}
         />
       )}
-    </Detail>
+      {adding?.how === "write" && (
+        <WriteSkill
+          to={adding.to}
+          added={(id) => {
+            setAdding(null);
+            reload();
+            select(id);
+          }}
+          cancel={() => setAdding(null)}
+        />
+      )}
+    </ListDetail>
   );
 }

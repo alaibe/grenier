@@ -271,6 +271,24 @@ export interface SharedState {
   canRollBack: boolean;
 }
 
+/** A skill in this person's Claude Code skills, as the Skills screen lists it under Me. */
+export interface LocalSkill {
+  /** Its folder's name; `synced/<bucket>/<name>` or `plugin/<plugin>/<name>` for the ones Claude Code keeps. */
+  id: string;
+  name: string;
+  description: string;
+  /** Their own folder, a link to a folder elsewhere, synced from claude.ai, or a plugin's: only their own is edited here. */
+  kind: "own" | "linked" | "synced" | "plugin";
+  /** Its folder, or where its link points. */
+  path: string;
+}
+
+/** A local skill with its SKILL.md and the names of its other files. */
+export interface LocalSkillFull extends LocalSkill {
+  manifest: string;
+  files: string[];
+}
+
 /** A skill or server shared with the team, or a new version of one. */
 export interface SharedNow {
   id: string;

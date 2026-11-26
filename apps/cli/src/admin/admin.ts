@@ -13,6 +13,7 @@ import { machineRoutes } from "./machine.ts";
 import { overviewRoutes } from "./overview.ts";
 import { recordRoutes } from "./records.ts";
 import { routineRoutes } from "./routines.ts";
+import { skillRoutes } from "./skills.ts";
 import { teamRoutes } from "./team.ts";
 
 export interface AdminDeps {
@@ -101,6 +102,7 @@ export function createAdmin(deps: AdminDeps): Hono {
     recordRoutes,
     teamRoutes,
     installRoutes,
+    skillRoutes,
     routineRoutes,
     machineRoutes,
     appRoutes,
