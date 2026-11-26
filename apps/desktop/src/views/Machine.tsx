@@ -1,8 +1,10 @@
 import type { MachineRules, MachineState } from "@grenier/core/api";
+import { isTauri } from "@tauri-apps/api/core";
 import type { FocusEvent } from "react";
 import { useSaved } from "../activity.tsx";
-import { api } from "../api.ts";
+import { api, pickFolder } from "../api.ts";
 import { stateTag } from "../states.ts";
+import { Button } from "../ui/button.tsx";
 import { Toggle } from "../ui/choice.tsx";
 import { Skeleton } from "../ui/empty.tsx";
 import { Field, Input, Select } from "../ui/field.tsx";
@@ -42,6 +44,14 @@ export function MachineSettings() {
       if (value !== was && event.currentTarget.checkValidity()) save(rule(value));
     };
 
+  const choose = () =>
+    pickFolder(data?.rules.workdir ?? "").then(
+      (workdir) => {
+        if (workdir && workdir !== data?.rules.workdir) save({ workdir });
+      },
+      (reason: unknown) => void action.run("save", () => Promise.reject(reason)),
+    );
+
   const [from = "0", to = "24"] = (data?.rules.hours ?? "0-24").split("-");
   return (
     <Section
@@ -73,15 +83,24 @@ export function MachineSettings() {
           </div>
           <div className="grid max-w-(--layout-reading) gap-4">
             <Field label="Work folder" help="The folder that holds your projects: every routine runs in it.">
-              <Input
-                mono
-                defaultValue={data.rules.workdir}
-                placeholder="/home/me/Work"
-                required
-                autoComplete="off"
-                spellCheck={false}
-                onBlur={leave((workdir) => ({ workdir }), data.rules.workdir)}
-              />
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Input
+                    mono
+                    defaultValue={data.rules.workdir}
+                    placeholder="/home/me/Work"
+                    required
+                    autoComplete="off"
+                    spellCheck={false}
+                    onBlur={leave((workdir) => ({ workdir }), data.rules.workdir)}
+                  />
+                </div>
+                {isTauri() && (
+                  <Button disabled={action.busy !== null} onClick={choose}>
+                    Choose…
+                  </Button>
+                )}
+              </div>
             </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Name" help="What the team sees.">

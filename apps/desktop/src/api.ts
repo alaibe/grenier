@@ -67,6 +67,11 @@ export function sendPageView(screen: ScreenUrl): void {
   invoke("usage_page_view", { screen, width: window.screen.width, height: window.screen.height }).catch(() => {});
 }
 
+/** The system's folder picker, opened at `from`; null when the person cancels. */
+export function pickFolder(from: string): Promise<string | null> {
+  return isTauri() ? invoke<string | null>("pick_folder", { from }) : Promise.reject(new ApiError(OUTSIDE_THE_APP));
+}
+
 const OUTSIDE_THE_APP = "Settings are kept by the desktop app: open this page in Grenier.";
 
 export function usageEnabled(): Promise<boolean> {

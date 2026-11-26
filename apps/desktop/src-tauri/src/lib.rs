@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, RunEvent};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -172,6 +173,22 @@ fn stop_daemon(app: &AppHandle) {
     }
 }
 
+/// The folder the person picks in the system's dialog, starting at `from`; None when they cancel.
+#[tauri::command]
+async fn pick_folder(app: AppHandle, from: String) -> Result<Option<String>, String> {
+    let mut dialog = app.dialog().file();
+    if !from.is_empty() {
+        dialog = dialog.set_directory(from);
+    }
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_folder())
+        .await
+        .map_err(|error| error.to_string())?;
+    picked
+        .map(|folder| folder.into_path().map(|path| path.display().to_string()))
+        .transpose()
+        .map_err(|error| error.to_string())
+}
+
 /// The daemon's address and admin token, starting the bundled daemon first when none answers.
 #[tauri::command]
 async fn daemon_connection(app: AppHandle) -> Result<Connection, String> {
@@ -197,6 +214,7 @@ pub fn run() {
         .manage(Sidecar(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             daemon_connection,
+            pick_folder,
             usage::usage_page_view,
             usage::usage_enabled,
             usage::usage_set_enabled
