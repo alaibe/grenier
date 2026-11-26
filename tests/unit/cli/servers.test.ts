@@ -4,12 +4,12 @@ import { join } from "node:path";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Where } from "../../../apps/cli/src/connect.ts";
+import type { Where } from "../../../apps/cli/src/agents/index.ts";
+import { readServers } from "../../../apps/cli/src/agents/toml.ts";
 import { serverToShare } from "../../../apps/cli/src/installs.ts";
 import {
   addServer,
   changeServer,
-  codexServers,
   localServers,
   MASK,
   maskArgs,
@@ -24,7 +24,8 @@ let where: Where;
 const TOKEN = "ghp_0123456789abcdefghijABCDEFGHIJ012345";
 
 const claude = () => JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"));
-const id = (scope: string, at: string | null, name: string) => JSON.stringify([scope, at, name]);
+const id = (scope: string, at: string | null, name: string, client = "claude-code") =>
+  JSON.stringify([client, scope, at, name]);
 
 beforeEach(() => {
   store = openSqliteStore(":memory:");
@@ -83,16 +84,17 @@ describe("the person's MCP servers", () => {
       previousHash: null,
     });
     const servers = await localServers(store, where);
-    expect(servers.map((server) => [server.scope, server.where, server.name, server.editable])).toEqual([
-      ["user", null, "github", true],
-      ["user", null, "sentry", true],
-      ["user", null, "grenier", false],
-      ["project", join(home, "checkout"), "docs", true],
-      ["repo", join(home, "checkout"), "postgres", false],
-      ["app", "Cursor", "figma", false],
-      ["app", "Codex", "notion", false],
+    expect(servers.map((server) => [server.client, server.scope, server.where, server.name, server.editable])).toEqual([
+      ["Claude Code", "user", null, "github", true],
+      ["Claude Code", "user", null, "sentry", true],
+      ["Claude Code", "user", null, "grenier", false],
+      ["Cursor", "user", null, "figma", false],
+      ["Codex", "user", null, "notion", true],
+      ["Claude Code", "project", join(home, "checkout"), "docs", true],
+      ["Claude Code", "repo", join(home, "checkout"), "postgres", false],
     ]);
-    const [github, sentry, grenier, docs] = servers;
+    const named = (name: string) => servers.find((server) => server.name === name);
+    const [github, sentry, grenier, docs] = ["github", "sentry", "grenier", "docs"].map(named);
     expect(github).toMatchObject({ args: ["-y", "github-mcp", "--token", MASK], env: ["GITHUB_ORG"] });
     expect(sentry).toMatchObject({ transport: "http", headers: ["Authorization"] });
     expect(grenier?.grenier).toBe(true);
@@ -139,7 +141,7 @@ describe("the person's MCP servers", () => {
     expect(() => addServer(where, { name: "slack", entry: {} })).toThrow("already");
     expect(() => addServer(where, { name: "grenier-x", entry: {} })).toThrow("Grenier's");
     addServer(where, { project: join(home, "checkout"), name: "local", entry: { command: "run" } });
-    expect(claude().projects[join(home, "checkout")].mcpServers.local).toEqual({ command: "run" });
+    expect(claude().projects[join(home, "checkout")].mcpServers.local).toEqual({ type: "stdio", command: "run" });
     removeServer(where, added);
     expect(claude().mcpServers.slack).toBeUndefined();
   });
@@ -160,7 +162,7 @@ describe("the person's MCP servers", () => {
 
   it("reads Codex's servers from its TOML, inline env or its own table", () => {
     expect(
-      codexServers('[mcp_servers.a]\ncommand = "x"\nargs = ["1"]\n\n[mcp_servers.a.env]\nKEY = "v"\n[other]\nz = 1\n'),
-    ).toEqual({ a: { command: "x", args: ["1"], env: { KEY: "" } } });
+      readServers('[mcp_servers.a]\ncommand = "x"\nargs = ["1"]\n\n[mcp_servers.a.env]\nKEY = "v"\n[other]\nz = 1\n'),
+    ).toEqual({ a: { command: "x", args: ["1"], env: { KEY: "v" } } });
   });
 });

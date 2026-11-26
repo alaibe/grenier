@@ -1,34 +1,12 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { basename, delimiter, join } from "node:path";
-import { writeAtomically } from "@grenier/core/node";
 import { addClient, resolveScopes } from "@grenier/index";
 import type { Store } from "@grenier/store";
+import { type App, clientOf, isAgent, type Where } from "./agents/index.ts";
 import { writeSkill } from "./installs.ts";
 import { Refusal } from "./io.ts";
 import { ensureBaseTops } from "./runtime.ts";
 import { SETUP_SKILL } from "./setup-skill.ts";
-
-/** The apps on this computer Grenier's MCP server can be added to. */
-export const APPS = ["claude-code", "cursor", "codex", "claude-desktop"] as const;
-export type App = (typeof APPS)[number];
-
-/** Where each app keeps its MCP servers, for this user. */
-export function configPath(app: App, home: string, platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string {
-  switch (app) {
-    case "claude-code":
-      return join(home, ".claude.json");
-    case "cursor":
-      return join(home, ".cursor", "mcp.json");
-    case "codex":
-      return join(env.CODEX_HOME || join(home, ".codex"), "config.toml");
-    case "claude-desktop":
-      if (platform === "darwin")
-        return join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
-      if (platform === "win32")
-        return join(env.APPDATA || join(home, "AppData", "Roaming"), "Claude", "claude_desktop_config.json");
-      return join(env.XDG_CONFIG_HOME || join(home, ".config"), "Claude", "claude_desktop_config.json");
-  }
-}
 
 /** The same program at a PATH entry that survives upgrades, in place of a versioned path such as Homebrew's Cellar. */
 export function stableProgram(program: string, searchPath: string | undefined): string {
@@ -50,111 +28,43 @@ export function stableProgram(program: string, searchPath: string | undefined): 
   return program;
 }
 
-function tomlString(value: string): string {
-  return JSON.stringify(value);
-}
-
-/** Replaces or appends the `[mcp_servers.grenier]` table, leaving the rest of the file as it was. */
-export function withCodexServer(text: string, command: string, args: string[], env: Record<string, string>): string {
-  const lines = [
-    "[mcp_servers.grenier]",
-    `command = ${tomlString(command)}`,
-    `args = [${args.map(tomlString).join(", ")}]`,
-    ...(Object.keys(env).length > 0
-      ? [
-          `env = { ${Object.entries(env)
-            .map(([key, value]) => `${key} = ${tomlString(value)}`)
-            .join(", ")} }`,
-        ]
-      : []),
-  ];
-  const all = text.split("\n");
-  const start = all.findIndex((line) => line.trim() === "[mcp_servers.grenier]");
-  if (start === -1) {
-    const body = text.replace(/\n*$/, "");
-    return `${body}${body ? "\n\n" : ""}${lines.join("\n")}\n`;
-  }
-  let end = start + 1;
-  while (end < all.length && !/^\s*\[/.test(all[end] ?? "")) end++;
-  while (end > start + 1 && (all[end - 1] ?? "").trim() === "") end--;
-  return [...all.slice(0, start), ...lines, ...all.slice(end)].join("\n");
-}
-
-/** Sets `mcpServers.grenier` in an app's JSON config, keeping every other key. */
-export function withJsonServer(
-  text: string,
-  server: { command: string; args: string[]; env?: Record<string, string> },
-  extra: Record<string, unknown> = {},
-): string {
-  let config: Record<string, unknown> = {};
-  if (text.trim() !== "") {
-    try {
-      config = JSON.parse(text) as Record<string, unknown>;
-    } catch {
-      throw new Refusal("the app's config file is not valid JSON; fix it or move it aside first");
-    }
-  }
-  const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-  servers.grenier = { ...extra, ...server };
-  config.mcpServers = servers;
-  return `${JSON.stringify(config, null, 2)}\n`;
-}
-
-/** Each app's name, as its own window shows it. */
-export const LABELS: Record<App, string> = {
-  "claude-code": "Claude Code",
-  cursor: "Cursor",
-  codex: "Codex",
-  "claude-desktop": "Claude Desktop",
-};
-
-export interface Where {
-  home: string;
-  platform: NodeJS.Platform;
-  env: NodeJS.ProcessEnv;
-  /** How this Grenier runs, so the app it is added to starts the same one. */
-  self: string[];
-}
-
 /** Whether an app's config starts Grenier's MCP server. */
-export function connected(app: App, path: string): boolean {
-  if (!existsSync(path)) return false;
-  const text = readFileSync(path, "utf8");
-  if (app === "codex") return /^\[mcp_servers\.grenier\]/m.test(text);
+export function connected(app: App, where: Where): boolean {
   try {
-    return Boolean((JSON.parse(text) as { mcpServers?: Record<string, unknown> }).mcpServers?.grenier);
+    return Boolean(clientOf(app)?.servers(where).grenier);
   } catch {
     return false;
   }
 }
 
-/** Adds Grenier's MCP server to an app on this computer, with a token of its own; adding it again replaces the token. */
+/**
+ * Adds Grenier's MCP server to an app on this computer, with a token of its own; adding it again replaces the token.
+ * An agent also gets the skill that sets up the knowledge base, Grenier's own, written again each time.
+ */
 export async function connectApp(store: Store, app: App, scopes: string[], where: Where): Promise<string> {
-  const path = configPath(app, where.home, where.platform, where.env);
+  const client = clientOf(app);
+  if (!client) throw new Refusal(`Grenier cannot be added to ${app}`);
   const [self = process.execPath, ...prefix] = where.self;
   const command = stableProgram(self, where.env.PATH);
-  const args = [...prefix, "mcp", "serve"];
-  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
-  const configFor = (token: string) => {
+  const entryFor = (token: string) => {
     const env: Record<string, string> = { GRENIER_CLIENT_TOKEN: token };
     for (const name of ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"]) {
       const value = where.env[name];
       if (value) env[name] = value;
     }
-    return app === "codex"
-      ? withCodexServer(text, command, args, env)
-      : withJsonServer(text, { command, args, env }, app === "claude-code" ? { type: "stdio" } : {});
+    return { command, args: [...prefix, "mcp", "serve"], env };
   };
-  // The config must be editable, and the folders known, before the old token goes: a failure leaves the app working.
-  configFor("gc_check");
+  // The config must be readable, and the folders known, before the old token goes: a failure leaves the app working.
+  client.servers(where);
   await ensureBaseTops(store);
   await resolveScopes(store, scopes).catch((error: Error) => {
     throw new Refusal(error.message);
   });
   await store.clients.revoke(app, Date.now());
-  writeAtomically(path, configFor(await addClient(store, app, scopes)));
-  // Claude Code also gets the skill that sets up the knowledge base: Grenier's own, written again each time.
-  if (app === "claude-code")
-    writeSkill(join(where.home, ".claude", "skills", "grenier-setup"), { "SKILL.md": SETUP_SKILL });
-  return path;
+  const token = await addClient(store, app, scopes);
+  client.editServers(where, (servers) => {
+    servers.grenier = entryFor(token);
+  });
+  if (isAgent(client)) writeSkill(join(client.skillsDir(where), "grenier-setup"), { "SKILL.md": SETUP_SKILL });
+  return client.configPath(where);
 }

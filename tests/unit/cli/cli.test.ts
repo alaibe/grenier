@@ -180,7 +180,7 @@ describe("grenier run", () => {
     ]);
   });
 
-  it("tells Claude Code in a repository to call get first, unless it gives its own system prompt", () => {
+  it("tells Claude Code and Codex in a repository to call get first, unless the command gives its own prompt", () => {
     expect(asksFirst("/usr/local/bin/claude", ["-p", "hi"], true)).toBe(true);
     expect(agentArgs("claude", ["-p", "hi"], "y", "Call get.")).toEqual([
       "--append-system-prompt",
@@ -190,7 +190,15 @@ describe("grenier run", () => {
     ]);
     expect(AGENT_TEXTS.mcp).toContain("get with your question");
     expect(asksFirst("claude", ["-p", "hi"], false)).toBe(false);
-    expect(asksFirst("codex", ["exec"], true)).toBe(false);
+    expect(asksFirst("codex", ["exec"], true)).toBe(true);
+    expect(asksFirst("codex", ["-c", 'developer_instructions="mine"'], true)).toBe(false);
+    expect(agentArgs("codex", ["exec"], "http://p", "Call get.")).toEqual([
+      "-c",
+      'developer_instructions="Call get."',
+      "-c",
+      'openai_base_url="http://p"',
+      "exec",
+    ]);
     for (const own of ["--append-system-prompt", "--system-prompt-file=prompt.md", "--append-system-prompt-file"]) {
       expect(asksFirst("claude", [own, "x"], true)).toBe(false);
     }

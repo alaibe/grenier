@@ -3,13 +3,13 @@ import { join, relative } from "node:path";
 import type { LocalSkill, LocalSkillFull } from "@grenier/core/api";
 import { writeAtomically } from "@grenier/core/node";
 import type { Store } from "@grenier/store";
+import { type Agent, agentNamed, CLAUDE_CODE, presentAgents, type Where } from "./agents/index.ts";
 import { MAX_SKILL_BYTES, MAX_SKILL_FILES, readJson, type SkillFiles, skillField, writeSkill } from "./installs.ts";
 import { Refusal } from "./io.ts";
 
 /** What a skill's folder is named: lowercase letters, digits and dashes, as Claude Code names skills. */
 export const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-const skillsDir = (home: string) => join(home, ".claude", "skills");
 const isDir = (path: string) => {
   try {
     return statSync(path).isDirectory();
@@ -18,20 +18,26 @@ const isDir = (path: string) => {
   }
 };
 
-function described(id: string, folder: string, kind: LocalSkill["kind"], path = folder): LocalSkill | null {
+function described(
+  agent: Agent,
+  id: string,
+  folder: string,
+  kind: LocalSkill["kind"],
+  path = folder,
+): LocalSkill | null {
   const manifest = join(folder, "SKILL.md");
   if (!existsSync(manifest)) return null;
   const text = readFileSync(manifest, "utf8");
-  const name = skillField(text, "name") ?? id.split("/").pop() ?? id;
-  return { id, name, description: skillField(text, "description") ?? "", kind, path };
+  const name = skillField(text, "name") ?? id.split(/[:/]/).pop() ?? id;
+  return { id, agent: agent.label, name, description: skillField(text, "description") ?? "", kind, path };
 }
 
 /** The skills in a folder that holds one folder per skill. */
-function skillsIn(folder: string, prefix: string, kind: LocalSkill["kind"]): LocalSkill[] {
+function skillsIn(agent: Agent, folder: string, prefix: string, kind: LocalSkill["kind"]): LocalSkill[] {
   if (!isDir(folder)) return [];
   return readdirSync(folder)
     .filter((name) => !name.startsWith("."))
-    .flatMap((name) => described(`${prefix}${name}`, join(folder, name), kind) ?? []);
+    .flatMap((name) => described(agent, `${prefix}${name}`, join(folder, name), kind) ?? []);
 }
 
 /** Where each installed plugin is, from Claude Code's own list of them. */
@@ -53,48 +59,53 @@ function pluginFolders(home: string): [string, string][] {
 }
 
 /**
- * Every skill Claude Code loads for this person: their own folders and links in ~/.claude/skills, the ones synced from
- * claude.ai, and the plugins'. Grenier's installs of the team's skills are left to the team's list.
+ * Every skill this person's agents load, agent by agent: their own folders and links in its skills folder, and for
+ * Claude Code the ones synced from claude.ai and the plugins'. Grenier's installs of the team's are the team's list.
  */
-export async function localSkills(store: Store, home: string): Promise<LocalSkill[]> {
-  const dir = skillsDir(home);
+export async function localSkills(store: Store, where: Where): Promise<LocalSkill[]> {
   const team = new Set(
-    (await store.approvals.list()).filter((approval) => approval.kind === "skill").map((a) => a.installedPath),
+    (await store.approvals.list()).filter((approval) => approval.kind === "skill").map((a) => String(a.settings.name)),
   );
   const out: LocalSkill[] = [];
-  if (isDir(dir)) {
-    for (const name of readdirSync(dir).sort()) {
-      const folder = join(dir, name);
-      if (name.startsWith(".") || name === "synced" || team.has(folder)) continue;
-      const linked = lstatSync(folder).isSymbolicLink();
-      const skill = linked
-        ? described(name, folder, "linked", isDir(folder) ? realpathSync(folder) : folder)
-        : described(name, folder, "own");
-      if (skill) out.push(skill);
+  for (const agent of presentAgents(where)) {
+    const dir = agent.skillsDir(where);
+    const prefix = `${agent.agent}:`;
+    if (isDir(dir)) {
+      for (const name of readdirSync(dir).sort()) {
+        const folder = join(dir, name);
+        if (name.startsWith(".") || name === "synced" || team.has(name)) continue;
+        const linked = lstatSync(folder).isSymbolicLink();
+        const skill = linked
+          ? described(agent, `${prefix}${name}`, folder, "linked", isDir(folder) ? realpathSync(folder) : folder)
+          : described(agent, `${prefix}${name}`, folder, "own");
+        if (skill) out.push(skill);
+      }
     }
+    if (agent !== CLAUDE_CODE) continue;
     const synced = join(dir, "synced");
     if (isDir(synced)) {
       for (const bucket of readdirSync(synced).filter((name) => !name.startsWith("."))) {
-        out.push(...skillsIn(join(synced, bucket), `synced/${bucket}/`, "synced"));
+        out.push(...skillsIn(agent, join(synced, bucket), `${prefix}synced/${bucket}/`, "synced"));
       }
     }
-  }
-  for (const [plugin, path] of pluginFolders(home)) {
-    out.push(...skillsIn(join(path, "skills"), `plugin/${plugin}/`, "plugin"));
+    for (const [plugin, path] of pluginFolders(where.home)) {
+      out.push(...skillsIn(agent, join(path, "skills"), `${prefix}plugin/${plugin}/`, "plugin"));
+    }
   }
   return out;
 }
 
-async function found(store: Store, home: string, id: string): Promise<LocalSkill> {
-  const skill = (await localSkills(store, home)).find((entry) => entry.id === id);
+async function found(store: Store, where: Where, id: string): Promise<LocalSkill> {
+  const skill = (await localSkills(store, where)).find((entry) => entry.id === id);
   if (!skill) throw new Refusal(`there is no skill ${id} in your skills`);
   return skill;
 }
 
-/** A skill's folder, as Claude Code finds it: a link's own path, not its target's. */
-function folderOf(home: string, skill: LocalSkill): string {
-  if (skill.kind === "own" || skill.kind === "linked") return join(skillsDir(home), skill.id);
-  return skill.path;
+/** A skill's folder, as its agent finds it: a link's own path, not its target's. */
+function folderOf(where: Where, skill: LocalSkill): string {
+  if (skill.kind !== "own" && skill.kind !== "linked") return skill.path;
+  const [agent = "", name = ""] = skill.id.split(":");
+  return join(agentNamed(agent).skillsDir(where), name);
 }
 
 /** The text files of a skill's folder, by their path in it, within a shared skill's limits. */
@@ -121,9 +132,9 @@ export function skillFilesIn(folder: string): Record<string, string> {
   return files;
 }
 
-export async function localSkill(store: Store, home: string, id: string): Promise<LocalSkillFull> {
-  const skill = await found(store, home, id);
-  const folder = folderOf(home, skill);
+export async function localSkill(store: Store, where: Where, id: string): Promise<LocalSkillFull> {
+  const skill = await found(store, where, id);
+  const folder = folderOf(where, skill);
   const files: string[] = [];
   const walk = (at: string) => {
     for (const name of readdirSync(at).sort()) {
@@ -141,14 +152,16 @@ export async function localSkill(store: Store, home: string, id: string): Promis
   };
 }
 
-/** A new skill of the person's own: a folder named after it in ~/.claude/skills, never over one that is there. */
-export function addLocalSkill(home: string, skill: SkillFiles): string {
+/** A new skill of the person's own, a folder named after it in every agent's skills here, never over one there. */
+export function addLocalSkill(where: Where, skill: SkillFiles): string {
   const name = skill.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
   if (!SKILL_NAME.test(name)) throw new Refusal("a skill's name takes lowercase letters, digits and -");
-  const folder = join(skillsDir(home), name);
-  if (existsSync(folder)) throw new Refusal(`there is a skill named ${name} in your skills already`);
-  writeSkill(folder, skill.files);
-  return name;
+  const agents = presentAgents(where);
+  if (agents.some((agent) => existsSync(join(agent.skillsDir(where), name)))) {
+    throw new Refusal(`there is a skill named ${name} in your skills already`);
+  }
+  for (const agent of agents) writeSkill(join(agent.skillsDir(where), name), skill.files);
+  return `${agents[0]?.agent ?? CLAUDE_CODE.agent}:${name}`;
 }
 
 /** A SKILL.md from a name, a one-line description and the instructions. */
@@ -163,20 +176,20 @@ export function manifestOf(input: { name: string; description: string; instructi
 }
 
 /** A new SKILL.md for one of the person's own skills; a link, a synced or a plugin's skill is changed where it comes from. */
-export async function saveLocalSkill(store: Store, home: string, id: string, manifest: string): Promise<void> {
-  const skill = await found(store, home, id);
+export async function saveLocalSkill(store: Store, where: Where, id: string, manifest: string): Promise<void> {
+  const skill = await found(store, where, id);
   if (skill.kind !== "own") throw new Refusal(`${skill.name} is kept elsewhere (${skill.path}): change it there`);
   if (!manifest.startsWith("---\n")) throw new Refusal("a SKILL.md starts with its front matter, between --- lines");
-  writeAtomically(join(folderOf(home, skill), "SKILL.md"), manifest);
+  writeAtomically(join(folderOf(where, skill), "SKILL.md"), manifest);
 }
 
 /** Takes a skill out of the person's skills: their own folder goes, a link goes without what it points to. */
-export async function removeLocalSkill(store: Store, home: string, id: string): Promise<void> {
-  const skill = await found(store, home, id);
+export async function removeLocalSkill(store: Store, where: Where, id: string): Promise<void> {
+  const skill = await found(store, where, id);
   if (skill.kind === "synced" || skill.kind === "plugin") {
     throw new Refusal(`${skill.name} comes with ${skill.kind === "synced" ? "your claude.ai account" : "a plugin"}`);
   }
-  const folder = folderOf(home, skill);
+  const folder = folderOf(where, skill);
   if (skill.kind === "linked") unlinkSync(folder);
   else rmSync(folder, { recursive: true });
 }

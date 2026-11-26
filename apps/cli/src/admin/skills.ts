@@ -18,7 +18,6 @@ import { bodyOf } from "./body.ts";
 /** The person's own skills, in ~/.claude/skills: listed, read, written, found on skills.sh and shared with the team. */
 export function skillRoutes(deps: AdminDeps): Hono {
   const { store } = deps;
-  const home = deps.where.home;
   const app = new Hono();
   // What the team store would refuse is a conflict here, as in the team's skills.
   app.onError((error) => {
@@ -27,10 +26,10 @@ export function skillRoutes(deps: AdminDeps): Hono {
   });
   const id = (query: string | undefined) => String(query ?? "");
 
-  app.get("/skills", async (c) => c.json({ skills: (await localSkills(store, home)) satisfies LocalSkill[] }));
+  app.get("/skills", async (c) => c.json({ skills: (await localSkills(store, deps.where)) satisfies LocalSkill[] }));
 
   app.get("/skills/one", async (c) =>
-    c.json((await localSkill(store, home, id(c.req.query("id")))) satisfies LocalSkillFull),
+    c.json((await localSkill(store, deps.where, id(c.req.query("id")))) satisfies LocalSkillFull),
   );
 
   app.post("/skills", async (c) => {
@@ -41,28 +40,28 @@ export function skillRoutes(deps: AdminDeps): Hono {
       description: String(input.description ?? ""),
       instructions: String(input.instructions ?? ""),
     });
-    return c.json({ id: addLocalSkill(home, skillFromFiles({ "SKILL.md": manifest }, name)) }, 201);
+    return c.json({ id: addLocalSkill(deps.where, skillFromFiles({ "SKILL.md": manifest }, name)) }, 201);
   });
 
   app.post("/skills/found", async (c) => {
     const { source, name } = await bodyOf(c);
     const skill = await fetchSkill(String(source ?? ""), String(name ?? ""), deps.fetch);
-    return c.json({ id: addLocalSkill(home, skill) }, 201);
+    return c.json({ id: addLocalSkill(deps.where, skill) }, 201);
   });
 
   app.put("/skills/one", async (c) => {
-    await saveLocalSkill(store, home, id(c.req.query("id")), String((await bodyOf(c)).manifest ?? ""));
+    await saveLocalSkill(store, deps.where, id(c.req.query("id")), String((await bodyOf(c)).manifest ?? ""));
     return c.json({ saved: true });
   });
 
   app.delete("/skills/one", async (c) => {
-    await removeLocalSkill(store, home, id(c.req.query("id")));
+    await removeLocalSkill(store, deps.where, id(c.req.query("id")));
     return c.json({ removed: true });
   });
 
   /** An admin shares one of their skills: its folder's text files become a team skill each machine approves. */
   app.post("/skills/share", async (c) => {
-    const skill = await localSkill(store, home, id(c.req.query("id")));
+    const skill = await localSkill(store, deps.where, id(c.req.query("id")));
     const files = skillFilesIn(skill.path);
     const shared = await share(await deps.storeDeps(), {
       type: "Skill",

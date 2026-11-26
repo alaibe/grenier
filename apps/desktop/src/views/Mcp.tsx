@@ -25,7 +25,7 @@ const loadTeam = () =>
     answer.shared.filter((entry) => entry.type === "McpServer"),
   );
 
-/** Where a new server goes: the person's Claude Code, or the team's. */
+/** Where a new server goes: the person's agents, or the team's. */
 type Group = "me" | "team";
 
 const lines = (text: string) =>
@@ -50,7 +50,7 @@ const templateNames = (values: Record<string, string>) => [
 ];
 
 /**
- * An MCP server added from the MCP Registry or by hand: into the person's Claude Code, with their own keys, or shared
+ * An MCP server added from the MCP Registry or by hand: into the person's agents, with their own keys, or shared
  * with the team, where `{name}` marks a key each teammate enters.
  */
 function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => void; cancel: () => void }) {
@@ -72,7 +72,7 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
     void action.run(`add:${String(body.name)}`, async () => {
       const done = await api<{ id: string }>(path, { body });
       added(`me:${done.id}`);
-      return `Added ${String(body.name)} to your Claude Code: restart it to load the server`;
+      return `Added ${String(body.name)} to your agents: restart them to load the server`;
     });
   const pick = (server: FoundServer) => {
     if (to === "team") {
@@ -102,7 +102,7 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
           })
         }
       >
-        <p>Your keys go only into its entry in your Claude Code config: never to the team, a log or a store.</p>
+        <p>Your keys go only into its entry in your agents' configs: never to the team, a log or a store.</p>
         <Problem error={action.problem} />
         {keysFor.credentials.map((name) => (
           <Field key={name} label={name}>
@@ -205,7 +205,7 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
             <Input name="title" mono placeholder="sentry" required />
           </Field>
           {to === "me" ? (
-            <Field label="For" help="Every project, or one project Claude Code knows.">
+            <Field label="For" help="Every project, for Claude Code and Codex, or one project Claude Code knows.">
               <Select name="project" defaultValue="">
                 <option value="">Every project</option>
                 {(projects.data ?? []).map((project) => (
@@ -230,7 +230,7 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
             label="Headers or environment"
             help={
               to === "me"
-                ? "One per line: headers for a URL, environment for a command. Your values go only into your Claude Code config."
+                ? "One per line: headers for a URL, environment for a command. Your values go only into your agents' configs."
                 : "One per line: headers for a URL, environment for a command. {name} is a key each person enters."
             }
           >
@@ -299,29 +299,37 @@ export function Mcp({ item, go, member, team }: ViewProps) {
   );
   useCommands(commands);
 
-  const servers = (local.data ?? []).filter((server) => matches(server.name, server.where, server.command, server.url));
+  const servers = (local.data ?? []).filter((server) =>
+    matches(server.name, server.client, server.where, server.command, server.url),
+  );
   const leaf = (server: LocalServer): TreeNode => ({
     id: `me:${server.id}`,
     name: server.name,
     icon: Plug,
     meta: server.grenier ? <Tag>grenier</Tag> : server.scope === "repo" ? <Tag>.mcp.json</Tag> : undefined,
   });
-  const folders = (scope: "project" | "app", prefix: string) => {
+  const clients = [...new Set(servers.map((server) => server.client))];
+  const ofClient = (client: string): TreeNode => {
+    const mine = servers.filter((server) => server.client === client);
     const by = new Map<string, LocalServer[]>();
-    for (const server of servers.filter((entry) =>
-      scope === "project" ? entry.scope !== "user" && entry.scope !== "app" : entry.scope === "app",
-    )) {
+    for (const server of mine.filter((entry) => entry.scope !== "user")) {
       by.set(server.where ?? "", [...(by.get(server.where ?? "") ?? []), server]);
     }
-    return [...by].map(([where, inside]) => ({
-      id: `${prefix}${where}/`,
-      name: scope === "project" ? base(where) : where,
-      ...(scope === "project" ? { meta: <span title={where}>{where}</span> } : {}),
+    const projects = [...by].map(([where, inside]) => ({
+      id: `me/${client}/projects/${where}/`,
+      name: base(where),
+      meta: <span title={where}>{where}</span>,
       children: inside.map(leaf),
     }));
+    return {
+      id: `me/${client}/`,
+      name: client,
+      children: [
+        ...mine.filter((server) => server.scope === "user").map(leaf),
+        ...(projects.length > 0 ? [{ id: `me/${client}/projects`, name: "Projects", children: projects }] : []),
+      ],
+    };
   };
-  const projects = folders("project", "me/projects/");
-  const apps = folders("app", "me/apps/");
   const teamRows = (shared.data ?? []).filter((entry) => matches(entry.title, entry.description));
   const adds = (to: Group) => (
     <IconButton label="Add an MCP server" icon={Plus} size="sm" onClick={() => setAdding(to)} />
@@ -333,11 +341,7 @@ export function Mcp({ item, go, member, team }: ViewProps) {
       group: true,
       meta: "your agents",
       actions: adds("me"),
-      children: [
-        ...servers.filter((server) => server.scope === "user").map(leaf),
-        ...(projects.length > 0 ? [{ id: "me/projects", name: "Projects", children: projects }] : []),
-        ...(apps.length > 0 ? [{ id: "me/apps", name: "Other apps", children: apps }] : []),
-      ],
+      children: clients.map(ofClient),
     },
     ...(team
       ? [
@@ -422,7 +426,7 @@ export function Mcp({ item, go, member, team }: ViewProps) {
     />
   ) : local.error ? null : (
     <Empty boot="pick a server">
-      Your servers are the ones your agents get: Claude Code's, each project's and your other apps'.
+      Your servers are the ones your agents get: Claude Code's and its projects', Codex's, and your other apps'.
       {team ? " The team's install here, with your own keys, once you approve them." : ""} Add Grenier's own in
       Settings.
     </Empty>

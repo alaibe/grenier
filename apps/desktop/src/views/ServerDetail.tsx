@@ -18,9 +18,8 @@ const base = (path: string) => path.split("/").filter(Boolean).at(-1) ?? path;
 
 /** Where a server of the person's is, as its bar shows it. */
 export function serverPath(server: LocalServer): string {
-  if (server.scope === "user") return `Me / ${server.name}`;
-  if (server.scope === "app") return `Me / Other apps / ${server.where} / ${server.name}`;
-  return `Me / Projects / ${base(server.where ?? "")} / ${server.name}`;
+  if (server.scope === "user") return `Me / ${server.client} / ${server.name}`;
+  return `Me / ${server.client} / Projects / ${base(server.where ?? "")} / ${server.name}`;
 }
 
 /** A server as it reads: its bar, its name and how it runs, then what is set for it. */
@@ -169,7 +168,7 @@ function Keys({
   );
 }
 
-/** One of the person's servers: changed in Claude Code's config when it is there, read-only when it is kept elsewhere. */
+/** One of the person's servers: changed in its agent's config, read-only when it is kept elsewhere. */
 export function LocalServerView({
   server,
   share,
@@ -227,7 +226,7 @@ export function LocalServerView({
   const remove = () =>
     ask({
       title: `Remove ${server.name}?`,
-      body: "Its entry and the keys in it leave Claude Code's config. This can't be undone.",
+      body: `Its entry and the keys in it leave ${server.client}'s config. This can't be undone.`,
       action: "Remove the server",
       run: () =>
         void action.run("remove", async () => {
@@ -249,8 +248,8 @@ export function LocalServerView({
     </Notice>
   ) : server.scope === "repo" ? (
     <Notice kind="info">In {server.where}/.mcp.json: change it in the repository.</Notice>
-  ) : server.scope === "app" ? (
-    <Notice kind="info">{server.where}'s own: change it there.</Notice>
+  ) : !server.editable ? (
+    <Notice kind="info">{server.client}'s own: change it there.</Notice>
   ) : null;
 
   return (
@@ -283,7 +282,7 @@ export function LocalServerView({
                 onClick={() =>
                   void action.run("save", async () => {
                     await api(`/servers/one?id=${encodeURIComponent(server.id)}`, { method: "PUT", body: change });
-                    return `Saved ${server.name}: restart Claude Code to load it`;
+                    return `Saved ${server.name}: restart ${server.client} to load it`;
                   })
                 }
               >
@@ -372,7 +371,7 @@ export function TeamServerView({
   const install = (keys?: Record<string, string>) =>
     void action.run("install", async () => {
       await api(`/installs/${entry.id}`, { body: keys ? { keys } : {} });
-      return `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart Claude Code to load it`;
+      return `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart your agents to load it`;
     });
   const start = () => (entry.state === "available" && entry.credentials.length > 0 ? setAsking(true) : install());
   const uninstall = () =>
@@ -462,7 +461,7 @@ export function TeamServerView({
       </Field>
       {entry.credentials.length > 0 && (
         <p className="text-sm text-muted">
-          Needs your {entry.credentials.join(", ")}: they go only into your Claude Code config.
+          Needs your {entry.credentials.join(", ")}: they go only into your agents' configs.
         </p>
       )}
       {dialog}
@@ -476,7 +475,7 @@ export function TeamServerView({
             install(Object.fromEntries(entry.credentials.map((name) => [name, String(form.get(name) ?? "")])))
           }
         >
-          <p>Your keys go only into its entry in your own Claude Code config: never to the team, a log or a store.</p>
+          <p>Your keys go only into its entry in your own agents' configs: never to the team, a log or a store.</p>
           <Problem error={action.problem} />
           {entry.credentials.map((name) => (
             <Field key={name} label={name}>

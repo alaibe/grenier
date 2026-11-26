@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { AGENT_TEXTS } from "@grenier/gateway";
 import { repoId, repoRoot } from "@grenier/git";
 import { agentTexts } from "../agent-texts.ts";
+import { type Agent, agentRunning } from "../agents/index.ts";
 import { startDaemon } from "../daemon.ts";
 import { environment, type Io, UsageError, withStore } from "../io.ts";
 import { newSessionId } from "../runtime.ts";
@@ -11,32 +12,26 @@ export interface RunDependencies {
   startDaemon: (io: Io) => Promise<{ pid: number; port?: number; version?: string }>;
 }
 
-export const ASKED_FIRST =
-  "grenier: asked Claude Code to call get before exploring (--append-system-prompt; pass your own to skip it)";
+/** What `grenier run` says when it gives the agent Grenier's prompt. */
+export const askedFirst = (agent: Agent) =>
+  `grenier: asked ${agent.label} to call get before exploring (pass your own system prompt to skip it)`;
 
-const SYSTEM_PROMPT_FLAG = /^--(append-)?system-prompt(-file)?(=|$)/;
-
-/** Whether Claude Code gets Grenier's system prompt: in a repository, unless the command gives its own. */
+/** Whether an agent gets Grenier's prompt: in a repository, unless the command gives its own. */
 export function asksFirst(program: string, args: readonly string[], inRepository: boolean): boolean {
-  return (
-    inRepository && /^claude(\.exe)?$/i.test(basename(program)) && !args.some((arg) => SYSTEM_PROMPT_FLAG.test(arg))
-  );
+  const agent = agentRunning(program);
+  return Boolean(inRepository && agent && !agent.ownPrompt(args));
 }
 
-/** Codex reads its base URL only from its config, so it gets `-c openai_base_url=…` unless the command sets one. */
+/** The command's arguments, with what its agent needs to go through Grenier: its prompt, and the proxy's address. */
 export function agentArgs(
   program: string,
   args: readonly string[],
   openaiBaseUrl: string,
-  /** The system prompt to append, or null. */
+  /** Grenier's prompt, or null. */
   prompt: string | null,
 ): string[] {
-  if (prompt) return ["--append-system-prompt", prompt, ...args];
-  const codex = /^codex(\.exe)?$/i.test(basename(program));
-  if (!codex || args.some((arg) => /^openai_base_url\s*=/.test(arg) || /^--config=openai_base_url/.test(arg))) {
-    return [...args];
-  }
-  return ["-c", `openai_base_url=${JSON.stringify(openaiBaseUrl)}`, ...args];
+  const agent = agentRunning(program);
+  return agent ? agent.runArgs(args, prompt, openaiBaseUrl) : [...args];
 }
 
 /** `grenier run -- <command>`: runs the command through the proxy, in a session of its own. */
@@ -66,7 +61,8 @@ export async function run(argv: string[], io: Io, dependencies: RunDependencies 
   const openaiBaseUrl = `${baseUrl}/openai/v1`;
   const askFirst = asksFirst(program, args, root !== null);
   io.err(`grenier: session ${id}, through ${baseUrl}`);
-  if (askFirst) io.err(ASKED_FIRST);
+  const agent = agentRunning(program);
+  if (askFirst && agent) io.err(askedFirst(agent));
 
   const code = await new Promise<number>((resolve) => {
     const prompt = askFirst ? (agentTexts(paths.home).mcp ?? AGENT_TEXTS.mcp) : null;

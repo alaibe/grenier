@@ -21,7 +21,6 @@ import { bodyOf } from "./body.ts";
 /** The team's skills and servers on this machine, and skills from skills.sh, shared from GitHub like any other. */
 export function installRoutes(deps: AdminDeps): Hono {
   const { store } = deps;
-  const home = deps.where.home;
   const app = new Hono();
 
   // What the team store would refuse is a conflict here, as every other refusal of these routes.
@@ -130,7 +129,7 @@ export function installRoutes(deps: AdminDeps): Hono {
   app.post("/installs/:id/rollback", async (c) => {
     const record = await found(c.req.param("id"));
     if (!record) return c.json(missing, 404);
-    return c.json(await rollback(store, home, record));
+    return c.json(await rollback(store, deps.where, record));
   });
 
   app.post("/installs/:id", async (c) => {
@@ -141,13 +140,13 @@ export function installRoutes(deps: AdminDeps): Hono {
       given && typeof given === "object"
         ? Object.fromEntries(Object.entries(given).map(([name, value]) => [name, String(value)]))
         : {};
-    return c.json(await install(store, home, record, { keys }));
+    return c.json(await install(store, deps.where, record, { keys }));
   });
 
   app.delete("/installs/:id", async (c) => {
     const record = await found(c.req.param("id"));
     if (!record) return c.json(missing, 404);
-    return c.json({ removed: await uninstall(store, { id: record.id, type: record.type as Shared }) });
+    return c.json({ removed: await uninstall(store, deps.where, { id: record.id, type: record.type as Shared }) });
   });
 
   return app;

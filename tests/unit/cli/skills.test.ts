@@ -5,6 +5,7 @@ import type { StoreDeps } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Where } from "../../../apps/cli/src/agents/index.ts";
 import { install, share } from "../../../apps/cli/src/installs.ts";
 import {
   addLocalSkill,
@@ -21,6 +22,7 @@ let store: Store;
 let deps: StoreDeps;
 let home: string;
 let elsewhere: string;
+let where: Where;
 
 const manifest = (name: string, description = `Does ${name}.`) =>
   `---\nname: ${name}\ndescription: ${description}\n---\nSteps.\n`;
@@ -39,6 +41,7 @@ beforeEach(async () => {
   deps = await storeDeps(store);
   home = mkdtempSync(join(tmpdir(), "grenier-skills-"));
   elsewhere = mkdtempSync(join(tmpdir(), "grenier-skills-elsewhere-"));
+  where = { home, platform: "linux", env: {}, self: [] };
 });
 
 afterEach(async () => {
@@ -68,15 +71,15 @@ describe("the person's own skills", () => {
       body: "",
       fields: { files: { "SKILL.md": manifest("team-one") } },
     });
-    await install(store, home, (await store.records.get(id)) as FullRecord);
+    await install(store, where, (await store.records.get(id)) as FullRecord);
 
-    expect((await localSkills(store, home)).map(({ id, kind, name }) => ({ id, kind, name }))).toEqual([
-      { id: "notes", kind: "own", name: "notes" },
-      { id: "omarchy", kind: "linked", name: "omarchy" },
-      { id: "synced/bucket/docx", kind: "synced", name: "docx" },
-      { id: "plugin/reviewer/review", kind: "plugin", name: "review" },
+    expect((await localSkills(store, where)).map(({ id, kind, name }) => ({ id, kind, name }))).toEqual([
+      { id: "claude:notes", kind: "own", name: "notes" },
+      { id: "claude:omarchy", kind: "linked", name: "omarchy" },
+      { id: "claude:synced/bucket/docx", kind: "synced", name: "docx" },
+      { id: "claude:plugin/reviewer/review", kind: "plugin", name: "review" },
     ]);
-    expect(await localSkill(store, home, "notes")).toMatchObject({
+    expect(await localSkill(store, where, "claude:notes")).toMatchObject({
       description: "Does notes.",
       manifest: manifest("notes"),
       files: ["scripts/run.sh"],
@@ -90,20 +93,22 @@ describe("the person's own skills", () => {
   it("adds one, never over another, and saves only their own folders", async () => {
     const written = manifestOf({ name: "release-notes", description: "Writes notes: from tags.", instructions: "Go." });
     expect(written).toBe('---\nname: release-notes\ndescription: "Writes notes: from tags."\n---\nGo.\n');
-    expect(addLocalSkill(home, { name: "release-notes", description: "", files: { "SKILL.md": written } })).toBe(
-      "release-notes",
+    expect(addLocalSkill(where, { name: "release-notes", description: "", files: { "SKILL.md": written } })).toBe(
+      "claude:release-notes",
     );
     expect(() =>
-      addLocalSkill(home, { name: "release-notes", description: "", files: { "SKILL.md": written } }),
+      addLocalSkill(where, { name: "release-notes", description: "", files: { "SKILL.md": written } }),
     ).toThrow("already");
     expect(() => manifestOf({ name: "Bad Name", description: "x", instructions: "y" })).toThrow("lowercase");
 
-    await saveLocalSkill(store, home, "release-notes", manifest("release-notes", "Better."));
-    expect((await localSkill(store, home, "release-notes")).description).toBe("Better.");
+    await saveLocalSkill(store, where, "claude:release-notes", manifest("release-notes", "Better."));
+    expect((await localSkill(store, where, "claude:release-notes")).description).toBe("Better.");
 
     skillAt(join(elsewhere, "linked"), "linked");
     symlinkSync(join(elsewhere, "linked"), join(home, ".claude", "skills", "linked"));
-    await expect(saveLocalSkill(store, home, "linked", manifest("linked", "No."))).rejects.toThrow("change it there");
+    await expect(saveLocalSkill(store, where, "claude:linked", manifest("linked", "No."))).rejects.toThrow(
+      "change it there",
+    );
     expect(readFileSync(join(elsewhere, "linked", "SKILL.md"), "utf8")).toBe(manifest("linked"));
   });
 
@@ -114,12 +119,12 @@ describe("the person's own skills", () => {
     symlinkSync(join(elsewhere, "linked"), join(skills, "linked"));
     skillAt(join(skills, "synced", "bucket", "docx"), "docx");
 
-    await removeLocalSkill(store, home, "linked");
+    await removeLocalSkill(store, where, "claude:linked");
     expect(existsSync(join(skills, "linked"))).toBe(false);
     expect(existsSync(join(elsewhere, "linked", "SKILL.md"))).toBe(true);
-    await removeLocalSkill(store, home, "mine");
+    await removeLocalSkill(store, where, "claude:mine");
     expect(existsSync(join(skills, "mine"))).toBe(false);
-    await expect(removeLocalSkill(store, home, "synced/bucket/docx")).rejects.toThrow("claude.ai");
-    await expect(removeLocalSkill(store, home, "gone")).rejects.toThrow("no skill gone");
+    await expect(removeLocalSkill(store, where, "claude:synced/bucket/docx")).rejects.toThrow("claude.ai");
+    await expect(removeLocalSkill(store, where, "claude:gone")).rejects.toThrow("no skill claude:gone");
   });
 });

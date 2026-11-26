@@ -111,6 +111,7 @@ export async function runDaemon(io: Io): Promise<number> {
 
   const store = openSqliteStore(paths.db);
   await ensureBaseTops(store);
+  const where = { home: homedir(), platform: process.platform, env: io.env, self: io.self };
   const port = config.proxy.port;
   const prices = loadPrices(config.prices);
   const embedder = embedderLoader(config, paths, io.err);
@@ -137,7 +138,7 @@ export async function runDaemon(io: Io): Promise<number> {
   const linkTo = (client: TeamClient) => {
     const made = new TeamLink(client, store, config, paths, embedder, io.err);
     made.listeners.push((result) => {
-      removeRetired(store)
+      removeRetired(store, where)
         .then((done) => {
           for (const line of done) io.err(`grenier: ${line}`);
         })
@@ -174,7 +175,7 @@ export async function runDaemon(io: Io): Promise<number> {
     },
     joined: started,
     runner,
-    where: { home: homedir(), platform: process.platform, env: io.env, self: io.self },
+    where,
   });
   const app = createGateway({
     store,

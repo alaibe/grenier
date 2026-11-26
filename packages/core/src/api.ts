@@ -289,13 +289,15 @@ export interface LocalServer {
   /** Its scope, where and name, as JSON: the key the daemon finds it by. */
   id: string;
   name: string;
-  /** Claude Code's for every project, one project's, a repository's .mcp.json, or another app's. */
-  scope: "user" | "project" | "repo" | "app";
-  /** The project's folder, or the app's name; null for every project. */
+  /** The app whose config holds it, by its name: Claude Code, Codex, Cursor, Claude Desktop. */
+  client: string;
+  /** The app's own for every project, a Claude Code project's, or a repository's .mcp.json. */
+  scope: "user" | "project" | "repo";
+  /** The project's folder; null for every project. */
   where: string | null;
   /** Grenier's own server, added from Settings. */
   grenier: boolean;
-  /** In Claude Code's config, so changed here; the others are changed where they are kept. */
+  /** An agent's own, Claude Code's or Codex's, so changed here; the others are changed where they are kept. */
   editable: boolean;
   transport: "stdio" | "http" | "sse";
   command: string | null;
@@ -318,8 +320,10 @@ export interface ServerChange {
 
 /** A skill in this person's Claude Code skills, as the Skills screen lists it under Me. */
 export interface LocalSkill {
-  /** Its folder's name; `synced/<bucket>/<name>` or `plugin/<plugin>/<name>` for the ones Claude Code keeps. */
+  /** `<agent>:<folder>`, as `claude:notes` or `codex:notes`; `claude:synced/…` and `claude:plugin/…` for Claude Code's own. */
   id: string;
+  /** The agent that loads it: Claude Code or Codex. */
+  agent: string;
   name: string;
   description: string;
   /** Their own folder, a link to a folder elsewhere, synced from claude.ai, or a plugin's: only their own is edited here. */

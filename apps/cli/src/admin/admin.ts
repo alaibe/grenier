@@ -4,7 +4,7 @@ import { type StoreDeps, StoreUseError, type SyncResult, type TeamClient, TeamEr
 import type { Prices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { Hono } from "hono";
-import type { Where } from "../connect.ts";
+import type { Where } from "../agents/index.ts";
 import { Refusal } from "../io.ts";
 import type { Runner } from "../runner.ts";
 import { appRoutes } from "./apps.ts";

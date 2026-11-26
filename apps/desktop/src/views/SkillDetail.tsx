@@ -133,13 +133,13 @@ function SkillPage({
 }
 
 const WHERE: Record<LocalSkillFull["kind"], string> = {
-  own: "Me",
-  linked: "Me",
-  synced: "Me / Synced",
-  plugin: "Me / Plugins",
+  own: "",
+  linked: "",
+  synced: " / Synced",
+  plugin: " / Plugins",
 };
 
-/** One of the person's own skills, from ~/.claude/skills: edited in place when it is their folder. */
+/** One of the person's own skills, from its agent's skills folder: edited in place when it is their folder. */
 export function LocalSkillView({
   id,
   share,
@@ -209,7 +209,7 @@ export function LocalSkillView({
     <>
       <SkillPage
         key={id}
-        path={`${WHERE[data.kind]} / ${data.name}`}
+        path={`Me / ${data.agent}${WHERE[data.kind]} / ${data.name}`}
         name={data.name}
         manifest={data.manifest}
         files={data.files}
@@ -276,7 +276,7 @@ export function TeamSkillView({
       "install",
       `/installs/${entry.id}`,
       "POST",
-      `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart Claude Code to load it`,
+      `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart your agents to load it`,
     );
   const uninstall = () =>
     void action.run("remove", async () => {

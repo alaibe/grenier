@@ -202,15 +202,28 @@ export function Skills({ item, go, member, team }: ViewProps) {
     </>
   );
   const skills = local.data ?? [];
-  const shown = skills.filter((skill) => matches(skill.name, skill.description));
+  const shown = skills.filter((skill) => matches(skill.name, `${skill.agent} ${skill.description}`));
   const leaf = (skill: LocalSkill): TreeNode => ({
     id: `me:${skill.id}`,
     name: skill.name,
     icon: skill.kind === "linked" ? Link2 : Sparkles,
     meta: skill.kind === "linked" && <Tag>linked</Tag>,
   });
-  const synced = shown.filter((skill) => skill.kind === "synced");
-  const plugins = shown.filter((skill) => skill.kind === "plugin");
+  const agents = [...new Set(shown.map((skill) => skill.agent))];
+  const ofAgent = (agent: string): TreeNode => {
+    const mine = shown.filter((skill) => skill.agent === agent);
+    const synced = mine.filter((skill) => skill.kind === "synced");
+    const plugins = mine.filter((skill) => skill.kind === "plugin");
+    return {
+      id: `me/${agent}/`,
+      name: agent,
+      children: [
+        ...mine.filter((skill) => skill.kind === "own" || skill.kind === "linked").map(leaf),
+        ...(synced.length > 0 ? [{ id: `me/${agent}/synced`, name: "Synced", children: synced.map(leaf) }] : []),
+        ...(plugins.length > 0 ? [{ id: `me/${agent}/plugins`, name: "Plugins", children: plugins.map(leaf) }] : []),
+      ],
+    };
+  };
   const nodes: TreeNode[] = [
     {
       id: "me/",
@@ -218,11 +231,7 @@ export function Skills({ item, go, member, team }: ViewProps) {
       group: true,
       meta: "this machine",
       actions: adds("me"),
-      children: [
-        ...shown.filter((skill) => skill.kind === "own" || skill.kind === "linked").map(leaf),
-        ...(synced.length > 0 ? [{ id: "me/synced", name: "Synced", children: synced.map(leaf) }] : []),
-        ...(plugins.length > 0 ? [{ id: "me/plugins", name: "Plugins", children: plugins.map(leaf) }] : []),
-      ],
+      children: agents.map(ofAgent),
     },
     ...(team
       ? [
@@ -309,7 +318,7 @@ export function Skills({ item, go, member, team }: ViewProps) {
     />
   ) : local.error ? null : (
     <Empty boot={local.data && skills.length === 0 && !shared.data?.length ? "no skills yet" : "pick a skill"}>
-      Your skills are the ones Claude Code loads from ~/.claude/skills.
+      Your skills are the ones Claude Code and Codex load from their skills folders; a new one goes to both.
       {team ? " The team's install here once you approve them." : ""} Find one on skills.sh, or write one.
     </Empty>
   );

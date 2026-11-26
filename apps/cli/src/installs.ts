@@ -2,9 +2,9 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { isAbsolute, join, posix } from "node:path";
 import { recordProblem, secretIn, sharedHash } from "@grenier/core";
 import type { SharedState } from "@grenier/core/api";
-import { writeAtomically } from "@grenier/core/node";
 import { newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
 import type { Approval, FullRecord, Store } from "@grenier/store";
+import { presentAgents, type Where } from "./agents/index.ts";
 import { Refusal } from "./io.ts";
 
 export type Shared = "Skill" | "McpServer";
@@ -58,13 +58,8 @@ const slug = (name: string) =>
     .replace(/^-|-$/g, "")
     .slice(0, 60) || "shared";
 
-export function skillFolder(home: string, record: Pick<FullRecord, "title">): string {
-  return join(home, ".claude", "skills", `grenier-${slug(record.title)}`);
-}
-
-export function claudeConfig(home: string): string {
-  return join(home, ".claude.json");
-}
+/** The folder or server name a shared skill or server installs under, in each agent: `grenier-` and its name. */
+export const installedName = (record: Pick<FullRecord, "title">) => `grenier-${slug(record.title)}`;
 
 const credentialsOf = (record: Pick<FullRecord, "fields">) =>
   Array.isArray(record.fields.credentials) ? (record.fields.credentials as string[]) : [];
@@ -82,7 +77,7 @@ function headerTemplates(config: Record<string, unknown>, credentials: string[])
 
 const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** The keys a person entered, read back from their server's entry in Claude Code's config. */
+/** The keys a person entered, read back from their server's entry in an agent's config. */
 function keysIn(
   record: Pick<FullRecord, "fields">,
   entry: Record<string, unknown> | undefined,
@@ -106,7 +101,7 @@ function keysIn(
   return keys;
 }
 
-/** A server's entry in Claude Code's config, with the keys this person entered: they go nowhere else. */
+/** A server's entry in each agent's config, with the keys this person entered: they go nowhere else. */
 export function serverEntry(record: Pick<FullRecord, "fields">, keys: Record<string, string>): Record<string, unknown> {
   const config = (record.fields.config ?? {}) as Record<string, unknown>;
   const credentials = credentialsOf(record);
@@ -173,7 +168,7 @@ export function writeSkill(folder: string, files: Record<string, string>): void 
  */
 export async function install(
   store: Store,
-  home: string,
+  where: Where,
   record: FullRecord,
   options: { hash?: string; keys?: Record<string, string> } = {},
 ): Promise<Approval> {
@@ -181,61 +176,60 @@ export async function install(
   if (!kind) throw new Refusal(`${record.title} is a ${record.type}, not a skill or an MCP server`);
   const before = await store.approvals.get(record.id, kind);
   const hash = options.hash ?? (await sharedHash(record));
-  let installedPath: string;
+  const agents = presentAgents(where);
+  const name = installedName(record);
   if (record.type === "Skill") {
-    installedPath = skillFolder(home, record);
-    if (existsSync(installedPath) && !before) {
-      throw new Refusal(`${installedPath} exists and is not one Grenier installed; move it aside first`);
-    }
-    writeSkill(installedPath, (record.fields.files ?? {}) as Record<string, string>);
+    const folders = agents.map((agent) => join(agent.skillsDir(where), name));
+    const theirs = folders.find((folder) => existsSync(folder));
+    if (theirs && !before) throw new Refusal(`${theirs} exists and is not one Grenier installed; move it aside first`);
+    for (const folder of folders) writeSkill(folder, (record.fields.files ?? {}) as Record<string, string>);
   } else {
-    installedPath = claudeConfig(home);
-    const config = readJson(installedPath);
-    const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-    const name = `grenier-${slug(record.title)}`;
-    if (servers[name] && !before) {
-      throw new Refusal(`Claude Code has a server named ${name} already, not one Grenier installed`);
+    const found = agents.map((agent) => [agent, agent.servers(where)[name]] as const);
+    const theirs = found.find(([, entry]) => entry);
+    if (theirs && !before) {
+      throw new Refusal(`${theirs[0].label} has a server named ${name} already, not one Grenier installed`);
     }
-    const kept = keysIn(record, servers[name] as Record<string, unknown> | undefined);
-    servers[name] = serverEntry(record, { ...kept, ...(options.keys ?? {}) });
-    config.mcpServers = servers;
-    writeAtomically(installedPath, `${JSON.stringify(config, null, 2)}\n`);
+    const kept = keysIn(record, theirs?.[1]);
+    const entry = serverEntry(record, { ...kept, ...(options.keys ?? {}) });
+    for (const agent of agents) {
+      agent.editServers(where, (servers) => {
+        servers[name] = entry;
+      });
+    }
   }
   const approval: Approval = {
     recordId: record.id,
     kind,
     hash,
     approvedAt: Date.now(),
-    settings: {
-      ...(before?.settings ?? {}),
-      name: record.type === "Skill" ? slug(record.title) : `grenier-${slug(record.title)}`,
-    },
-    installedPath,
+    settings: { ...(before?.settings ?? {}), name },
+    installedPath: null,
     previousHash: before && before.hash !== hash ? before.hash : (before?.previousHash ?? null),
   };
   await store.approvals.put(approval);
   return approval;
 }
 
-export async function uninstall(store: Store, record: Pick<FullRecord, "id" | "type">): Promise<boolean> {
+/** Takes a shared skill or server off every agent here. */
+export async function uninstall(store: Store, where: Where, record: Pick<FullRecord, "id" | "type">): Promise<boolean> {
   const kind = KIND[record.type as Shared];
   const approval = kind ? await store.approvals.get(record.id, kind) : undefined;
   if (!approval) return false;
-  if (approval.kind === "skill" && approval.installedPath) {
-    rmSync(approval.installedPath, { recursive: true, force: true });
-  } else if (approval.installedPath) {
-    const config = readJson(approval.installedPath);
-    const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-    delete servers[String(approval.settings.name ?? "")];
-    config.mcpServers = servers;
-    writeAtomically(approval.installedPath, `${JSON.stringify(config, null, 2)}\n`);
+  const name = String(approval.settings.name ?? "");
+  for (const agent of presentAgents(where)) {
+    if (approval.kind === "skill") rmSync(join(agent.skillsDir(where), name), { recursive: true, force: true });
+    else if (agent.servers(where)[name]) {
+      agent.editServers(where, (servers) => {
+        delete servers[name];
+      });
+    }
   }
   await store.approvals.remove(record.id, approval.kind);
   return true;
 }
 
 /** Puts back the version installed before the last update, from the record's history on this machine. */
-export async function rollback(store: Store, home: string, record: FullRecord): Promise<Approval> {
+export async function rollback(store: Store, where: Where, record: FullRecord): Promise<Approval> {
   const kind = KIND[record.type as Shared];
   const approval = kind ? await store.approvals.get(record.id, kind) : undefined;
   if (!approval?.previousHash) throw new Refusal(`${record.title} has no earlier installed version to go back to`);
@@ -244,7 +238,7 @@ export async function rollback(store: Store, home: string, record: FullRecord): 
     if ((await sharedHash({ type: record.type, fields: snapshot.fields ?? {} })) !== approval.previousHash) continue;
     const restored = await install(
       store,
-      home,
+      where,
       { ...record, fields: snapshot.fields },
       { hash: approval.previousHash },
     );
@@ -282,13 +276,16 @@ export async function sharedList(store: Store): Promise<SharedState[]> {
 }
 
 /** Removes the skills and servers installed here that the team retired: no list shows them any more. */
-export async function removeRetired(store: Store): Promise<string[]> {
+export async function removeRetired(store: Store, where: Where): Promise<string[]> {
   const done: string[] = [];
   for (const approval of await store.approvals.list()) {
     if (approval.kind !== "skill" && approval.kind !== "mcp") continue;
     const record = await store.records.get(approval.recordId);
     if (record && record.retiredAt === null) continue;
-    await uninstall(store, { id: approval.recordId, type: approval.kind === "skill" ? "Skill" : "McpServer" });
+    await uninstall(store, where, {
+      id: approval.recordId,
+      type: approval.kind === "skill" ? "Skill" : "McpServer",
+    });
     done.push(`removed ${record?.title ?? approval.recordId}, which the team retired`);
   }
   return done;

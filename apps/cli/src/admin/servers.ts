@@ -6,7 +6,7 @@ import { addServer, changeServer, claudeProjects, entryOf, localServers, removeS
 import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./body.ts";
 
-/** The person's own MCP servers: listed from every app, changed in Claude Code's config, shared by an admin. */
+/** The person's own MCP servers: listed from every app, changed in Claude Code's and Codex's configs, shared by an admin. */
 export function serverRoutes(deps: AdminDeps): Hono {
   const { store, where } = deps;
   const app = new Hono();
@@ -21,7 +21,7 @@ export function serverRoutes(deps: AdminDeps): Hono {
 
   app.get("/servers/projects", (c) => c.json({ projects: claudeProjects(where) }));
 
-  /** A server written in the app, with the values the person typed, which go only into Claude Code's config. */
+  /** A server written in the app, with the values the person typed, which go only into the agents' configs. */
   app.post("/servers", async (c) => {
     const input = await bodyOf(c);
     const project = typeof input.project === "string" && input.project ? input.project : null;

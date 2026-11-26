@@ -1,7 +1,8 @@
 import type { AppView, ClientMade, Clients } from "@grenier/core/api";
 import { addClient } from "@grenier/index";
 import { Hono } from "hono";
-import { APPS, type App, configPath, connectApp, connected, LABELS } from "../connect.ts";
+import { type App, CLIENTS, clientOf } from "../agents/index.ts";
+import { connectApp, connected } from "../connect.ts";
 import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./body.ts";
 
@@ -12,21 +13,22 @@ export function appRoutes(deps: AdminDeps): Hono {
 
   app.get("/apps", (c) =>
     c.json({
-      apps: APPS.map((name) => ({
-        app: name,
-        label: LABELS[name],
-        connected: connected(name, configPath(name, where.home, where.platform, where.env)),
+      apps: CLIENTS.map((client) => ({
+        app: client.id,
+        label: client.label,
+        connected: connected(client.id, where),
       })) satisfies AppView[],
     }),
   );
 
   app.post("/apps/:app{[\\w-]+}", async (c) => {
     const name = c.req.param("app");
-    if (!APPS.includes(name as App)) return c.json({ error: `Grenier cannot be added to ${name}` }, 404);
+    const client = clientOf(name);
+    if (!client) return c.json({ error: `Grenier cannot be added to ${name}` }, 404);
     const given = (await bodyOf(c)).scopes;
     const scopes = Array.isArray(given) ? given.map(String) : ["*"];
     const file = await connectApp(store, name as App, scopes, where);
-    return c.json({ app: name, file, restart: LABELS[name as App] });
+    return c.json({ app: name, file, restart: client.label });
   });
 
   app.get("/clients", async (c) => {

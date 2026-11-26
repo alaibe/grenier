@@ -1,22 +1,13 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { setPriority } from "node:os";
-import {
-  acts,
-  type Config,
-  hasPrompt,
-  isAction,
-  mayCall,
-  READ_TOOLS,
-  type RoutineMode,
-  routineHash,
-  STORE_TOOLS,
-} from "@grenier/core";
+import { type Config, hasPrompt, isAction, mayCall, type RoutineMode, routineHash } from "@grenier/core";
 import type { Availability } from "@grenier/core/api";
 import type { RunGuard } from "@grenier/gateway";
 import { newId, refusal, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
 import type { Prices } from "@grenier/log";
 import type { FullRecord, RecordInput, Session, Store } from "@grenier/store";
+import { agentNamed } from "./agents/index.ts";
 import { builtinOf } from "./builtins.ts";
 import { availability, type Probes, systemProbes } from "./machine.ts";
 import { newSessionId, repoResolver } from "./runtime.ts";
@@ -82,7 +73,6 @@ const CHECK_EVERY = 60 * 1000;
 const CLAIM_EVERY = 5 * 60 * 1000;
 const MAX_RESULT = 20_000;
 /** Claude Code's built-in tools that only read: `--tools` makes only these available to a run that may not act. */
-const CLAUDE_READS = ["Read", "Grep", "Glob"];
 
 /** Spawns an agent at the lowest priority and collects what it prints. */
 export const spawnAgent: Spawner = (command, args, options) =>
@@ -364,30 +354,9 @@ export class Runner {
         GRENIER_SESSION: sessionId,
         GRENIER_RUN_TOP: routine.fields.collector === "yes" ? "me" : routine.top === "me" ? "me" : "team",
       };
-      // Acting, Claude Code's auto mode judges each call; reading, it gets the reading tools alone.
-      const claudeMode = acts(mode)
-        ? ["--permission-mode", "auto", "--allowedTools", STORE_TOOLS.join(",")]
-        : ["--tools", CLAUDE_READS.join(","), "--allowedTools", [...READ_TOOLS, ...STORE_TOOLS].join(",")];
       const signal = this.#current.stop.signal;
-      const outcome =
-        agent === "codex"
-          ? await this.spawner(
-              "codex",
-              [
-                "exec",
-                "--sandbox",
-                acts(mode) ? "workspace-write" : "read-only",
-                "-c",
-                `openai_base_url=${JSON.stringify(`${base}/openai/v1`)}`,
-                prompt,
-              ],
-              { cwd, env, signal },
-            )
-          : await this.spawner("claude", ["-p", prompt, "--output-format", "json", ...claudeMode], {
-              cwd,
-              env,
-              signal,
-            });
+      const started = agentNamed(agent).routine(prompt, mode, base);
+      const outcome = await this.spawner(started.command, started.args, { cwd, env, signal });
       const cut = this.#current.cut;
       const collector = routine.fields.collector === "yes";
       const result = cut

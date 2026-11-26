@@ -6,7 +6,9 @@ import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { configPath, connectApp, type Where, withCodexServer } from "../../../apps/cli/src/connect.ts";
+import { clientOf, type Where } from "../../../apps/cli/src/agents/index.ts";
+import { readServers, writeServers } from "../../../apps/cli/src/agents/toml.ts";
+import { connectApp } from "../../../apps/cli/src/connect.ts";
 
 let home: string;
 let store: Store;
@@ -58,12 +60,13 @@ describe("adding Grenier's MCP server to an app's config", () => {
     await connectApp(store, "claude-desktop", ["*"], where);
     const mac = join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
     expect(JSON.parse(readFileSync(mac, "utf8")).mcpServers.grenier).toEqual(expected);
-    expect(configPath("claude-desktop", home, "linux", {})).toBe(
+    const desktop = clientOf("claude-desktop");
+    expect(desktop?.configPath({ home, platform: "linux", env: {}, self: [] })).toBe(
       join(home, ".config", "Claude", "claude_desktop_config.json"),
     );
-    expect(configPath("claude-desktop", home, "win32", { APPDATA: "C:\\Users\\a\\AppData\\Roaming" })).toBe(
-      join("C:\\Users\\a\\AppData\\Roaming", "Claude", "claude_desktop_config.json"),
-    );
+    expect(
+      desktop?.configPath({ home, platform: "win32", env: { APPDATA: "C:\\Users\\a\\AppData\\Roaming" }, self: [] }),
+    ).toBe(join("C:\\Users\\a\\AppData\\Roaming", "Claude", "claude_desktop_config.json"));
   });
 
   it("adds a table to Codex's config.toml, keeping its settings and comments, and replaces its own", async () => {
@@ -78,17 +81,14 @@ describe("adding Grenier's MCP server to an app's config", () => {
     const config = parse(text) as { model: string; mcp_servers: Record<string, unknown> };
     expect(config.mcp_servers.other).toEqual({ command: "x" });
     expect(config.mcp_servers.grenier).toEqual(expected);
-    const once = withCodexServer(
-      '[mcp_servers.grenier]\ncommand = "old"\nargs = []\n\n[other]\na = 1\n',
-      "node",
-      ["g.js"],
-      {},
-    );
-    expect((parse(once) as { mcp_servers: { grenier: unknown } }).mcp_servers.grenier).toEqual({
+    const before = '[mcp_servers.grenier]\ncommand = "old"\nargs = []\n\n[other]\na = 1\n';
+    const once = writeServers(before, { ...readServers(before), grenier: { command: "node", args: ["g.js"] } });
+    expect((parse(once) as { mcp_servers: { grenier: unknown }; other: unknown }).mcp_servers.grenier).toEqual({
       command: "node",
       args: ["g.js"],
     });
-    expect(withCodexServer(once, "node", ["g.js"], {})).toBe(once);
+    expect((parse(once) as { other: unknown }).other).toEqual({ a: 1 });
+    expect(writeServers(once, readServers(once))).toBe(once);
   });
 
   it("gives each app a token with its folders, a new one replaces the old, and a broken config keeps the old", async () => {

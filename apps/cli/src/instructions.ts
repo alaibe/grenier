@@ -1,20 +1,25 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { InstructionFile, InstructionText } from "@grenier/core/api";
 import { writeAtomically } from "@grenier/core/node";
 import { sha256 } from "@grenier/core/policy";
 import { AGENT_TEXTS, type AgentTexts } from "@grenier/gateway";
 import { agentTextPath } from "./agent-texts.ts";
+import { AGENTS } from "./agents/index.ts";
 import { Refusal } from "./io.ts";
 
 /** The files a project's agents read: Claude Code's, everyone else's, and Claude Code's kept out of git. */
 const PROJECT_FILES = ["CLAUDE.md", "AGENTS.md", "CLAUDE.local.md"] as const;
 
 /** The files every project's agents read, by agent. */
-const globalFiles = (home: string) => ({
-  "CLAUDE.md": join(home, ".claude", "CLAUDE.md"),
-  "AGENTS.md": join(home, ".codex", "AGENTS.md"),
-});
+/** The files every project's agents read, each agent's own, by their name. */
+const globalFiles = (home: string) =>
+  Object.fromEntries(
+    AGENTS.map((agent) => {
+      const path = agent.globalInstructions({ home, platform: process.platform, env: process.env, self: [] });
+      return [basename(path), path];
+    }),
+  );
 
 const isDir = (path: string) => {
   try {
