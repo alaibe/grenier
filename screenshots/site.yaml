@@ -18,5 +18,5 @@
   path: /demo#skills/me%3Achangelog
   scale: 1.25
 - name: machine
-  path: /demo#settings
+  path: /demo#settings/machine
   scale: 1.25

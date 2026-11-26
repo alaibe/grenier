@@ -1,39 +1,58 @@
 import type { KeyState, Overview, ShownKey } from "@grenier/core/api";
-import { Eye } from "lucide-react";
+import { AppWindow, Cpu, Eye, KeyRound, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { useSaved } from "../activity.tsx";
 import { api, setUsageEnabled, usageEnabled } from "../api.ts";
 import { type Theme, usePrefs } from "../shell/prefs.ts";
-import { Detail } from "../shell/regions.tsx";
+import { ListDetail } from "../shell/regions.tsx";
 import { Button } from "../ui/button.tsx";
 import { Toggle } from "../ui/choice.tsx";
 import { Dialog } from "../ui/dialog.tsx";
 import { Field, Input } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Notice, Problem } from "../ui/notice.tsx";
-import { Page, Section, SectionRow } from "../ui/page.tsx";
+import { Section, SectionRow } from "../ui/page.tsx";
 import { Secret } from "../ui/secret.tsx";
 import { Segmented } from "../ui/segmented.tsx";
+import { Tree } from "../ui/tree.tsx";
 import { Apps } from "./Apps.tsx";
 import { MachineSettings } from "./Machine.tsx";
 
 const loadOverview = () => api<Overview>("/overview");
 
-/** Everything set in one place (patterns/navigation.md): the app's look, this machine, the personal key. */
-export function Settings(_: ViewProps) {
+/** Settings' areas, in the list beside the one that is open: `#settings/<area>`. */
+const AREAS = [
+  { id: "general", name: "General", icon: SlidersHorizontal, View: General },
+  { id: "machine", name: "This machine", icon: Cpu, View: MachineSettings },
+  { id: "key", name: "Your personal key", icon: KeyRound, View: PersonalKey },
+  { id: "apps", name: "Apps", icon: AppWindow, View: Apps },
+] as const;
+
+/** Every setting in one place (patterns/navigation.md), an area at a time: its list beside the area that is open. */
+export function Settings({ item, go }: ViewProps) {
+  const area = AREAS.find((entry) => entry.id === item) ?? AREAS[0];
   return (
-    <Detail title="Settings">
-      <Page
-        title="Settings"
-        intro="How Grenier looks here, when this computer takes the team's routine runs, your personal key, and the apps that read Grenier."
-      >
-        <General />
-        <MachineSettings />
-        <PersonalKey />
-        <Apps />
-      </Page>
-    </Detail>
+    <ListDetail
+      title="Settings"
+      list={
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <Tree
+            label="Settings"
+            nodes={AREAS.map(({ id, name, icon }) => ({ id, name, icon }))}
+            selected={area.id}
+            open={() => false}
+            onSelect={(node) => go("settings", node.id)}
+            onToggle={() => {}}
+            onOpen={(node) => go("settings", node.id)}
+          />
+        </div>
+      }
+    >
+      <div className="px-6 pt-6 pb-12">
+        <area.View />
+      </div>
+    </ListDetail>
   );
 }
 

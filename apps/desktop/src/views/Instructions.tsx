@@ -227,7 +227,7 @@ export function Instructions({ item, go }: ViewProps) {
         <Empty boot="no work folder">
           Projects come from your work folder, the one that holds them.
           <span className="mt-3 block">
-            <Button size="sm" icon={Settings} onClick={() => go("settings")}>
+            <Button size="sm" icon={Settings} onClick={() => go("settings", "machine")}>
               Set it in Settings
             </Button>
           </span>

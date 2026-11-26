@@ -432,7 +432,7 @@ export function Mcp({ item, go, member, team }: ViewProps) {
         reload();
         go("mcp");
       }}
-      settings={() => go("settings")}
+      settings={() => go("settings", "apps")}
     />
   ) : entry ? (
     <TeamServerView key={item} entry={entry} changed={reload} open={(id) => go("knowledge", id)} />

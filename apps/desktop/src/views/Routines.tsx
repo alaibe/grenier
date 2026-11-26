@@ -229,7 +229,7 @@ export function Routines({ item, go, member, team }: ViewProps) {
             kind="accent"
             tag="SET UP"
             action={
-              <Button size="sm" trailing={ArrowRight} onClick={() => go("settings")}>
+              <Button size="sm" trailing={ArrowRight} onClick={() => go("settings", "machine")}>
                 Set the work folder
               </Button>
             }
