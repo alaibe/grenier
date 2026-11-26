@@ -194,11 +194,11 @@ jobs:
       # The signed Node, under the hardened runtime, loads the signed SQLite addon as the app's daemon does.
       - name: The signed daemon runs
         run: |
-          run() { GRENIER_HOME="$(mktemp -d "$WORK/home.XXXXXX")" "$@" "$APP/Contents/MacOS/grenier-node" "$APP/Contents/Resources/grenier/dist/grenier.js" status; }
+          run() { GRENIER_HOME="$(mktemp -d "$WORK/home.XXXXXX")" "$@" "$APP/Contents/MacOS/grenier-node" "$APP/Contents/Resources/grenier/dist/grenier.js" today; }
           run
           if arch -x86_64 /usr/bin/true 2> /dev/null; then run arch -x86_64; else echo "No Rosetta: Intel's half not run."; fi
           ln -sf "$APP/Contents/Resources/grenier/bin/grenier" "$WORK/grenier"
-          GRENIER_HOME="$(mktemp -d "$WORK/home.XXXXXX")" "$WORK/grenier" status
+          GRENIER_HOME="$(mktemp -d "$WORK/home.XXXXXX")" "$WORK/grenier" today
 
       - name: DMG, notarized and stapled when NOTARIZE is on
         env:
@@ -338,7 +338,7 @@ jobs:
           node=$(find "$root" -type f -name grenier-node | head -1)
           script=$(find "$root" -type f -path '*/grenier/dist/grenier.js' | head -1)
           [ -n "$node" ] && [ -n "$script" ] || { echo "the deb has no grenier-node or grenier.js" >&2; exit 1; }
-          GRENIER_HOME="$(mktemp -d)" "$node" "$script" status
+          GRENIER_HOME="$(mktemp -d)" "$node" "$script" today
           rpms=("$CARGO_TARGET_DIR"/release/bundle/rpm/*.rpm)
           [ ${#rpms[@]} -eq 1 ] || { echo "no single rpm: ${rpms[*]}" >&2; exit 1; }
           mkdir -p "$RUNNER_TEMP/rpm"
@@ -346,7 +346,7 @@ jobs:
           for package in deb rpm; do
             command="$RUNNER_TEMP/$package/usr/bin/grenier"
             [ -x "$command" ] || { echo "the $package has no executable /usr/bin/grenier" >&2; exit 1; }
-            GRENIER_HOME="$(mktemp -d)" "$command" status
+            GRENIER_HOME="$(mktemp -d)" "$command" today
           done
 
       - name: Attach to the release
