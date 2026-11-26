@@ -18,7 +18,7 @@ describe("the team store's schema steps", () => {
     db.exec(`
       INSERT INTO devices (id, member_id, name, token_hash, created_at) VALUES ('d1', 'm1', 'ada-mbp', 'h', 1);
       INSERT INTO records (id, space, type, title, body, fields, author, created_at, updated_at, version, anchors, links)
-        VALUES ('r1', 'team', 'Routine', 'Tidy', '', '{"trigger":"request"}', 'ada', 1, 1, 1, '[]', '[]');
+        VALUES ('r1', 'team', 'Routine', 'Tidy', '', '{}', 'ada', 1, 1, 1, '[]', '[]');
       INSERT INTO runs (id, routine_id, device_id, version, kind, status, started_at, actions, cost, score, thumbs)
         VALUES ('run', 'r1', 'd1', 1, 'run', 'done', 1, 0, 0.5, NULL, 1),
                ('eval', 'r1', 'd1', 2, 'eval', 'done', 2, 0, 0.25, 1, NULL);

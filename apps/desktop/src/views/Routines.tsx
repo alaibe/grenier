@@ -1,6 +1,6 @@
-import type { LocalRun, MachineState, MadeLink, RoutineView } from "@grenier/core/api";
+import type { LocalRun, MachineState, RoutineView } from "@grenier/core/api";
 import type { RoutineMode } from "@grenier/core/routines";
-import { ArrowRight, Check, Link, Pencil, Play, Plus } from "lucide-react";
+import { ArrowRight, Check, Pencil, Play, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
@@ -16,11 +16,10 @@ import { Field, Input, Select, Textarea } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Notice, Problem } from "../ui/notice.tsx";
 import { Page, Section } from "../ui/page.tsx";
-import { Secret } from "../ui/secret.tsx";
 import { Table } from "../ui/table.tsx";
 import { Status } from "../ui/tag.tsx";
 import { usePolling } from "./polling.ts";
-import { Requests } from "./Requests.tsx";
+import { TeamRuns } from "./TeamRuns.tsx";
 
 const MODES: RoutineMode[] = ["read-only", "shadow", "limited", "on"];
 const MODE_SAYS: Record<RoutineMode, string> = {
@@ -35,7 +34,7 @@ const loadRuns = () => api<{ runs: LocalRun[] }>("/runs").then((answer) => answe
 const loadWorkdir = () => api<MachineState>("/machine").then((machine) => machine.rules.workdir);
 
 const WHEN: [string, string][] = [
-  ["request", "When someone asks it"],
+  ["hand", "Only when run by hand"],
   ["hourly", "Every hour"],
   ["daily", "Every day"],
   ["weekdays", "On weekdays"],
@@ -58,8 +57,8 @@ function RoutineForm({
   done: () => void;
   cancel: () => void;
 }) {
-  const [day, time] = routine?.trigger === "schedule" ? (routine.schedule ?? "").split(" ") : [];
-  const [when, setWhen] = useState(routine?.trigger === "schedule" ? (day ?? "daily") : "request");
+  const [day, time] = routine?.schedule ? routine.schedule.split(" ") : [];
+  const [when, setWhen] = useState(routine?.schedule ? (day ?? "daily") : "hand");
   const action = useAction(done);
   return (
     <Dialog
@@ -75,8 +74,8 @@ function RoutineForm({
             body: {
               title: String(form.get("title") ?? ""),
               prompt: String(form.get("prompt") ?? ""),
-              trigger: when === "request" ? "request" : "schedule",
-              schedule: when === "hourly" ? "hourly" : `${when} ${String(form.get("time") ?? "05:00")}`,
+              schedule:
+                when === "hand" ? "" : when === "hourly" ? "hourly" : `${when} ${String(form.get("time") ?? "05:00")}`,
               agent: String(form.get("agent") ?? "claude"),
               collector: form.get("collector") === "on",
             },
@@ -108,7 +107,7 @@ function RoutineForm({
             ))}
           </Select>
         </Field>
-        {when !== "request" && when !== "hourly" ? (
+        {when !== "hand" && when !== "hourly" ? (
           <Field label="At, in UTC">
             <Input name="time" type="time" mono defaultValue={time ?? "05:00"} required />
           </Field>
@@ -130,19 +129,6 @@ function RoutineForm({
       />
     </Dialog>
   );
-}
-
-/** The address another tool calls to ask a routine for work, made on demand and shown once. */
-function useWebhook(routine: RoutineView, url: string | undefined) {
-  const [address, setAddress] = useState<string | null>(null);
-  const action = useAction();
-  const make = () =>
-    void action.run("webhook", async () => {
-      const made = await api<MadeLink>("/team/webhooks", { body: { routine: routine.id } });
-      setAddress(`${url ?? ""}${made.path}`);
-      return "Made a webhook address";
-    });
-  return { address, make, busy: action.busy !== null, problem: action.problem };
 }
 
 export function Routines({ item, go, member, team }: ViewProps) {
@@ -282,7 +268,6 @@ export function Routines({ item, go, member, team }: ViewProps) {
             busy={action.busy !== null}
             going={going}
             member={member}
-            url={team?.url}
             approve={(mode) =>
               call(
                 `approve:${routine.id}`,
@@ -297,7 +282,7 @@ export function Routines({ item, go, member, team }: ViewProps) {
             edit={() => setEditing(routine.id)}
           />
         ))}
-        {routines.data && routines.data.length > 0 && <Requests go={go} member={member} />}
+        {routines.data && routines.data.length > 0 && team && <TeamRuns routines={routines.data} />}
       </Page>
       {(item === "new" && adding) || editing ? (
         <RoutineForm
@@ -318,7 +303,6 @@ function Routine({
   busy,
   going,
   member,
-  url,
   approve,
   run,
   edit,
@@ -330,14 +314,12 @@ function Routine({
   busy: boolean;
   going: boolean;
   member: boolean;
-  url: string | undefined;
   approve: (mode: RoutineMode) => void;
   run: () => void;
   edit: () => void;
 }) {
-  const webhook = useWebhook(routine, url);
   const approved = routine.approval?.current && routine.approval.mode === mode;
-  const when = routine.trigger === "schedule" ? `on a schedule, ${routine.schedule}` : `on ${routine.trigger}`;
+  const when = routine.schedule ? `on a schedule, ${routine.schedule}` : "run by hand";
   return (
     <Section
       heading
@@ -392,20 +374,7 @@ function Routine({
               Edit
             </Button>
           )}
-          {!member && url && routine.trigger === "request" && (
-            <Button icon={Link} size="sm" busy={webhook.busy} onClick={webhook.make}>
-              Make a webhook
-            </Button>
-          )}
         </div>
-        <Problem error={webhook.problem} />
-        {webhook.address && (
-          <Secret
-            label="Webhook address"
-            value={webhook.address}
-            help={`Another tool's webhook can call it: each call files a request for ${routine.title}. Keep it secret.`}
-          />
-        )}
         {runs.length > 0 && (
           <Table
             label={`Recent runs of ${routine.title}`}

@@ -6,7 +6,6 @@ import {
   RECORD_PARTS,
   recordProblem,
   repoTop,
-  taskFor,
 } from "@grenier/core";
 import type { FullRecord, Link, RecordInput, Store } from "@grenier/store";
 import {
@@ -14,7 +13,6 @@ import {
   ensureRepoTop,
   inRepo,
   newId,
-  newRecord,
   type Reader,
   type Repo,
   readable,
@@ -171,46 +169,6 @@ export async function remember(
   };
   await write(deps, record, existing);
   return { id: record.id, top, status: top === "me" && input.top !== "me" ? "kept in me" : "kept" };
-}
-
-/** Asks the person whether a request leaves this machine; null when the client cannot ask. */
-export type AskRequest = (task: { routine: string; title: string; body: string }) => Promise<boolean | null>;
-
-/** Files a request for a routine, by its id or title: the team store offers it to an idle teammate's machine. */
-export async function request(
-  deps: StoreDeps,
-  reader: Reader | null,
-  input: { routine: string; title: string; body?: string; sessionId?: string },
-  ask: AskRequest,
-): Promise<{ id: string; routine: string; status: "to-do" }> {
-  const tops = (await readable(deps.store, reader)).map((top) => top.id);
-  const routines = await deps.store.records.list({ tops, type: "Routine" });
-  const routine = routines.find(
-    (candidate) => candidate.id === input.routine || candidate.title.toLowerCase() === input.routine.toLowerCase(),
-  );
-  if (!routine) {
-    throw new StoreUseError(
-      `no routine ${input.routine}; there are: ${routines.map((candidate) => candidate.title).join(", ") || "none"}`,
-    );
-  }
-  const task = newRecord(deps.me, {
-    ...taskFor(routine, input.title.trim(), input.body?.trim() ?? ""),
-    sessionId: input.sessionId ?? null,
-  });
-  // Refused before asking: the person is not asked to file what the team store would refuse.
-  const problem = await refusal(deps.store, task);
-  if (problem) throw new StoreUseError(`the request is refused: ${problem}`);
-  if (task.top !== "me") {
-    const filed = await ask({ routine: routine.title, title: task.title, body: task.body });
-    if (filed === null) {
-      throw new StoreUseError(
-        "the request is not filed: this client cannot ask you first. File it on the app's Routines screen.",
-      );
-    }
-    if (!filed) throw new StoreUseError("the person chose not to file it");
-  }
-  await write(deps, task);
-  return { id: task.id, routine: routine.title, status: "to-do" };
 }
 
 /** The parts a change touches: every one for a new record. */

@@ -15,8 +15,7 @@ export async function routineViews(store: Store): Promise<RoutineView[]> {
       title: routine.title,
       top: routine.top,
       author: routine.author,
-      trigger: String(routine.fields.trigger ?? "request"),
-      schedule: typeof routine.fields.schedule === "string" ? routine.fields.schedule : null,
+      schedule: typeof routine.fields.schedule === "string" && routine.fields.schedule ? routine.fields.schedule : null,
       agent: String(routine.fields.agent ?? "claude"),
       collector: routine.fields.collector === "yes",
       prompt: routine.body,
@@ -58,14 +57,14 @@ export async function addLibrarian(deps: StoreDeps): Promise<{ id: string; added
   const added = await addRoutine(deps, {
     title: "Librarian",
     prompt:
-      "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned requests, and suggests fixes.",
-    fields: { trigger: "schedule", schedule: "daily 05:00", builtin: LIBRARIAN },
+      "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned tasks, and suggests fixes.",
+    fields: { schedule: "daily 05:00", builtin: LIBRARIAN },
     top: "team",
   });
   return { id: added.id, added: true };
 }
 
-/** A routine as the app's form gives it: what it does, when, and with which agent. */
+/** A routine as the app's form gives it: what it does, when (no schedule: by hand only), and with which agent. */
 export function routineFromForm(input: Record<string, unknown>): {
   title: string;
   prompt: string;
@@ -74,17 +73,15 @@ export function routineFromForm(input: Record<string, unknown>): {
   const title = String(input.title ?? "").trim();
   const prompt = String(input.prompt ?? "").trim();
   if (!title || !prompt) throw new Refusal("a routine needs a name and what it does");
-  const trigger = input.trigger === "schedule" ? "schedule" : "request";
   const schedule = String(input.schedule ?? "").trim();
-  if (trigger === "schedule" && nextDue(schedule, Date.now()) === null) {
+  if (schedule && nextDue(schedule, Date.now()) === null) {
     throw new Refusal('a schedule reads "hourly", "daily 05:00", "weekdays 09:00" or "mon 09:00"');
   }
   return {
     title,
     prompt,
     fields: {
-      trigger,
-      ...(trigger === "schedule" ? { schedule } : {}),
+      ...(schedule ? { schedule } : {}),
       ...(input.agent === "codex" ? { agent: "codex" } : {}),
       ...(input.collector === true ? { collector: "yes" } : {}),
     },

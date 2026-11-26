@@ -43,7 +43,7 @@ export const BUILTIN_TYPES: readonly TypeDef[] = [
   },
   {
     name: "Task",
-    description: "Something to do. A task that names a routine is a request: an idle machine runs it.",
+    description: "Something to do. A task that names a routine is one of its scheduled runs: an idle machine takes it.",
     fields: [
       { name: "status", kind: "select", options: TASK_STATUSES, required: true },
       { name: "owner", kind: "person" },
@@ -126,9 +126,8 @@ export const BUILTIN_TYPES: readonly TypeDef[] = [
   {
     name: "Routine",
     description:
-      "One kind of task the team's machines run, in each machine's work folder: its prompt as the page's text.",
+      "One kind of task the team's machines run, in each machine's work folder, on its schedule or by hand: its prompt as the page's text.",
     fields: [
-      { name: "trigger", kind: "select", options: ["request", "schedule"], required: true },
       { name: "schedule", kind: "text" },
       { name: "collector", kind: "select", options: ["yes", "no"] },
       { name: "owner", kind: "person" },
@@ -221,7 +220,7 @@ interface MemberChange {
   retiredAt?: number | null;
 }
 
-/** The fields of a request the machine that runs it sets. */
+/** The fields of a routine's task the machine that runs it sets. */
 const RUN_FIELDS = new Set(["status", "result", "machine"]);
 
 export const MEMBER_WRITES =
@@ -229,7 +228,7 @@ export const MEMBER_WRITES =
 
 /**
  * Whether a member who is not an admin may make this change: anything in their own `me` (`mine`), a memory in a
- * repository's folder (what their agents work out about its code), and the run fields of a request their machine ran.
+ * repository's folder (what their agents work out about its code), and the run fields of a routine's task their machine ran.
  */
 export function memberMay(
   before: MemberChange | undefined,

@@ -44,7 +44,6 @@ export {
 } from "./sync.ts";
 export {
   type AskConsent,
-  type AskRequest,
   type Consent,
   changedFields,
   embedding,
@@ -52,7 +51,6 @@ export {
   type RememberInput,
   refusal,
   remember,
-  request,
   retire,
   write,
 } from "./writes.ts";

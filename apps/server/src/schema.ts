@@ -73,4 +73,8 @@ export const SCHEMA_STEPS: readonly string[] = [
   ALTER TABLE devices DROP COLUMN repos;
   UPDATE meta SET value = '6' WHERE key = 'schema';
 `,
+  `
+  DROP TABLE webhooks;
+  UPDATE meta SET value = '7' WHERE key = 'schema';
+`,
 ];

@@ -35,7 +35,7 @@ it("offers a declined request to the same machine again once its decline is 30 m
           type: "Routine",
           title: "Update",
           body: "Update",
-          fields: { trigger: "request" },
+          fields: {},
         }),
         change("task", {
           top: "team",

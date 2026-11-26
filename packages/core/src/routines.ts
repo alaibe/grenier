@@ -79,7 +79,7 @@ export async function routineHash(routine: RoutineShape): Promise<string> {
   );
 }
 
-/** A request for a routine: a task to do in the routine's top folder, which names the routine and links to it. */
+/** A routine's run to do, from its schedule: a task in the routine's top folder, which names the routine and links to it. */
 export function taskFor(routine: { id: string; top: string }, title: string, body: string) {
   return {
     top: routine.top,

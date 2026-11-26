@@ -269,27 +269,25 @@ const update = await record({
   author: "anthony",
   device: "anthony-mbp",
   fields: {
-    trigger: "request",
+    schedule: "mon 06:00",
     repo: repoIdentity,
     tools: ["Edit", "Bash(pnpm install:*)", "Bash(pnpm test:*)"],
   },
-  body: "Update the dependencies the request names to their newest release older than 7 days, run the tests, and explain what changed.",
+  body: "Update the dependencies to their newest release older than 7 days, run the tests, and explain what changed.",
 });
 await record({
   type: "Routine",
   title: "Librarian",
   fields: {
-    trigger: "schedule",
     schedule: "daily 05:00",
     builtin: "librarian",
   },
-  body: "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned requests, and suggests fixes.",
+  body: "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned tasks, and suggests fixes.",
 });
 await record({
   type: "Routine",
   title: "My meetings",
   fields: {
-    trigger: "schedule",
     schedule: "weekdays 18:00",
     collector: "yes",
     tools: ["mcp__granola__list_meetings", "mcp__granola__get_transcript"],
@@ -298,7 +296,7 @@ await record({
 });
 await record({
   type: "Task",
-  title: "Bump hono to 4.12",
+  title: "Update dependencies, 2026-11-23 06:00 UTC",
   author: "marie",
   fields: {
     status: "done",

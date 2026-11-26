@@ -78,7 +78,6 @@ const el = (tag, props = {}, ...children) => {
 /* Lucide icons, drawn as the system's .icon. */
 const ICONS = {
   store: ["M12 7v14", "M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"],
-  requests: ["M22 12h-6l-2 3h-4l-2-3H2", "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"],
   routines: ["m17 2 4 4-4 4", "M3 11v-1a4 4 0 0 1 4-4h14", "m7 22-4-4 4-4", "M21 13v1a4 4 0 0 1-4 4H3"],
   team: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
   usage: ["M14 8a6 6 0 1 1-12 0 6 6 0 0 1 12 0", "M18.09 10.37A6 6 0 1 1 10.34 18", "M7 6h1v4", "m16.71 13.88.7.71-2.82 2.82"],
@@ -237,7 +236,7 @@ async function signIn() {
   try { me = await api("/api/me"); } catch (error) { localStorage.removeItem("grenier-token"); bar("Signed out"); return show(problem(error.message)); }
   bar("Signed in as " + me.name);
   // G then its letter: a second place with the same first letter takes its next free consonant.
-  const places = [["store", "Store", store, "s"], ["requests", "Requests", requests, "r"], ["routines", "Routines", routines, "t"], ["team", "Team", team, "m"]].concat(me.role === "admin" ? [["usage", "Usage", usage, "u"]] : []);
+  const places = [["store", "Store", store, "s"], ["routines", "Routines", routines, "r"], ["team", "Team", team, "m"]].concat(me.role === "admin" ? [["usage", "Usage", usage, "u"]] : []);
   const go = (name) => {
     place = name;
     for (const item of nav.children) {
@@ -327,50 +326,6 @@ async function openRecord(record) {
       table("History", [["Version", true], ["By"], ["Saved"]], past.slice().reverse().map((h) => el("tr", {}, td(String(h.version), "num mono"), td(h.author + " on " + (h.device || "?")), td(exact(h.ts), "mono")))))));
 }
 
-/* Requests: what the team asked its routines for; an admin files one. */
-async function requests() {
-  withList(false);
-  hints = [[["G"], "go to"]];
-  bar("Signed in as " + me.name);
-  let tasks, routineList;
-  try {
-    [{ records: tasks }, { records: routineList }] = await Promise.all([api("/api/records?type=Task"), api("/api/records?type=Routine")]);
-  } catch (error) { return show(problem(error.message)); }
-  const filed = tasks.filter((t) => t.fields.routine);
-  const byId = Object.fromEntries(routineList.map((r) => [r.id, r.title]));
-  const board = filed.length
-    ? table("Requests", [["Request"], ["Routine"], ["State"], ["Machine"], ["Changed"]], filed.map((t) => el("tr", {}, td(t.title), td(byId[t.fields.routine] || "a routine"), td(tag(t.fields.status || "to-do")), td(t.fields.machine || "", "mono"), td(time(t.updatedAt), "mono"))))
-    : el("p", { class: "meta", text: "No request yet." });
-  const page = [header("Requests", "What the team asked its routines for, and what came of it.")];
-  // The store takes a request from an admin only.
-  if (me.role === "admin" && routineList.length) {
-    const routine = el("select", { class: "input", id: "request-routine" }, ...routineList.map((r) => el("option", { value: r.id, text: r.title })));
-    const title = el("input", { class: "input", id: "request-title", placeholder: "Bump hono to the latest version" });
-    const said = el("div", {});
-    // Enter in a field clicks the form's submit button, so the button's click files the request.
-    const file = el("button", { class: "btn btn-primary", type: "submit", text: "File the request", onclick: async (event) => {
-      event.preventDefault();
-      if (!title.value.trim() || !routine.value) return;
-      said.replaceChildren();
-      const id = crypto.randomUUID().replace(/-/g, "");
-      try {
-        const { refused } = await api("/api/changes", { method: "POST", body: JSON.stringify({ changes: [{ id: id, recordId: id, baseVersion: 0, changed: ["top", "type", "title", "fields", "links"], record: { id: id, top: routineList.find((r) => r.id === routine.value).top, type: "Task", title: title.value.trim(), fields: { status: "to-do", routine: routine.value }, links: [{ kind: "record", ref: routine.value }] } }] }) });
-        if (refused.length) return said.replaceChildren(problem("Not filed: " + refused[0].reason));
-      } catch (error) {
-        return said.replaceChildren(problem("Not filed: " + error.message));
-      }
-      requests();
-    } });
-    const form = el("form", { class: "inline-form", onsubmit: (event) => event.preventDefault() },
-      el("div", { class: "field" }, el("label", { class: "label", for: "request-routine", text: "Routine" }), routine),
-      el("div", { class: "field" }, el("label", { class: "label", for: "request-title", text: "What to do" }), title),
-      file);
-    page.push(form, said);
-  }
-  page.push(board);
-  show(el("div", { class: "page" }, ...page));
-}
-
 async function routines() {
   withList(false);
   hints = [[["G"], "go to"]];
@@ -381,7 +336,7 @@ async function routines() {
     ...(records.length ? records.map((r) => {
       const mine = runs.filter((run) => run.routine_id === r.id).slice(0, 10);
       return el("section", { class: "section" },
-        el("header", { class: "section-header" }, el("div", {}, el("h2", { class: "section-heading", text: r.title }), el("p", { class: "section-desc", text: (r.fields.trigger || "request") === "request" ? "On request" : "On a schedule, " + (r.fields.schedule || "") }))),
+        el("header", { class: "section-header" }, el("div", {}, el("h2", { class: "section-heading", text: r.title }), el("p", { class: "section-desc", text: r.fields.schedule ? "On a schedule, " + r.fields.schedule : "Run by hand" }))),
         mine.length ? table("Runs of " + r.title, [["State"], ["Machine"], ["Started"], ["API cost", true]], mine.map((run) => el("tr", {}, td(tag(run.status)), td(run.machine, "mono"), td(time(run.started_at), "mono"), td(money(run.cost), "num mono")))) : el("p", { class: "meta", text: "No run yet." }));
     }) : [empty("no routines yet", "An admin adds them in the Grenier app.")])));
 }

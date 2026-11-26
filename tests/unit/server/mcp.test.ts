@@ -17,7 +17,7 @@ describe("the remote MCP server", () => {
     const tools = await json<{ result: { tools: { name: string }[] } }>(
       await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
     );
-    expect(tools.result.tools.map((tool) => tool.name)).toEqual(["recall", "query", "request"]);
+    expect(tools.result.tools.map((tool) => tool.name)).toEqual(["recall", "query"]);
     const found = await json<{ result: { structuredContent: { results: { body: string }[] } } }>(
       await rpc({
         jsonrpc: "2.0",
@@ -29,7 +29,7 @@ describe("the remote MCP server", () => {
     expect(found.result.structuredContent.results[0]?.body).toMatch(/^<untrusted-data-[0-9a-f]+ id="r1"/);
   });
 
-  it("hands records out without personal details and with the notice, and a refused request as an error", async () => {
+  it("hands records out without personal details and with the notice", async () => {
     const bob = await join("bob");
     await push(ADA, {
       id: "r1",
@@ -40,21 +40,12 @@ describe("the remote MCP server", () => {
       body: "Deploys go through Ada, on +33 6 12 34 56 78.",
       fields: { kind: "fact" },
     });
-    await push(ADA, {
-      id: "routine",
-      top: "team",
-      type: "Routine",
-      title: "Update dependencies",
-      body: "Update",
-      fields: { trigger: "request" },
-    });
     interface Shown {
       title: string;
       body: string;
     }
     interface Answer {
-      isError?: boolean;
-      structuredContent: { notice?: string; error?: string; results?: Shown[]; records?: Shown[] };
+      structuredContent: { notice?: string; results?: Shown[]; records?: Shown[] };
     }
     const tool = async (token: string, name: string, args: Record<string, unknown>) =>
       (
@@ -77,11 +68,5 @@ describe("the remote MCP server", () => {
       expect(shown?.body).toContain("Deploys go through Ada, on [phone removed].");
       expect(`${shown?.title}${shown?.body}`).not.toContain("56 78");
     }
-
-    const refused = await tool(bob, "request", { routine: "routine", title: "Bump hono" });
-    expect(refused.isError).toBe(true);
-    expect(refused.structuredContent.error).toContain("only an admin writes there");
-    const filed = await tool(ADA, "request", { routine: "Update dependencies", title: "Bump hono" });
-    expect(filed.isError).toBeUndefined();
   });
 });

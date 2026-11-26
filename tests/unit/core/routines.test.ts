@@ -51,8 +51,8 @@ describe("what a routine's run may call", () => {
 
 describe("approving a routine", () => {
   it("is needed again when its text or its agent changes, not when its schedule does", async () => {
-    const approved = await routineHash(routine({ trigger: "request" }));
-    expect(await routineHash(routine({ trigger: "schedule" }))).toBe(approved);
+    const approved = await routineHash(routine({ schedule: "daily 05:00" }));
+    expect(await routineHash(routine({ schedule: "hourly" }))).toBe(approved);
     expect(await routineHash(routine({ agent: "codex" }))).not.toBe(approved);
     expect(await routineHash(routine({}, "Update everything."))).not.toBe(approved);
   });

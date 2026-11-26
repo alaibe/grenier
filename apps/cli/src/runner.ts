@@ -205,7 +205,7 @@ export class Runner {
     await this.run({
       routine,
       task,
-      trigger: "request",
+      trigger: "schedule",
       mode: (approval.settings.mode as RoutineMode) ?? "read-only",
     });
   }
@@ -249,7 +249,7 @@ export class Runner {
     task?: FullRecord;
     /** By hand: what to do this time, in place of a task. */
     prompt?: string;
-    trigger: "request" | "manual";
+    trigger: "schedule" | "manual";
     mode: RoutineMode;
   }): Promise<RunOutcome> {
     if (this.#current) throw new Error("a run is going on this machine already");

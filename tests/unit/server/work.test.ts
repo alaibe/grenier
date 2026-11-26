@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ADA, call, join, json, mf, pull, push } from "./harness.ts";
+import { ADA, call, join, json, push } from "./harness.ts";
 
-describe("requests", () => {
+describe("routines' tasks", () => {
   async function routineAndTask(token: string) {
     await push(token, {
       id: "routine",
@@ -9,7 +9,7 @@ describe("requests", () => {
       type: "Routine",
       title: "Update dependencies",
       body: "Update",
-      fields: { trigger: "request" },
+      fields: {},
     });
     await push(token, {
       id: "task",
@@ -22,7 +22,7 @@ describe("requests", () => {
   const state = (token: string, room: number, agents = ["claude"]) =>
     call("/api/machines/me", token, { method: "PUT", body: { state: "available", room, agents } });
 
-  it("offers a request to the available machine with the most room, and to one at a time", async () => {
+  it("offers a task to the available machine with the most room, and to one at a time", async () => {
     const bob = await join("bob");
     await routineAndTask(ADA);
     await state(ADA, 0.3);
@@ -42,13 +42,13 @@ describe("requests", () => {
       type: "Routine",
       title: "Nightly digest",
       body: "Digest",
-      fields: { trigger: "schedule", schedule },
+      fields: { schedule },
     });
     expect((await push(ADA, routine("mon 09:00"))).applied).toHaveLength(1);
     expect((await push(ADA, routine("hourly"), 1)).applied).toHaveLength(1);
   });
 
-  it("offers a request in a top only to the machines of its members", async () => {
+  it("offers a task in a top only to the machines of its members", async () => {
     const bob = await join("bob");
     await call("/api/tops", ADA, { body: { name: "leads", members: ["ada"] } });
     await routineAndTask(ADA);
@@ -77,7 +77,7 @@ describe("requests", () => {
     expect(offer.offer?.task.id).toBe("task");
   });
 
-  it("offers a declined request to the same machine again once an admin changes its routine", async () => {
+  it("offers a declined task to the same machine again once an admin changes its routine", async () => {
     await routineAndTask(ADA);
     await state(ADA, 0.5);
     const claim = async () =>
@@ -90,7 +90,7 @@ describe("requests", () => {
     expect((await claim())?.task.id).toBe("task");
   });
 
-  it("offers a collector's request only to its person's machines", async () => {
+  it("offers a collector's task only to its person's machines", async () => {
     const bob = await join("bob", "bob-mbp", "admin");
     await push(bob, {
       id: "collector",
@@ -98,7 +98,7 @@ describe("requests", () => {
       type: "Routine",
       title: "My meetings",
       body: "Gather",
-      fields: { trigger: "request", collector: "yes" },
+      fields: { collector: "yes" },
     });
     await push(ADA, {
       id: "gather",
@@ -114,18 +114,5 @@ describe("requests", () => {
       await call("/api/work/claim", bob, { method: "POST" }),
     );
     expect(offer.offer?.task.id).toBe("gather");
-  });
-
-  it("turns a webhook call into a request for its routine", async () => {
-    await routineAndTask(ADA);
-    const { path } = await json<{ path: string }>(await call("/api/webhooks", ADA, { body: { routine: "routine" } }));
-    const hooked = await mf.dispatchFetch(`https://team.test${path}`, {
-      method: "POST",
-      body: JSON.stringify({ title: "Bump zod" }),
-    });
-    expect(hooked.status).toBe(201);
-    const titles = (await pull(ADA)).records.map((entry) => entry.title);
-    expect(titles).toContain("Bump zod");
-    expect((await mf.dispatchFetch(`https://team.test${path}x`, { method: "POST", body: "{}" })).status).toBe(404);
   });
 });

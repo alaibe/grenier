@@ -342,7 +342,7 @@ export class TeamStore extends DurableObject<Env> {
     next.version = this.#nextVersion();
     this.#put(next, member, device);
     this.#sql("INSERT INTO applied (change_id, version, at) VALUES (?, ?, ?)", change.id, next.version, now);
-    // An admin changed the routine: every machine that declined its requests may answer again.
+    // An admin changed the routine: every machine that declined its tasks may answer again.
     if (next.type === "Routine") {
       this.#sql(
         "DELETE FROM declines WHERE task_id IN (SELECT id FROM records WHERE type = 'Task' AND json_extract(fields, '$.routine') = ?)",

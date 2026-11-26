@@ -11,7 +11,7 @@ const normal = (title: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
-/** Files one Suggestion for each stale, duplicate or broken record and each request for a retired routine. */
+/** Files one Suggestion for each stale, duplicate or broken record and each task for a retired routine. */
 export async function librarian(deps: StoreDeps): Promise<{ suggested: number; lines: string[] }> {
   const tops = (await deps.store.tops.list()).filter((top) => top.kind !== "me").map((top) => top.id);
   const records = await deps.store.records.list({ tops });

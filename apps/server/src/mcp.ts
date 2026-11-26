@@ -1,7 +1,6 @@
 import { untrusted } from "@grenier/core/policy";
-import { taskFor } from "@grenier/core/routines";
 import { topName } from "@grenier/core/team";
-import { type Device, type Member, problem, randomId, type StoredRecord, type TeamApp, type TeamData } from "./data.ts";
+import { type Member, problem, type StoredRecord, type TeamApp, type TeamData } from "./data.ts";
 
 /** The remote MCP server, as JSON-RPC over POST: one message or a batch. */
 export function mcpRoutes(app: TeamApp, team: TeamData): void {
@@ -10,7 +9,7 @@ export function mcpRoutes(app: TeamApp, team: TeamData): void {
     if (!who) return problem(401, "a valid token is needed: Authorization: Bearer <token>");
     const message = await c.req.json<JsonRpc | JsonRpc[]>().catch(() => null);
     if (!message) return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } });
-    const answer = (request: JsonRpc) => mcp(team, request, who.member, who.device);
+    const answer = (request: JsonRpc) => mcp(team, request, who.member);
     if (Array.isArray(message)) {
       const answers = (await Promise.all(message.map(answer))).filter((entry) => entry !== null);
       return answers.length ? c.json(answers) : new Response(null, { status: 202 });
@@ -42,7 +41,7 @@ function search(
 }
 
 /** The remote MCP server: it can't check files or ask a person, so code records come back unchecked. */
-async function mcp(team: TeamData, request: JsonRpc, member: Member, device: Device): Promise<object | null> {
+async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<object | null> {
   const reply = (result: unknown) => ({ jsonrpc: "2.0", id: request.id ?? null, result });
   const fail = (code: number, message: string) => ({
     jsonrpc: "2.0",
@@ -73,7 +72,6 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member, device: Dev
     content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
     structuredContent: value,
   });
-  const failed = (error: string) => reply({ ...text({ error }), isError: true });
   switch (request.method) {
     case "initialize":
       return reply({
@@ -139,36 +137,6 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member, device: Dev
           text(untrusted({ records: rows.slice(0, Math.min(Number(args.limit ?? 50), 200)).map(shown) }, nameOf)),
         );
       }
-      if (params.name === "request") {
-        const routine =
-          team.get(String(args.routine ?? "")) ??
-          team
-            .sql(
-              "SELECT * FROM records WHERE type = 'Routine' AND lower(title) = lower(?) AND retired_at IS NULL",
-              String(args.routine ?? ""),
-            )
-            .map((row) => team.record(row))[0];
-        if (!routine || !team.topsOf(member).includes(routine.top)) return failed("no such routine");
-        const title = String(args.title ?? "").trim();
-        if (!title) return failed("a request needs a title");
-        const task = taskFor(routine, title, String(args.body ?? ""));
-        const result = team.storage.transactionSync(() =>
-          team.apply(
-            {
-              id: randomId(),
-              recordId: randomId(),
-              baseVersion: 0,
-              changed: Object.keys(task),
-              record: { id: "", ...task },
-            },
-            member,
-            device,
-          ),
-        );
-        if (!("version" in result)) return failed("refused" in result ? result.refused : "a change came in meanwhile");
-        team.notify();
-        return reply(text(result));
-      }
       return fail(-32602, `no tool ${String(params.name)}`);
     }
     default:
@@ -204,15 +172,6 @@ const REMOTE_TOOLS = [
         type: { type: "string" },
         limit: { type: "number" },
       },
-    },
-  },
-  {
-    name: "request",
-    description: "File a request for a routine (by id or title): an idle teammate's machine runs it.",
-    inputSchema: {
-      type: "object",
-      properties: { routine: { type: "string" }, title: { type: "string" }, body: { type: "string" } },
-      required: ["routine", "title"],
     },
   },
 ];

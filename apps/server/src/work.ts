@@ -1,7 +1,5 @@
-import { sha256 } from "@grenier/core/policy";
 import { nextDue, taskFor } from "@grenier/core/routines";
 import {
-  adminOnly,
   type Device,
   type Member,
   problem,
@@ -14,10 +12,10 @@ import {
 } from "./data.ts";
 
 const LEASE = 5 * 60 * 1000;
-/** How long a machine that declined a request is not offered it again. */
+/** How long a machine that declined a routine's task is not offered it again. */
 const DECLINE_LIFE = 30 * 60 * 1000;
 
-/** How machines take requests and report their runs, and how another tool's webhook files a request. */
+/** How machines take the tasks of scheduled routines and report their runs. */
 export function workRoutes(app: TeamApp, team: TeamData): void {
   app.post("/api/work/claim", (c) =>
     c.json({ offer: team.storage.transactionSync(() => offer(team, c.get("device"))) }),
@@ -93,47 +91,9 @@ export function workRoutes(app: TeamApp, team: TeamData): void {
     );
     return c.json({ runs: rows });
   });
-
-  app.post("/api/webhooks", adminOnly, async (c) => {
-    const { routine } = await c.req.json<{ routine?: unknown }>().catch(() => ({}) as { routine?: unknown });
-    const target = typeof routine === "string" ? team.get(routine) : undefined;
-    if (target?.type !== "Routine") return problem(404, "no such routine");
-    const id = randomId(8);
-    const secret = randomId(24);
-    team.sql(
-      "INSERT INTO webhooks (id, secret_hash, routine_id, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
-      id,
-      await sha256(secret),
-      target.id,
-      c.get("member").name,
-      Date.now(),
-    );
-    return c.json({ path: `/hooks/${id}/${secret}` }, 201);
-  });
-
-  // A webhook from another tool becomes a request for its routine. Its own secret URL is its only credential.
-  app.post("/hooks/:id/:secret", async (c) => {
-    const hook = team.one("SELECT * FROM webhooks WHERE id = ?", c.req.param("id"));
-    if (!hook || hook.secret_hash !== (await sha256(c.req.param("secret")))) return problem(404, "no such webhook");
-    const routine = team.get(hook.routine_id as string);
-    if (!routine || routine.retiredAt !== null) return problem(410, "its routine is retired");
-    const text = (await c.req.text()).slice(0, 100_000);
-    let title = "Request from a webhook";
-    try {
-      const data = JSON.parse(text) as Record<string, unknown>;
-      const candidate =
-        data.title ?? (data.data as Record<string, unknown> | undefined)?.title ?? data.text ?? data.subject;
-      if (typeof candidate === "string" && candidate.trim()) title = candidate.trim().slice(0, 200);
-    } catch {
-      if (text.trim()) title = text.trim().split("\n")[0]?.slice(0, 200) ?? title;
-    }
-    const task = file(team, routine, title, `\`\`\`\n${text}\n\`\`\``, `webhook:${hook.id}`);
-    team.notify();
-    return c.json({ task: task.id }, 201);
-  });
 }
 
-/** The oldest request this machine can run, unless an available machine that could run it has more room. */
+/** The oldest task this machine can run, unless an available machine that could run it has more room. */
 function offer(team: TeamData, device: Device): { task: StoredRecord; routine: StoredRecord } | null {
   const now = Date.now();
   team.sql("DELETE FROM claims WHERE leased_until < ?", now);
@@ -153,7 +113,7 @@ function offer(team: TeamData, device: Device): { task: StoredRecord; routine: S
       device.id,
     )
     .map((row) => team.record(row));
-  // A request and its routine go only to the machines of someone who reads both their top folders.
+  // A task and its routine go only to the machines of someone who reads both their top folders.
   const tops = new Map<string, string[]>();
   const reads = (memberId: string, top: string) => {
     if (!tops.has(memberId)) {
@@ -207,7 +167,7 @@ export async function schedule(team: TeamData): Promise<void> {
   const now = Date.now();
   const scheduled = new Set<string>();
   for (const row of team.sql(
-    "SELECT * FROM records WHERE type = 'Routine' AND retired_at IS NULL AND sealed IS NULL AND json_extract(fields, '$.trigger') = 'schedule'",
+    "SELECT * FROM records WHERE type = 'Routine' AND retired_at IS NULL AND sealed IS NULL AND json_extract(fields, '$.schedule') <> ''",
   )) {
     const routine = team.record(row);
     const next = nextDue(String(routine.fields.schedule ?? ""), now);
@@ -257,7 +217,7 @@ export async function fileDue(team: TeamData): Promise<void> {
   await schedule(team);
 }
 
-/** A request for a routine, filed by the store itself: from a schedule or another tool's webhook. */
+/** A routine's task, filed by the store itself when its schedule falls due. */
 function file(team: TeamData, routine: StoredRecord, title: string, body: string, by: string): StoredRecord {
   const now = Date.now();
   const member: Member = { id: by, name: by, role: "member" };

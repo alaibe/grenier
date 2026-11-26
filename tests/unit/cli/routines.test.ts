@@ -24,27 +24,22 @@ describe("a routine written in the app", () => {
       routineFromForm({
         title: " Update dependencies ",
         prompt: "Bump them and run the tests.",
-        trigger: "schedule",
         schedule: "daily 06:30",
         agent: "codex",
       }),
     ).toEqual({
       title: "Update dependencies",
       prompt: "Bump them and run the tests.",
-      fields: { trigger: "schedule", schedule: "daily 06:30", agent: "codex" },
+      fields: { schedule: "daily 06:30", agent: "codex" },
     });
     expect(routineFromForm({ title: "Ask", prompt: "Answer.", collector: true })).toMatchObject({
-      fields: { trigger: "request", collector: "yes" },
+      fields: { collector: "yes" },
     });
-    expect(() => routineFromForm({ title: "x", prompt: "y", trigger: "schedule", schedule: "at noon" })).toThrow(
-      "daily 05:00",
-    );
-    expect(
-      routineFromForm({ title: "x", prompt: "y", trigger: "schedule", schedule: "weekdays 18:00" }).fields,
-    ).toEqual({
-      trigger: "schedule",
+    expect(() => routineFromForm({ title: "x", prompt: "y", schedule: "at noon" })).toThrow("daily 05:00");
+    expect(routineFromForm({ title: "x", prompt: "y", schedule: "weekdays 18:00" }).fields).toEqual({
       schedule: "weekdays 18:00",
     });
+    expect(routineFromForm({ title: "By hand", prompt: "Only when asked here." }).fields).toEqual({});
     expect(() => routineFromForm({ title: "", prompt: "y" })).toThrow("a name and what it does");
   });
 
@@ -58,11 +53,11 @@ describe("a routine written in the app", () => {
     await editRoutine(
       deps,
       (await store.records.get(first.id)) as NonNullable<Awaited<ReturnType<typeof store.records.get>>>,
-      routineFromForm({ title: "Tidy up", prompt: "Tidy up, then test.", trigger: "schedule", schedule: "hourly" }),
+      routineFromForm({ title: "Tidy up", prompt: "Tidy up, then test.", schedule: "hourly" }),
     );
     const edited = await store.records.get(first.id);
     expect(edited).toMatchObject({ title: "Tidy up", body: "Tidy up, then test." });
-    expect(edited?.fields).toEqual({ trigger: "schedule", schedule: "hourly" });
+    expect(edited?.fields).toEqual({ schedule: "hourly" });
     const librarian = await addLibrarian(deps);
     expect(librarian.added).toBe(true);
     expect(await addLibrarian(deps)).toEqual({ id: librarian.id, added: false });

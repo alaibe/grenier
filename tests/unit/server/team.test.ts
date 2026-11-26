@@ -274,7 +274,7 @@ describe("what members write", () => {
       type: "Routine",
       title: "Bump",
       body: "Bump",
-      fields: { trigger: "request" },
+      fields: {},
     });
     await push(ADA, {
       id: "task",
@@ -301,7 +301,7 @@ describe("what members write", () => {
       type: "Routine",
       title: "Bump",
       body: "Bump",
-      fields: { trigger: "request" },
+      fields: {},
     });
     await push(ADA, {
       id: "task",
@@ -371,30 +371,6 @@ describe("usage", () => {
 });
 
 describe("the web view", () => {
-  it("shows the request form to admins only, and says why the store refused a request", async () => {
-    const bob = await join("bob");
-    await push(ADA, {
-      id: "routine",
-      top: "team",
-      type: "Routine",
-      title: "Update dependencies",
-      body: "Update",
-      fields: { trigger: "request" },
-    });
-    const requests = async (token: string) => {
-      const page = openPage(token, (path, init) => mf.dispatchFetch(`https://team.test${path}`, init as never));
-      await expect.poll(() => page.nav.children.length).toBeGreaterThan(0);
-      page.nav.find((node) => node.textContent === "Requests").click();
-      await expect.poll(() => page.main.textContent).toContain("What the team asked its routines for");
-      return page.main;
-    };
-    expect((await requests(bob)).textContent).not.toContain("File the request");
-    const admin = await requests(ADA);
-    admin.find((node) => node.tag === "input").value = "Rotate AKIAABCDEFGHIJKLMNOP";
-    admin.find((node) => node.textContent === "File the request").click();
-    await expect.poll(() => admin.textContent).toContain("Not filed: it holds what looks like a key");
-  });
-
   it("goes to a place with G then its letter, the first G's time running out not cutting the next one short", async () => {
     const timers: (() => void)[] = [];
     const pending = new Set<number>();
@@ -411,7 +387,7 @@ describe("the web view", () => {
     const current = () => page.nav.find((node) => node.getAttribute("aria-current") === "page").textContent;
     page.press("g");
     page.press("r");
-    expect(current()).toBe("Requests");
+    expect(current()).toBe("Routines");
     page.press("g");
     if (pending.has(1)) timers[0]?.();
     page.press("m");

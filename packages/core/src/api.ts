@@ -254,7 +254,7 @@ export interface Editors {
   others: { member: string; device: string }[];
 }
 
-/** A webhook's or a web link's path on the team store. */
+/** A web link's path on the team store. */
 export interface MadeLink {
   path: string;
 }
@@ -302,7 +302,7 @@ export interface RoutineView {
   title: string;
   top: string;
   author: string;
-  trigger: string;
+  /** Null for a routine run by hand only. */
   schedule: string | null;
   agent: string;
   collector: boolean;

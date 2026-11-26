@@ -128,7 +128,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Update dependencies",
       prompt: "Update the dependencies.",
-      fields: { trigger: "request" },
+      fields: {},
       top: "team",
     });
     await task("Bump hono", routine.id);
@@ -147,7 +147,7 @@ describe("a machine that takes the team's routine runs", () => {
       const routine = await addRoutine(deps, {
         title: "Update dependencies",
         prompt: "Update the dependencies.",
-        fields: { trigger: "request" },
+        fields: {},
         top: "team",
       });
       await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
@@ -187,7 +187,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Tidy",
       prompt: "Tidy up.",
-      fields: { trigger: "request" },
+      fields: {},
       top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
@@ -213,7 +213,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Explain",
       prompt: "Explain the router.",
-      fields: { trigger: "request", agent: "codex" },
+      fields: { agent: "codex" },
       top: "team",
     });
     const record = (await store.records.get(routine.id)) as FullRecord;
@@ -245,7 +245,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Fix typos",
       prompt: "Fix the typos.",
-      fields: { trigger: "request", agent: "codex" },
+      fields: { agent: "codex" },
       top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "limited", 2);
@@ -272,7 +272,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Label issues",
       prompt: "Label them.",
-      fields: { trigger: "request" },
+      fields: {},
       top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "limited", 2);
@@ -301,7 +301,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Deploy",
       prompt: "Deploy.",
-      fields: { trigger: "request" },
+      fields: {},
       top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
@@ -319,7 +319,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Elsewhere",
       prompt: "Do it.",
-      fields: { trigger: "request" },
+      fields: {},
       top: "team",
     });
     const record = (await store.records.get(routine.id)) as FullRecord;
@@ -341,7 +341,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Librarian",
       prompt: "Built in.",
-      fields: { trigger: "request", builtin: LIBRARIAN },
+      fields: { builtin: LIBRARIAN },
       top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
@@ -356,7 +356,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Librarian",
       prompt: "Built in.",
-      fields: { trigger: "request", builtin: LIBRARIAN },
+      fields: { builtin: LIBRARIAN },
       top: "team",
     });
     await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");

@@ -53,7 +53,7 @@ describe("the routines' admin routes", () => {
     const { id } = await addRoutine(deps, {
       title: "Tidy",
       prompt: "Tidy up.",
-      fields: { trigger: "request" },
+      fields: {},
       top: "team",
     });
     const run = () => route()("POST", `/routines/${id}/run`, {});
@@ -65,7 +65,7 @@ describe("the routines' admin routes", () => {
     await editRoutine(deps, (await store.records.get(id)) as FullRecord, {
       title: "Tidy",
       prompt: "Tidy up, and delete what is old.",
-      fields: { trigger: "request" },
+      fields: {},
     });
     expect((await run())?.status).toBe(409);
     expect(runs).toHaveLength(1);
