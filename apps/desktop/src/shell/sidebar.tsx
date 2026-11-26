@@ -13,7 +13,7 @@ export function Sidebar({ current, go }: { current: ViewName; go: (place: ViewNa
       <a
         key={name}
         href={href({ place: name })}
-        className="sidebar-item"
+        className="sidebar-item badge-host"
         aria-current={current === name ? "page" : undefined}
         aria-label={title}
         aria-keyshortcuts={spoken(placeKeys(name))}

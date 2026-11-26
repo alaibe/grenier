@@ -26,6 +26,7 @@ import { Cost } from "./views/Cost.tsx";
 import { Instructions } from "./views/Instructions.tsx";
 import { Knowledge } from "./views/Knowledge.tsx";
 import { Mcp } from "./views/Mcp.tsx";
+import { usePolling } from "./views/polling.ts";
 import { Routines } from "./views/Routines.tsx";
 import { Settings } from "./views/Settings.tsx";
 import { Skills } from "./views/Skills.tsx";
@@ -109,6 +110,8 @@ function Shell() {
   const [item, setItem] = useState<string | null>(null);
   usePrefs();
   const reloadOverview = overview.reload;
+  // A daemon that went away is started again by the next call: keep calling until it answers.
+  usePolling(reloadOverview, overview.error ? 3000 : null);
   const { run: runSync } = useAction(reloadOverview);
   const syncNow = useCallback(
     () =>
