@@ -1,5 +1,5 @@
 import type { LocalServer, RecordFull, ServerChange, SharedNow, SharedState } from "@grenier/core/api";
-import { Check, Download, FileText, Plus, Settings, Share2, Trash2, Undo2 } from "lucide-react";
+import { Check, Download, Plus, Settings, Share2, Trash2, Undo2 } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
 import { api } from "../api.ts";
 import { Button, IconButton, Primary } from "../ui/button.tsx";
@@ -221,25 +221,20 @@ export function LocalServerView({
               },
             ]
           : []),
-        {
-          label: "Remove",
-          icon: Trash2,
-          danger: true,
-          run: () =>
-            ask({
-              title: `Remove ${server.name}?`,
-              body: "Its entry and the keys in it leave Claude Code's config. This can't be undone.",
-              action: "Remove the server",
-              run: () =>
-                void action.run("remove", async () => {
-                  await api(`/servers/one?id=${encodeURIComponent(server.id)}`, { method: "DELETE" });
-                  removed();
-                  return `Removed ${server.name}`;
-                }),
-            }),
-        },
       ]
     : [];
+  const remove = () =>
+    ask({
+      title: `Remove ${server.name}?`,
+      body: "Its entry and the keys in it leave Claude Code's config. This can't be undone.",
+      action: "Remove the server",
+      run: () =>
+        void action.run("remove", async () => {
+          await api(`/servers/one?id=${encodeURIComponent(server.id)}`, { method: "DELETE" });
+          removed();
+          return `Removed ${server.name}`;
+        }),
+    });
   const kept = server.grenier ? (
     <Notice
       kind="info"
@@ -272,6 +267,11 @@ export function LocalServerView({
         actions={
           <>
             {editable && <span className="text-xs text-muted">{dirty ? "Edited" : "Saved"}</span>}
+            {editable && (
+              <Button size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={remove}>
+                Remove
+              </Button>
+            )}
             {items.length > 0 && <Menu label="More" items={items} />}
             {editable && (
               <Primary
@@ -352,15 +352,19 @@ const HERE: Record<SharedState["state"], ReactNode> = {
 /** A server the team shares: what it runs, the keys each person enters, and whether it is installed here. */
 export function TeamServerView({
   entry,
+  admin,
   changed,
-  open,
+  removed,
 }: {
   entry: SharedState;
+  admin: boolean;
   changed: () => void;
-  open: (id: string) => void;
+  /** After an admin removed it from the team. */
+  removed: () => void;
 }) {
   const load = useCallback(() => api<RecordFull>(`/records/${encodeURIComponent(entry.id)}`), [entry.id]);
   const record = useLoad(load);
+  const { ask, dialog } = useConfirm();
   const [asking, setAsking] = useState(false);
   const action = useAction(() => {
     setAsking(false);
@@ -376,8 +380,14 @@ export function TeamServerView({
       return `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart Claude Code to load it`;
     });
   const start = () => (entry.state === "available" && entry.credentials.length > 0 ? setAsking(true) : install());
+  const uninstall = () =>
+    void action.run("remove", async () => {
+      await api(`/installs/${entry.id}`, { method: "DELETE" });
+      return entry.credentials.length === 0
+        ? { text: `Uninstalled ${entry.title}`, undo: () => install() }
+        : `Uninstalled ${entry.title}`;
+    });
   const items: MenuItem[] = [
-    { label: "Open its page", icon: FileText, run: () => open(entry.id) },
     ...(entry.canRollBack
       ? [
           {
@@ -391,18 +401,23 @@ export function TeamServerView({
           },
         ]
       : []),
-    ...(entry.state !== "available"
+    ...(admin
       ? [
           {
-            label: "Remove from this machine",
+            label: "Remove from the team",
             icon: Trash2,
             danger: true,
             run: () =>
-              void action.run("remove", async () => {
-                await api(`/installs/${entry.id}`, { method: "DELETE" });
-                return entry.credentials.length === 0
-                  ? { text: `Removed ${entry.title}`, undo: () => install() }
-                  : `Removed ${entry.title}`;
+              ask({
+                title: `Remove ${entry.title} from the team?`,
+                body: "It leaves every teammate's list, and each machine that installed it uninstalls it at its next sync. Its history stays.",
+                action: "Remove from the team",
+                run: () =>
+                  void action.run("retire", async () => {
+                    await api(`/records/${encodeURIComponent(entry.id)}`, { method: "DELETE" });
+                    removed();
+                    return `Removed ${entry.title} from the team`;
+                  }),
               }),
           },
         ]
@@ -427,7 +442,12 @@ export function TeamServerView({
               {entry.state === "update" ? "Approve the update" : "Install"}
             </Primary>
           )}
-          <Menu label="More" items={items} />
+          {entry.state !== "available" && (
+            <Button size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={uninstall}>
+              Uninstall
+            </Button>
+          )}
+          {items.length > 0 && <Menu label="More" items={items} />}
         </>
       }
       notice={
@@ -450,6 +470,7 @@ export function TeamServerView({
           Needs your {entry.credentials.join(", ")}: they go only into your Claude Code config.
         </p>
       )}
+      {dialog}
       {asking && (
         <Dialog
           title={`Install ${entry.title}`}

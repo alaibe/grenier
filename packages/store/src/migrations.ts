@@ -4,6 +4,7 @@ import noTraces from "../migrations/0002_no_traces.sql";
 import folders from "../migrations/0003_folders.sql";
 import tops from "../migrations/0004_tops.sql";
 import simpler from "../migrations/0005_simpler.sql";
+import noMemberFolders from "../migrations/0006_no_member_folders.sql";
 
 export interface Migration {
   /** 1 for the first migration: the schema version a database has once it is applied. */
@@ -20,4 +21,5 @@ export const migrations: readonly Migration[] = [
   { version: 4, name: "0003_folders", sql: folders },
   { version: 5, name: "0004_tops", sql: tops },
   { version: 6, name: "0005_simpler", sql: simpler },
+  { version: 7, name: "0006_no_member_folders", sql: noMemberFolders },
 ];

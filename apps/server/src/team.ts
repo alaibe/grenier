@@ -153,16 +153,9 @@ export class TeamStore extends DurableObject<Env> {
     return next;
   }
 
-  /** The top folders a member reads: the team's, repositories', custom ones they are in (all of them for an admin), and their own `me`. */
+  /** The top folders a member reads: the team's, the repositories', and their own `me`. */
   #topsOf(member: Member): string[] {
-    const tops = this.#sql("SELECT id, kind, members FROM tops");
-    const ids = tops
-      .filter((top) => {
-        if (member.role === "admin" || top.kind !== "custom" || top.members === null) return true;
-        return (JSON.parse(top.members as string) as string[]).includes(member.name);
-      })
-      .map((top) => top.id as string);
-    return [...ids, `me:${member.id}`];
+    return [...this.#sql("SELECT id FROM tops").map((top) => top.id as string), `me:${member.id}`];
   }
 
   #record(row: Row): StoredRecord {
@@ -653,42 +646,6 @@ export class TeamStore extends DurableObject<Env> {
       this.#sql("UPDATE devices SET revoked_at = ? WHERE id = ?", Date.now(), device.id as string);
       this.#closeSockets();
       return c.json({ removed: device.id });
-    });
-
-    app.get("/api/tops", (c) => {
-      const tops = this.#topsOf(c.get("member"));
-      return c.json({
-        tops: this.#sql("SELECT id, name, kind, repo_id, members FROM tops ORDER BY kind, name")
-          .filter((top) => tops.includes(top.id as string))
-          .map((top) => ({
-            id: top.id,
-            name: top.name,
-            kind: top.kind,
-            repoId: top.repo_id,
-            members: top.members === null ? null : JSON.parse(top.members as string),
-          })),
-      });
-    });
-
-    app.post("/api/tops", adminOnly, async (c) => {
-      const body = await c.req
-        .json<{ name?: unknown; members?: unknown }>()
-        .catch(() => ({}) as Record<string, unknown>);
-      const name = String(body.name ?? "");
-      if (!/^[a-z0-9][\w-]{0,40}$/.test(name) || ["team", "me"].includes(name)) {
-        return problem(400, "a top folder's name takes lowercase letters, digits, _ and -, and is not team or me");
-      }
-      const members = Array.isArray(body.members) ? body.members.map(String) : null;
-      const id = `top:${name}`;
-      if (this.#one("SELECT id FROM tops WHERE id = ?", id))
-        return problem(409, `there is a top folder ${name} already`);
-      this.#sql(
-        "INSERT INTO tops (id, name, kind, members) VALUES (?, ?, 'custom', ?)",
-        id,
-        name,
-        members === null ? null : JSON.stringify(members),
-      );
-      return c.json({ id, name, members }, 201);
     });
 
     app.post("/api/changes", async (c) => {

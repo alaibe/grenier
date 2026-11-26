@@ -43,6 +43,13 @@
       "when": 1795517163803,
       "tag": "0005_simpler",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795703809459,
+      "tag": "0006_no_member_folders",
+      "breakpoints": true
     }
   ]
 }

@@ -21,7 +21,7 @@ beforeEach(async () => {
     await store.tops.put({
       id: top,
       name: top.replace(/^top:/, ""),
-      kind: top === "team" ? "team" : "custom",
+      kind: "team",
       repoId: null,
       root: null,
     });
@@ -88,7 +88,7 @@ const reader = (scopes: string[]): Reader => ({ id: `client-${scopes.join("-") |
 /** Every read tool, called so that it would return everything a full scope can see. */
 const READS = [
   { name: "recall", args: { query: "budget review Friday", limit: 20 } },
-  { name: "recall", args: { query: "budget review Friday", folder: "leads", limit: 20 } },
+  { name: "recall", args: { query: "budget review Friday", folder: "top:leads", limit: 20 } },
   { name: "query", args: { type: "Memory", folder: "Me" } },
   { name: "query", args: { type: "Memory" } },
   { name: "query", args: { id: "" } },
@@ -121,7 +121,7 @@ describe("scopes, against every read tool", () => {
     ["a connection without a client", null, ["repo"]],
     ["a client scoped to team", reader(["team"]), ["team", "repo"]],
     ["a client scoped to me", reader(["me"]), ["me", "repo"]],
-    ["a client scoped to a custom top", reader(["top:leads"]), ["leads", "repo"]],
+    ["a client scoped to one top", reader(["top:leads"]), ["leads", "repo"]],
     ["a client scoped to every top", reader(["*"]), ["team", "leads", "me", "repo"]],
     ["a client with an empty scope", reader([]), ["repo"]],
   ];
@@ -195,11 +195,11 @@ describe("folder paths", () => {
       top: "team",
       folder: "Decisions/2026",
     });
-    await expect(resolveFolderPath(store, reader(["team"]), "leads")).rejects.toThrow("no top folder leads");
+    await expect(resolveFolderPath(store, reader(["team"]), "top:leads")).rejects.toThrow("no top folder top:leads");
     expect(await resolveFolderPath(store, reader(["team"]), "Me/Notes")).toEqual({ top: "me", folder: "Notes" });
     await expect(resolveFolderPath(store, null, "Team")).rejects.toThrow("no top folder Team");
-    expect(await resolveFolderPath(store, reader(["*"]), "leads")).toEqual({ top: "top:leads", folder: "" });
-    await expect(resolveFolderPath(store, reader(["*"]), "Team/../up")).rejects.toThrow("cannot be named ..");
+    expect(await resolveFolderPath(store, reader(["*"]), "top:leads")).toEqual({ top: "top:leads", folder: "" });
+    await expect(resolveFolderPath(store, reader(["*"]), "Me/../up")).rejects.toThrow("cannot be named ..");
   });
 
   it("asks for the id when two repositories share a folder name", async () => {

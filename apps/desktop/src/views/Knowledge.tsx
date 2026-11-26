@@ -169,13 +169,12 @@ interface Crossing extends Moving {
   name: string;
 }
 
-const ORDER: Record<Top["kind"], number> = { me: 0, team: 1, repo: 2, custom: 3 };
+const ORDER: Record<Top["kind"], number> = { me: 0, team: 1, repo: 2 };
 
 const SAYS: Record<Top["kind"], string> = {
   me: "only you",
   team: "everyone",
   repo: "repository",
-  custom: "some members",
 };
 
 /** Where a new page goes when nothing says: Me for a member, Team for an admin. */

@@ -77,4 +77,11 @@ export const SCHEMA_STEPS: readonly string[] = [
   DROP TABLE webhooks;
   UPDATE meta SET value = '7' WHERE key = 'schema';
 `,
+  `
+  DELETE FROM history WHERE record_id IN (SELECT id FROM records WHERE top IN (SELECT id FROM tops WHERE kind = 'custom'));
+  DELETE FROM records WHERE top IN (SELECT id FROM tops WHERE kind = 'custom');
+  DELETE FROM tops WHERE kind = 'custom';
+  ALTER TABLE tops DROP COLUMN members;
+  UPDATE meta SET value = '8' WHERE key = 'schema';
+`,
 ];

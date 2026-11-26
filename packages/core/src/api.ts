@@ -53,7 +53,7 @@ export interface PausedSession {
 export interface Top {
   id: string;
   name: string;
-  kind: "me" | "repo" | "team" | "custom";
+  kind: "me" | "repo" | "team";
   repoId: string | null;
   root: string | null;
   records: number;
@@ -216,15 +216,6 @@ export interface Machine {
   state: string;
   lastSeen: number | null;
   runs: number;
-}
-
-export interface TeamTop {
-  id: string;
-  name: string;
-  kind: string;
-  repoId: string | null;
-  /** Who reads a folder for some members; null for everyone. */
-  members: string[] | null;
 }
 
 export interface TeamUsage {

@@ -8,10 +8,9 @@ import type {
   Member,
   Overview,
   TeamMe,
-  TeamTop,
   TeamUsage,
 } from "@grenier/core/api";
-import { ArrowRight, Check, FolderPlus, Link, RefreshCw, Trash2, UserCog, UserPlus } from "lucide-react";
+import { ArrowRight, Check, Link, RefreshCw, Trash2, UserCog, UserPlus } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
@@ -27,7 +26,7 @@ import { Field, Input, Select } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Menu } from "../ui/menu.tsx";
 import { Notice, Problem } from "../ui/notice.tsx";
-import { Page, Section, SectionRow } from "../ui/page.tsx";
+import { Page, Section } from "../ui/page.tsx";
 import { Secret } from "../ui/secret.tsx";
 import { Segmented } from "../ui/segmented.tsx";
 import { Stat, Stats } from "../ui/stat.tsx";
@@ -518,8 +517,6 @@ function Members({
           </Table>
         )}
       </Section>
-
-      {admin && <Folders />}
       <Machines me={me.data} removed={(self) => (self ? setSignedOut(true) : members.reload())} />
       {me.data && <Usage key={me.data.role} admin={admin} />}
       {dialog}
@@ -568,65 +565,6 @@ function Members({
         />
       )}
     </Page>
-  );
-}
-
-/** The top folders only some members read, as admins make them. */
-function Folders() {
-  const tops = useLoad(
-    useCallback(
-      () => api<{ tops: TeamTop[] }>("/team/tops").then((answer) => answer.tops.filter((top) => top.kind === "custom")),
-      [],
-    ),
-  );
-  const [making, setMaking] = useState(false);
-  const action = useAction(() => {
-    tops.reload();
-    setMaking(false);
-  });
-  return (
-    <Section
-      heading
-      title="Folders for some members"
-      description="Top folders that only the members named read."
-      actions={
-        <Button size="sm" icon={FolderPlus} onClick={() => setMaking(true)}>
-          New folder
-        </Button>
-      }
-    >
-      <Problem error={tops.error} />
-      {tops.data?.length === 0 && <p className="text-muted">None yet: everyone reads every team folder.</p>}
-      {tops.data?.map((top) => (
-        <SectionRow key={top.id} label={top.name} description={top.members ? top.members.join(", ") : "everyone"} />
-      ))}
-      {making && (
-        <Dialog
-          title="New folder for some members"
-          action="Make the folder"
-          busy={action.busy !== null}
-          onCancel={() => setMaking(false)}
-          onAction={(form) => {
-            const members = String(form.get("members") ?? "")
-              .split(",")
-              .map((member) => member.trim())
-              .filter(Boolean);
-            void action.run("folder", async () => {
-              await api("/team/tops", { body: { name: String(form.get("name") ?? ""), members } });
-              return "Made the folder: it shows in Knowledge for its members after their next sync";
-            });
-          }}
-        >
-          <Problem error={action.problem} />
-          <Field label="Name">
-            <Input name="name" placeholder="leads" required />
-          </Field>
-          <Field label="Members" help="Comma-separated.">
-            <Input name="members" placeholder="ada, bob" required />
-          </Field>
-        </Dialog>
-      )}
-    </Section>
   );
 }
 

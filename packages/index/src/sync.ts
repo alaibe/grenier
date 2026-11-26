@@ -159,7 +159,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const { store, team } = deps;
   const result: SyncResult = { pushed: 0, refused: [], pulled: 0, unopened: 0 };
 
-  // An older store would drop what it does not know, and file a member-only folder's page under Team.
+  // An older store would drop what it does not know, or hand out what this Grenier no longer has.
   const me = await teamApi<{ me: string; name: string; role: string; protocol?: number }>(team, "/api/me");
   await store.state.set("team_protocol", String(me.protocol ?? 1));
   if ((me.protocol ?? 1) < TEAM_PROTOCOL) {
@@ -201,20 +201,16 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const waiting = new Set((await store.outbox.list()).map((entry) => entry.recordId));
   // The cursor moves past a Me page this machine cannot open: the ids stay, so Settings can say so until it can.
   const unopened = new Set(await unopenedIds(store));
-  const known = new Set((await store.tops.list()).map((top) => top.id));
   for (;;) {
     const page = await teamApi<{
       records: Remote[];
       next: number;
       version: number;
-      tops: { id: string; name: string; kind: "team" | "repo" | "custom"; repoId: string | null }[];
+      tops: { id: string; name: string; kind: "team" | "repo"; repoId: string | null }[];
     }>(team, `/api/changes?after=${cursor}&limit=500`);
-    // A member-only folder this machine can now read holds pages from before the cursor: pull from the start.
-    const readable = cursor > 0 && page.tops.some((top) => top.kind === "custom" && !known.has(top.id));
     for (const top of page.tops) {
       if (top.id.startsWith("me:")) continue;
       const local = await store.tops.get(top.id);
-      known.add(top.id);
       await store.tops.put({
         id: top.id,
         name: local?.name ?? top.name,
@@ -222,10 +218,6 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
         repoId: top.repoId,
         root: local?.root ?? null,
       });
-    }
-    if (readable) {
-      cursor = 0;
-      continue;
     }
     for (let remote of page.records) {
       if (waiting.has(remote.id)) continue;

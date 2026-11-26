@@ -56,7 +56,7 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
     if (record.type === "Task" && record.fields.status !== "done" && typeof record.fields.routine === "string") {
       const routine = await deps.store.records.get(record.fields.routine);
       if (!routine || routine.retiredAt !== null) {
-        found.push({ target: record, change: { retire: true }, reason: "It asks a routine that was retired." });
+        found.push({ target: record, change: { retire: true }, reason: "It is a run of a routine that was retired." });
       }
     }
   }

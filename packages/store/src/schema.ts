@@ -59,7 +59,7 @@ export const state = sqliteTable("state", {
 export const tops = sqliteTable("tops", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  kind: text("kind", { enum: ["me", "repo", "team", "custom"] }).notNull(),
+  kind: text("kind", { enum: ["me", "repo", "team"] }).notNull(),
   /** For a repository's top folder: its id, the hash of its first commit. */
   repoId: text("repo_id"),
   root: text("root"),

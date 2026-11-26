@@ -196,9 +196,6 @@ export function LocalSkillView({
           },
         ]
       : []),
-    ...(data.kind === "own" || data.kind === "linked"
-      ? [{ label: data.kind === "linked" ? "Remove the link" : "Delete", icon: Trash2, danger: true, run: remove }]
-      : []),
   ];
   const kept =
     data.kind === "linked"
@@ -218,7 +215,16 @@ export function LocalSkillView({
         manifest={data.manifest}
         files={data.files}
         editable={data.kind === "own"}
-        actions={items.length > 0 && <Menu label="More" items={items} />}
+        actions={
+          <>
+            {(data.kind === "own" || data.kind === "linked") && (
+              <Button size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={remove}>
+                {data.kind === "linked" ? "Remove the link" : "Delete"}
+              </Button>
+            )}
+            {items.length > 0 && <Menu label="More" items={items} />}
+          </>
+        }
         notice={kept && <Notice kind="info">{kept}</Notice>}
         problem={action.problem}
         saving={action.busy === "save"}
@@ -246,15 +252,19 @@ export function TeamSkillView({
   entry,
   admin,
   changed,
+  removed,
   open,
 }: {
   entry: SharedState;
   admin: boolean;
   changed: () => void;
+  /** After an admin removed it from the team. */
+  removed: () => void;
   open: (id: string) => void;
 }) {
   const load = useCallback(() => api<RecordFull>(`/records/${encodeURIComponent(entry.id)}`), [entry.id]);
   const record = useLoad(load);
+  const { ask, dialog } = useConfirm();
   const action = useAction(() => {
     record.reload();
     changed();
@@ -275,8 +285,12 @@ export function TeamSkillView({
       "POST",
       `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart Claude Code to load it`,
     );
+  const uninstall = () =>
+    void action.run("remove", async () => {
+      await api(`/installs/${entry.id}`, { method: "DELETE" });
+      return { text: `Uninstalled ${entry.title} from this machine`, undo: install };
+    });
   const items: MenuItem[] = [
-    { label: "Open its page", icon: FileText, run: () => open(entry.id) },
     ...(entry.canRollBack
       ? [
           {
@@ -292,16 +306,23 @@ export function TeamSkillView({
           },
         ]
       : []),
-    ...(entry.state !== "available"
+    ...(admin
       ? [
           {
-            label: "Remove from this machine",
+            label: "Remove from the team",
             icon: Trash2,
             danger: true,
             run: () =>
-              void action.run("remove", async () => {
-                await api(`/installs/${entry.id}`, { method: "DELETE" });
-                return { text: `Removed ${entry.title} from this machine`, undo: install };
+              ask({
+                title: `Remove ${entry.title} from the team?`,
+                body: "It leaves every teammate's list, and each machine that installed it uninstalls it at its next sync. Its history stays.",
+                action: "Remove from the team",
+                run: () =>
+                  void action.run("retire", async () => {
+                    await api(`/records/${encodeURIComponent(entry.id)}`, { method: "DELETE" });
+                    removed();
+                    return `Removed ${entry.title} from the team`;
+                  }),
               }),
           },
         ]
@@ -310,45 +331,53 @@ export function TeamSkillView({
   const Install = admin ? Button : Primary;
 
   return (
-    <SkillPage
-      key={`${entry.id}:${record.data.version}`}
-      path={`Team / ${entry.title}`}
-      name={entry.title}
-      manifest={files["SKILL.md"] ?? ""}
-      files={Object.keys(files).filter((path) => path !== "SKILL.md")}
-      editable={admin}
-      state={HERE[entry.state]}
-      actions={
-        <>
-          {entry.state !== "installed" && (
-            <Install
-              size="sm"
-              icon={entry.state === "update" ? Check : Download}
-              busy={action.busy === "install"}
-              onClick={install}
-            >
-              {entry.state === "update" ? "Approve the update" : "Install"}
-            </Install>
-          )}
-          <Menu label="More" items={items} />
-        </>
-      }
-      notice={
-        entry.state === "update" && (
-          <Notice kind="warn">
-            Changed since you installed it: it loads as it is now once you approve the update.
-          </Notice>
-        )
-      }
-      problem={action.problem}
-      saving={action.busy === "save"}
-      save={(manifest) =>
-        void action.run("save", async () => {
-          await api(`/installs/${entry.id}/skill`, { method: "PUT", body: { manifest } });
-          return `Saved ${entry.title}: each teammate approves the new version`;
-        })
-      }
-      open={open}
-    />
+    <>
+      <SkillPage
+        key={`${entry.id}:${record.data.version}`}
+        path={`Team / ${entry.title}`}
+        name={entry.title}
+        manifest={files["SKILL.md"] ?? ""}
+        files={Object.keys(files).filter((path) => path !== "SKILL.md")}
+        editable={admin}
+        state={HERE[entry.state]}
+        actions={
+          <>
+            {entry.state !== "installed" && (
+              <Install
+                size="sm"
+                icon={entry.state === "update" ? Check : Download}
+                busy={action.busy === "install"}
+                onClick={install}
+              >
+                {entry.state === "update" ? "Approve the update" : "Install"}
+              </Install>
+            )}
+            {entry.state !== "available" && (
+              <Button size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={uninstall}>
+                Uninstall
+              </Button>
+            )}
+            {items.length > 0 && <Menu label="More" items={items} />}
+          </>
+        }
+        notice={
+          entry.state === "update" && (
+            <Notice kind="warn">
+              Changed since you installed it: it loads as it is now once you approve the update.
+            </Notice>
+          )
+        }
+        problem={action.problem}
+        saving={action.busy === "save"}
+        save={(manifest) =>
+          void action.run("save", async () => {
+            await api(`/installs/${entry.id}/skill`, { method: "PUT", body: { manifest } });
+            return `Saved ${entry.title}: each teammate approves the new version`;
+          })
+        }
+        open={open}
+      />
+      {dialog}
+    </>
   );
 }

@@ -322,7 +322,17 @@ export function Skills({ item, go, member, team }: ViewProps) {
       open={(id) => go("knowledge", id)}
     />
   ) : entry ? (
-    <TeamSkillView key={item} entry={entry} admin={admin} changed={reload} open={(id) => go("knowledge", id)} />
+    <TeamSkillView
+      key={item}
+      entry={entry}
+      admin={admin}
+      changed={reload}
+      removed={() => {
+        reload();
+        go("skills");
+      }}
+      open={(id) => go("knowledge", id)}
+    />
   ) : local.error ? null : (
     <Empty boot={local.data && skills.length === 0 && !shared.data?.length ? "no skills yet" : "pick a skill"}>
       Your skills are the ones Claude Code loads from ~/.claude/skills.

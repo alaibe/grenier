@@ -200,31 +200,11 @@ describe("changes", () => {
     expect(shown.refused[0]?.reason).toContain("keeps its folder sealed");
   });
 
-  it("keeps a member's me top to that member, and a custom top to its members", async () => {
+  it("keeps a member's me top to that member", async () => {
     const bob = await join("bob");
     await push(ADA, { id: "m1", top: "me", type: "Sealed", title: "", body: "", sealed: "c2VhbGVk", fields: {} });
     expect((await pull(ADA)).records.map((entry) => entry.top)).toEqual([expect.stringMatching(/^me:/)]);
     expect((await pull(bob)).records).toEqual([]);
-    expect((await call("/api/tops", ADA, { body: { name: "leads", members: ["ada"] } })).status).toBe(201);
-    await push(ADA, record("l1", { top: "top:leads" }));
-    expect((await pull(bob)).records).toEqual([]);
-  });
-
-  it("lets an admin read and write every top folder, the ones that leave them out included", async () => {
-    const bob = await join("bob");
-    const cleo = await join("cleo", "cleo-mbp", "admin");
-    expect((await call("/api/tops", ADA, { body: { name: "reviewers", members: ["bob"] } })).status).toBe(201);
-    const tops = async (token: string) =>
-      (await json<{ tops: { id: string }[] }>(await call("/api/tops", token))).tops.map((top) => top.id);
-    expect(await tops(ADA)).toContain("top:reviewers");
-    expect(await tops(cleo)).toContain("top:reviewers");
-    expect(await tops(bob)).toContain("top:reviewers");
-    expect((await push(ADA, record("v1", { top: "top:reviewers" }))).applied).toHaveLength(1);
-    expect((await push(cleo, { id: "v1", body: "Only before eleven." }, 1)).applied).toHaveLength(1);
-    expect((await pull(bob)).records.map((entry) => entry.body)).toEqual(["Only before eleven."]);
-    const dan = await join("dan");
-    expect(await tops(dan)).not.toContain("top:reviewers");
-    expect((await pull(dan)).records).toEqual([]);
   });
 
   it("keeps every version, with who made it", async () => {

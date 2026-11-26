@@ -1,5 +1,5 @@
 /** What a machine and the team store built from this tree speak, checked before a sync: 2 added folders, 3 named top folders, 4 one text per routine, 5 claimed runs and removable machines. */
-export const TEAM_PROTOCOL = 5;
+export const TEAM_PROTOCOL = 6;
 
 /** The parts of a record a change carries, which the team store applies over what it has. */
 export const RECORD_PARTS = [

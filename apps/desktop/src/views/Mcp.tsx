@@ -3,6 +3,7 @@ import { Plug, Plus } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
+import { serverName } from "../server-name.ts";
 import { type Command, useCommands } from "../shell/commands.tsx";
 import { ListDetail } from "../shell/regions.tsx";
 import { Button, IconButton } from "../ui/button.tsx";
@@ -64,7 +65,7 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
   const [found, setFound] = useState<{ words: string; servers: FoundServer[] } | null>(null);
   const [keysFor, setKeysFor] = useState<FoundServer | null>(null);
   const [by, setBy] = useState<"registry" | "hand">("registry");
-  const nameOf = (server: FoundServer) => server.name.split("/").at(-1) ?? server.title;
+  const nameOf = (server: FoundServer) => serverName(server.name);
 
   const share = (body: Record<string, unknown>) =>
     void action.run(`add:${String(body.title)}`, async () => {
@@ -435,7 +436,16 @@ export function Mcp({ item, go, member, team }: ViewProps) {
       settings={() => go("settings", "apps")}
     />
   ) : entry ? (
-    <TeamServerView key={item} entry={entry} changed={reload} open={(id) => go("knowledge", id)} />
+    <TeamServerView
+      key={item}
+      entry={entry}
+      admin={admin}
+      changed={reload}
+      removed={() => {
+        reload();
+        go("mcp");
+      }}
+    />
   ) : local.error ? null : (
     <Empty boot="pick a server">
       Your servers are the ones your agents get: Claude Code's, each project's and your other apps'.

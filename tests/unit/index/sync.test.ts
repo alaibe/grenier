@@ -223,33 +223,9 @@ describe("sync between machines", () => {
     expect(await stored.text()).not.toContain("dentist");
   });
 
-  it("pulls the pages already in a member-only folder once this machine may read it", async () => {
-    const call = (team: TeamClient, path: string, method: string, body: unknown) =>
-      workerFetch(`${team.url}${path}`, {
-        method,
-        headers: { authorization: `Bearer ${team.token}`, "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    await call(ada, "/api/tops", "POST", { name: "leads", members: ["ada"] });
-    const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Leads meet on Mondays", top: "top:leads" });
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Releases ship on Thursdays", top: "team" });
-    await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
-
-    await device(bobStore, "bob", await meTop(bob));
-    await syncOnce({ store: bobStore, team: bob, embedder: null, personalKey: null });
-    const titles = async () => (await bobStore.records.list({ tops: ["team", "top:leads"] })).map((r) => r.title);
-    expect(await titles()).toEqual(["Releases ship on Thursdays"]);
-
-    await call(ada, "/api/members/bob/role", "PUT", { role: "admin" });
-    await syncOnce({ store: bobStore, team: bob, embedder: null, personalKey: null });
-    expect((await titles()).sort()).toEqual(["Leads meet on Mondays", "Releases ship on Thursdays"]);
-  });
-
   it("drops a change the team store refuses, says why, and sends the others", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await laptop.tops.put({ id: "top:gone", name: "gone", kind: "custom", repoId: null, root: null });
+    await laptop.tops.put({ id: "top:gone", name: "gone", kind: "team", repoId: null, root: null });
     await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
     await remember(adaDeps, PERSON, null, { kind: "fact", title: "Nowhere", top: "top:gone" });
     await remember(adaDeps, PERSON, null, { kind: "fact", title: "Somewhere", top: "team" });
