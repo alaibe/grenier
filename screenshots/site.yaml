@@ -12,11 +12,14 @@
   path: /demo#team
   scale: 1.25
 - name: routines
-  path: /demo#routines
+  path: /demo#routines/7b1d4e2a9c3f5a8e0d6b2c4f
   scale: 1.25
 - name: skills
-  path: /demo#skills/me%3Achangelog
+  path: /demo#skills/me%3Aclaude%3Achangelog
   scale: 1.25
 - name: machine
   path: /demo#settings/machine
+  scale: 1.25
+- name: instructions
+  path: /demo#instructions/project%2Fcheckout%2FCLAUDE.md
   scale: 1.25

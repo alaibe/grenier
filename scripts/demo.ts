@@ -71,6 +71,8 @@ const files: Record<string, string> = {
     "export async function retry(payment: Payment) {\n  await queue.push({ id: payment.id, attempt: payment.attempt + 1 });\n}\n",
   "src/money.ts": "export const cents = (amount: number) => Math.round(amount * 100);\n",
   "README.md": "# checkout\n",
+  "CLAUDE.md":
+    "# checkout\n\nThe conventions shared across projects are in Grenier: get Team/Conventions.\n\n- Payments: every retry goes through the queue in `src/payments`, never inline.\n- Amounts are integer cents (`src/money.ts`).\n- Run `pnpm test` before you finish.\n",
 };
 git("init", "-q", "-b", "main");
 for (const [path, text] of Object.entries(files)) {
@@ -240,6 +242,7 @@ await record({
   body: "Sentry's issues and events, read-only for agents.",
 });
 const update = await record({
+  id: "7b1d4e2a9c3f5a8e0d6b2c4f",
   type: "Routine",
   title: "Update dependencies",
   author: "anthony",
@@ -389,7 +392,7 @@ writeFileSync(paths.adminToken, `${adminToken}\n`, { mode: 0o600 });
 writeFileSync(paths.teamToken, `${SETUP_TOKEN}\n`, { mode: 0o600 });
 writeFileSync(
   paths.config,
-  `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n\n[team]\nurl = "${teamUrl}"\n\n[machine]\nname = "marie-mbp"\nroutines = true\nidle_minutes = 0\nhours = "0-24"\n`,
+  `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n\n[team]\nurl = "${teamUrl}"\n\n[machine]\nname = "marie-mbp"\nworkdir = "${dir}"\nroutines = true\nidle_minutes = 0\nhours = "0-24"\n`,
 );
 const environment = { ...process.env, GRENIER_HOME: home, HOME: userHome };
 const daemon = spawn(process.execPath, [join(ROOT, "apps/cli/dist/grenier.js"), "daemon"], {
