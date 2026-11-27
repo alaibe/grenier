@@ -13,6 +13,7 @@ import {
   type TeamApp,
   type TeamData,
 } from "./data.ts";
+import { viewOf } from "./markdown.ts";
 import { schedule } from "./work.ts";
 
 /** What a change may set: the parts it carries, and the seal of a `me` record. */
@@ -252,6 +253,13 @@ export function recordRoutes(app: TeamApp, team: TeamData): void {
       next: last ?? Math.max(after, 0),
       version: team.version(),
     });
+  });
+
+  // The web view draws a page from this, never from its Markdown as HTML.
+  app.get("/api/records/:id/view", (c) => {
+    const record = getRecord(team, c.req.param("id"));
+    if (!record || !team.topsOf(c.get("member")).includes(record.top)) return problem(404, "no such record");
+    return c.json({ view: viewOf(record.body) });
   });
 
   app.get("/api/records/:id/history", (c) => {

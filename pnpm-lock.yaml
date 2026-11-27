@@ -175,6 +175,9 @@ importers:
       '@grenier/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@lezer/markdown':
+        specifier: 1.8.1
+        version: 1.8.1
       hono:
         specifier: 4.13.17
         version: 4.13.17

@@ -141,60 +141,14 @@ const table = (label, heads, rows, foot) => el("table", { class: "table", "aria-
   foot ? el("tfoot", {}, foot) : null);
 const td = (content, look) => el("td", { class: look }, content);
 
-/* Markdown as nodes, never as HTML: a link opens only for http or https. */
-const LIST = new RegExp("^\\\\s*([-*]|\\\\d+\\\\.)\\\\s+");
-const INLINE = new RegExp("\`([^\`]+)\`|\\\\*\\\\*([^*]+)\\\\*\\\\*|\\\\*([^*]+)\\\\*|\\\\[([^\\\\]]+)\\\\]\\\\(([^)\\\\s]+)\\\\)", "g");
-function inline(text) {
-  const out = [];
-  let last = 0;
-  for (const match of text.matchAll(INLINE)) {
-    if (match.index > last) out.push(text.slice(last, match.index));
-    const [, code, bold, italic, label, href] = match;
-    if (code !== undefined) out.push(el("code", { text: code }));
-    else if (bold !== undefined) out.push(el("strong", {}, ...inline(bold)));
-    else if (italic !== undefined) out.push(el("em", {}, ...inline(italic)));
-    else if (href.startsWith("https://") || href.startsWith("http://")) out.push(el("a", { href: href, target: "_blank", rel: "noreferrer", text: label }));
-    else out.push(label);
-    last = match.index + match[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
-function markdown(text) {
-  const lines = String(text || "").split("\\n");
-  const out = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.trim() === "") { i++; continue; }
-    if (line.startsWith("\`\`\`")) {
-      const code = [];
-      i++;
-      while (i < lines.length && !lines[i].startsWith("\`\`\`")) code.push(lines[i++]);
-      i++;
-      out.push(el("pre", { text: code.join("\\n") }));
-      continue;
-    }
-    const level = line.startsWith("### ") ? 3 : line.startsWith("## ") ? 2 : line.startsWith("# ") ? 1 : 0;
-    if (level) { out.push(el("h" + (level + 1), {}, ...inline(line.slice(level + 1)))); i++; continue; }
-    if (LIST.test(line)) {
-      const ordered = /\\d/.test(line.trim()[0]);
-      const items = [];
-      while (i < lines.length && LIST.test(lines[i])) items.push(el("li", {}, ...inline(lines[i++].replace(LIST, ""))));
-      out.push(el(ordered ? "ol" : "ul", {}, ...items));
-      continue;
-    }
-    if (line.startsWith(">")) {
-      const quote = [];
-      while (i < lines.length && lines[i].startsWith(">")) quote.push(lines[i++].replace(/^>\\s?/, ""));
-      out.push(el("blockquote", {}, ...inline(quote.join(" "))));
-      continue;
-    }
-    const paragraph = [];
-    while (i < lines.length && lines[i].trim() !== "" && !lines[i].startsWith("\`\`\`") && !lines[i].startsWith("#") && !LIST.test(lines[i]) && !lines[i].startsWith(">")) paragraph.push(lines[i++]);
-    out.push(el("p", {}, ...inline(paragraph.join(" "))));
-  }
-  return el("div", { class: "reading" }, ...out);
+/* A page as the store parsed it: only these tags and text, never HTML; a link opens only for http or https. */
+const DRAWN = new Set(["p", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre", "code", "em", "strong", "del", "a", "table", "tr", "th", "td", "hr"]);
+function drawn(node) {
+  if (typeof node === "string") return node;
+  const children = node.children.map(drawn);
+  if (!DRAWN.has(node.tag)) return el("span", {}, ...children);
+  if (node.tag !== "a") return el(node.tag, {}, ...children);
+  return /^https?:\\/\\//.test(node.href || "") ? el("a", { href: node.href, target: "_blank", rel: "noreferrer" }, ...children) : el("span", {}, ...children);
 }
 
 let token = localStorage.getItem("grenier-token");
@@ -312,12 +266,15 @@ async function openRecord(record) {
   hints = [[["J", "K"], "move"], [["Esc"], "close"], [["/"], "search"]];
   bar("Signed in as " + me.name);
   let past = [];
-  try { past = (await api("/api/records/" + record.id + "/history")).history; } catch (error) { return show(problem(error.message)); }
+  let view = [];
+  try {
+    [{ history: past }, { view }] = await Promise.all([api("/api/records/" + record.id + "/history"), api("/api/records/" + record.id + "/view")]);
+  } catch (error) { return show(problem(error.message)); }
   const fields = Object.entries(record.fields || {}).filter(([, value]) => value !== "" && value !== null);
   show(el("article", { class: "record page" },
     el("header", {}, el("h1", { class: "page-title", text: record.title }),
       el("p", { class: "meta" }, record.type + " · " + record.top + " · by " + record.author + " · changed ", time(record.updatedAt))),
-    record.body ? markdown(record.body) : el("p", { class: "meta", text: "Nothing written." }),
+    view.length ? el("div", { class: "reading" }, ...view.map(drawn)) : el("p", { class: "meta", text: "Nothing written." }),
     fields.length ? el("section", { class: "section" }, el("header", { class: "section-header" }, el("h2", { class: "label", text: "Fields" })),
       ...fields.map(([key, value]) => el("div", { class: "section-row" }, el("span", { class: "label", text: key }), el("span", { text: typeof value === "string" ? value : JSON.stringify(value) })))) : null,
     record.links.length ? el("section", { class: "section" }, el("header", { class: "section-header" }, el("h2", { class: "label", text: "Links" })),
