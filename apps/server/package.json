@@ -10,8 +10,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261109.1",
-    "esbuild": "0.28.2",
-    "wrangler": "4.159.0"
+    "esbuild": "0.28.2"
   },
   "dependencies": {
     "@grenier/core": "workspace:*",
