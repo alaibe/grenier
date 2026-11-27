@@ -131,6 +131,28 @@ describe("creating the team store from the app", () => {
     expect(await store.state.get("team_role")).toBe("none");
   });
 
+  it("says what the new store refused when it sets up, at once, rather than waiting for it", async () => {
+    const cloudflare = fakeCloudflare();
+    let asked = 0;
+    const deps = {
+      paths: resolvePaths({ GRENIER_HOME: join(dir, ".grenier") }),
+      config: defaultConfig(),
+      store,
+      serverDir: join(dir, "server"),
+      inTeam: false,
+      sleep: async () => {},
+      fetch: (async (input: string | URL, init?: RequestInit) => {
+        if (!String(input).endsWith("/api/setup")) return cloudflare.fetchImpl(input, init);
+        asked++;
+        return Response.json({ error: "a name takes letters, digits and . _ -" }, { status: 400 });
+      }) as typeof fetch,
+    };
+    await expect(deployTeamStore(deps, { token: TOKEN, name: "grenier-team", member: "ada" })).rejects.toThrow(
+      "it refused to set up: a name takes letters, digits and . _ -",
+    );
+    expect(asked).toBe(1);
+  });
+
   it("says what Cloudflare refused, never the token", async () => {
     const cloudflare = fakeCloudflare();
     const deps = {

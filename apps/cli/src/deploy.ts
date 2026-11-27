@@ -145,6 +145,10 @@ export async function deployTeamStore(
       break;
     } catch (error) {
       if (error instanceof TeamError && error.status === 409) return { url, team: null };
+      // A refusal is the store answering: only silence or its own errors are worth waiting out.
+      if (error instanceof TeamError && error.status < 500) {
+        throw new Refusal(`deployed at ${url}, but it refused to set up: ${error.detail}`);
+      }
       if (attempt >= 15) throw new Refusal(`deployed at ${url}, but it does not answer yet: try again in a minute`);
       await sleep(2000);
     }
