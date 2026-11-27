@@ -1,7 +1,8 @@
 import { nextDue, taskFor } from "@grenier/core/routines";
+import { z } from "zod";
 import {
+  bodyAs,
   type Device,
-  jsonBody,
   problem,
   type Row,
   randomId,
@@ -17,6 +18,18 @@ const LEASE = 5 * 60 * 1000;
 const DECLINE_LIFE = 30 * 60 * 1000;
 
 /** How machines take the tasks of scheduled routines and report their runs. */
+/** A run as its machine reports it. */
+const Run = z.object({
+  id: z.string("a run needs id and routineId"),
+  routineId: z.string("a run needs id and routineId"),
+  taskId: z.string().optional(),
+  status: z.string().default("running"),
+  startedAt: z.number().optional(),
+  endedAt: z.number().optional(),
+  actions: z.number().default(0),
+  cost: z.number().default(0),
+});
+
 export function workRoutes(app: TeamApp, team: TeamData): void {
   app.post("/api/work/claim", (c) =>
     c.json({ offer: team.storage.transactionSync(() => offer(team, c.get("device"))) }),
@@ -44,13 +57,12 @@ export function workRoutes(app: TeamApp, team: TeamData): void {
   });
 
   app.post("/api/runs", async (c) => {
-    const run = await jsonBody(c);
-    if (typeof run.id !== "string" || typeof run.routineId !== "string")
-      return problem(400, "a run needs id and routineId");
+    const run = await bodyAs(c, Run);
+    if (run instanceof Response) return run;
     const device = c.get("device").id;
     const known = team.one("SELECT device_id, task_id FROM runs WHERE id = ?", run.id);
     if (known && known.device_id !== device) return problem(403, "this run is another machine's");
-    const taskId = known ? (known.task_id as string | null) : typeof run.taskId === "string" ? run.taskId : null;
+    const taskId = known ? (known.task_id as string | null) : (run.taskId ?? null);
     const holds = (task: string) =>
       team.one(
         "SELECT 1 AS held FROM claims WHERE task_id = ? AND device_id = ? AND leased_until >= ?",
@@ -60,7 +72,7 @@ export function workRoutes(app: TeamApp, team: TeamData): void {
       ) !== undefined;
     // A task's run lets a member write that task's run fields, so only the machine holding the task starts one.
     if (!known && taskId !== null && !holds(taskId)) return problem(409, "this machine does not hold the task");
-    const status = String(run.status ?? "running");
+    const { status } = run;
     team.sql(
       `INSERT INTO runs (id, routine_id, task_id, device_id, status, started_at, ended_at, actions, cost)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -71,10 +83,10 @@ export function workRoutes(app: TeamApp, team: TeamData): void {
       taskId,
       device,
       status,
-      Number(run.startedAt ?? Date.now()),
-      typeof run.endedAt === "number" ? run.endedAt : null,
-      Number(run.actions ?? 0),
-      Number(run.cost ?? 0),
+      run.startedAt ?? Date.now(),
+      run.endedAt ?? null,
+      run.actions,
+      run.cost,
     );
     if (taskId !== null && status !== "running") {
       team.sql("DELETE FROM claims WHERE task_id = ? AND device_id = ?", taskId, device);

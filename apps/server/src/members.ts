@@ -2,7 +2,8 @@ import { bearer, DEVICE_NAME, MEMBER_NAME } from "@grenier/core";
 import { sha256 } from "@grenier/core/policy";
 import { joinCode } from "@grenier/core/records";
 import { meTop, TEAM_PROTOCOL } from "@grenier/core/team";
-import { adminOnly, jsonBody, liveState, problem, type Row, randomId, type TeamApp, type TeamData } from "./data.ts";
+import { z } from "zod";
+import { adminOnly, bodyAs, liveState, problem, type Row, randomId, type TeamApp, type TeamData } from "./data.ts";
 
 const INVITE_LIFE = 24 * 60 * 60 * 1000;
 const CONFIRM_WINDOW = 10 * 60 * 1000;
@@ -31,6 +32,29 @@ const admins = (team: TeamData) =>
   Number(team.one("SELECT count(*) AS n FROM members WHERE role = 'admin' AND removed_at IS NULL")?.n ?? 0);
 
 /** The routes a machine calls before it has a token: the first admin's setup, joining, and a browser's sign-in. */
+const MEMBER_RULE = "a name takes letters, digits and . _ @ -";
+const DEVICE_RULE = "a name takes letters, digits and . _ -";
+const FirstAdmin = z.object({
+  member: z
+    .string("member takes letters, digits and . _ @ -, device letters, digits and . _ -")
+    .regex(MEMBER_NAME, "member takes letters, digits and . _ @ -, device letters, digits and . _ -"),
+  device: z
+    .string("member takes letters, digits and . _ @ -, device letters, digits and . _ -")
+    .regex(DEVICE_NAME, "member takes letters, digits and . _ @ -, device letters, digits and . _ -"),
+});
+const Join = z.object({
+  invite: z.string().default(""),
+  secret: z.string().optional(),
+  device: z.string().default(""),
+  tokenHash: z.string().default(""),
+  nonce: z.string().default(""),
+});
+const Code = z.object({ code: z.coerce.string().default("") });
+const Invite = z.object({
+  name: z.string(MEMBER_RULE).regex(MEMBER_NAME, MEMBER_RULE),
+  role: z.enum(["admin", "member"]).catch("member"),
+});
+
 export function entryRoutes(app: TeamApp, team: TeamData, setupHash: string | undefined): void {
   // Setting up the first admin, with the token the deploy made: once, while the team has no member.
   app.post("/api/setup", async (c) => {
@@ -39,21 +63,19 @@ export function entryRoutes(app: TeamApp, team: TeamData, setupHash: string | un
       return problem(401, "setting up needs the token the deploy made");
     }
     if (team.one("SELECT id FROM members LIMIT 1")) return problem(409, "this team is set up already");
-    const body = await jsonBody(c);
-    const name = String(body.member ?? "");
-    const deviceName = String(body.device ?? "");
-    if (!MEMBER_NAME.test(name) || !DEVICE_NAME.test(deviceName)) {
-      return problem(400, "member takes letters, digits and . _ @ -, device letters, digits and . _ -");
-    }
+    const body = await bodyAs(c, FirstAdmin);
+    if (body instanceof Response) return body;
+    const { member: name, device: deviceName } = body;
     addDevice(team, addMember(team, name, "admin"), deviceName, await sha256(token));
     return c.json({ member: name, role: "admin" }, 201);
   });
 
   // Joining: the device sends the hash of the token it made; it works once an admin confirms the code.
   app.post("/api/join", async (c) => {
-    const body = await jsonBody(c);
-    const invite = team.one("SELECT * FROM invites WHERE id = ?", String(body.invite ?? ""));
-    const secretHash = typeof body.secret === "string" ? await sha256(body.secret) : "";
+    const body = await bodyAs(c, Join);
+    if (body instanceof Response) return body;
+    const invite = team.one("SELECT * FROM invites WHERE id = ?", body.invite);
+    const secretHash = body.secret === undefined ? "" : await sha256(body.secret);
     if (
       !invite ||
       invite.secret_hash !== secretHash ||
@@ -62,9 +84,7 @@ export function entryRoutes(app: TeamApp, team: TeamData, setupHash: string | un
     ) {
       return problem(404, "this invite link is not valid: it was used, it expired, or it was made for another team");
     }
-    const device = String(body.device ?? "");
-    const tokenHash = String(body.tokenHash ?? "");
-    const nonce = String(body.nonce ?? "");
+    const { device, tokenHash, nonce } = body;
     if (!DEVICE_NAME.test(device) || !/^[0-9a-f]{64}$/.test(tokenHash) || !/^[0-9a-f]{16,64}$/.test(nonce)) {
       return problem(400, "device takes letters, digits and . _ -; tokenHash and nonce are hex");
     }
@@ -81,10 +101,11 @@ export function entryRoutes(app: TeamApp, team: TeamData, setupHash: string | un
 
   // Signing in a browser: a one-time code a device made becomes a token for a device named web.
   app.post("/web/login", async (c) => {
-    const { code } = await jsonBody<{ code?: unknown }>(c);
+    const body = await bodyAs(c, Code);
+    if (body instanceof Response) return body;
     const link = team.one(
       "SELECT * FROM weblinks WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?",
-      await sha256(String(code ?? "")),
+      await sha256(body.code),
       Date.now(),
     );
     if (!link) return problem(404, "this sign-in link was used or expired: make another on the app's Team screen");
@@ -120,18 +141,17 @@ export function memberRoutes(app: TeamApp, team: TeamData): void {
   );
 
   app.put("/api/me/device", async (c) => {
-    const { name } = await jsonBody<{ name?: unknown }>(c);
-    if (typeof name !== "string" || !DEVICE_NAME.test(name))
-      return problem(400, "a name takes letters, digits and . _ -");
+    const body = await bodyAs(c, z.object({ name: z.string().regex(DEVICE_NAME, DEVICE_RULE) }));
+    if (body instanceof Response) return body;
+    const { name } = body;
     team.sql("UPDATE devices SET name = ? WHERE id = ?", name, c.get("device").id);
     return c.json({ name });
   });
 
   app.post("/api/invites", adminOnly, async (c) => {
-    const body = await jsonBody(c);
-    const name = String(body.name ?? "");
-    const role = body.role === "admin" ? "admin" : "member";
-    if (!MEMBER_NAME.test(name)) return problem(400, "a name takes letters, digits and . _ @ -");
+    const body = await bodyAs(c, Invite);
+    if (body instanceof Response) return body;
+    const { name, role } = body;
     const existing = memberNamed(team, name);
     const id = randomId(8);
     const secret = randomId(16);
@@ -172,13 +192,14 @@ export function memberRoutes(app: TeamApp, team: TeamData): void {
   });
 
   app.post("/api/invites/confirm", adminOnly, async (c) => {
-    const { code } = await jsonBody<{ code?: unknown }>(c);
+    const body = await bodyAs(c, Code);
+    if (body instanceof Response) return body;
     for (const row of team.sql(
       "SELECT * FROM invites WHERE used_at IS NULL AND expires_at > ? AND nonce IS NOT NULL AND asked_at > ?",
       Date.now(),
       Date.now() - CONFIRM_WINDOW,
     )) {
-      if ((await joinCode(row.secret_hash as string, row.nonce as string)) !== String(code ?? "")) continue;
+      if ((await joinCode(row.secret_hash as string, row.nonce as string)) !== body.code) continue;
       const name = row.member_name as string;
       const memberId = (memberNamed(team, name)?.id as string | undefined) ?? addMember(team, name, row.role as string);
       addDevice(team, memberId, row.device_name as string, row.device_hash as string);
@@ -211,8 +232,9 @@ export function memberRoutes(app: TeamApp, team: TeamData): void {
   });
 
   app.put("/api/members/:name/role", adminOnly, async (c) => {
-    const { role } = await jsonBody<{ role?: unknown }>(c);
-    if (role !== "admin" && role !== "member") return problem(400, "role takes admin or member");
+    const body = await bodyAs(c, z.object({ role: z.enum(["admin", "member"], "role takes admin or member") }));
+    if (body instanceof Response) return body;
+    const { role } = body;
     const member = memberNamed(team, c.req.param("name"));
     if (!member) return problem(404, `no member named ${c.req.param("name")}`);
     if (role === "member" && member.role === "admin" && admins(team) <= 1) {

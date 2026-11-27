@@ -1,4 +1,5 @@
-import { jsonBody, liveState, type TeamApp, type TeamData } from "./data.ts";
+import { z } from "zod";
+import { bodyAs, liveState, type TeamApp, type TeamData } from "./data.ts";
 
 export interface MachineState {
   state: "available" | "busy" | "away" | "offline";
@@ -6,17 +7,22 @@ export interface MachineState {
   agents: string[];
 }
 
-interface UsageRow {
-  day: string;
-  repo: string;
-  requests: number;
-  inputTokens: number;
-  cacheWriteTokens: number;
-  cacheReadTokens: number;
-  outputTokens: number;
-  cost: number;
-  routineMinutes: number;
-}
+/** A machine's usage for a day and repository: a count it can't vouch for reads as 0. */
+const count = z.number().finite().nonnegative().catch(0);
+const UsageRow = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  repo: z
+    .string()
+    .catch("")
+    .transform((repo) => repo.slice(0, 200)),
+  requests: count,
+  inputTokens: count,
+  cacheWriteTokens: count,
+  cacheReadTokens: count,
+  outputTokens: count,
+  cost: count,
+  routineMinutes: count,
+});
 
 const STATES: readonly string[] = ["available", "busy", "away", "offline"];
 
@@ -64,11 +70,14 @@ export function machineRoutes(app: TeamApp, team: TeamData): void {
   );
 
   app.put("/api/usage", async (c) => {
-    const body = await jsonBody<{ rows?: UsageRow[] }>(c);
-    const rows = Array.isArray(body.rows) ? body.rows.slice(0, 2000) : [];
-    const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
-    for (const row of rows) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(row.day))) continue;
+    const body = await bodyAs(c, z.object({ rows: z.array(z.unknown()).default([]) }));
+    if (body instanceof Response) return body;
+    const rows = body.rows.slice(0, 2000);
+    for (const given of rows) {
+      // A row without a day is skipped, not the whole batch.
+      const read = UsageRow.safeParse(given);
+      if (!read.success) continue;
+      const row = read.data;
       team.sql(
         `INSERT INTO usage (device_id, day, repo, requests, input_tokens, cache_write_tokens, cache_read_tokens, output_tokens, cost, routine_minutes)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (device_id, day, repo) DO UPDATE SET requests = excluded.requests,
@@ -76,15 +85,15 @@ export function machineRoutes(app: TeamApp, team: TeamData): void {
          cache_read_tokens = excluded.cache_read_tokens, output_tokens = excluded.output_tokens, cost = excluded.cost,
          routine_minutes = excluded.routine_minutes`,
         c.get("device").id,
-        String(row.day),
-        String(row.repo ?? "").slice(0, 200),
-        count(row.requests),
-        count(row.inputTokens),
-        count(row.cacheWriteTokens),
-        count(row.cacheReadTokens),
-        count(row.outputTokens),
-        count(row.cost),
-        count(row.routineMinutes),
+        row.day,
+        row.repo,
+        row.requests,
+        row.inputTokens,
+        row.cacheWriteTokens,
+        row.cacheReadTokens,
+        row.outputTokens,
+        row.cost,
+        row.routineMinutes,
       );
     }
     return c.json({ kept: rows.length });

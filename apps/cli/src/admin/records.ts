@@ -14,10 +14,11 @@ import {
 } from "@grenier/index";
 import { type FullRecord, type RecordInput, toInput } from "@grenier/store";
 import { Hono } from "hono";
+import { z } from "zod";
 import { decide } from "../librarian.ts";
 import { personalKey } from "../runtime.ts";
 import type { AdminDeps } from "./admin.ts";
-import { bodyOf } from "./request.ts";
+import { bodyAs } from "./request.ts";
 
 /** Records Skills, Routines and Settings manage, which Knowledge's tree leaves out. */
 const MANAGED_ELSEWHERE = new Set(["Skill", "McpServer", "Routine", "Task"]);
@@ -41,6 +42,30 @@ async function shown(deps: StoreDeps, record: FullRecord, tops: readonly string[
     linkedFrom: backlinks.map((other) => ({ id: other.id, title: other.title, type: other.type })),
   };
 }
+
+const TopId = z.enum(TOPS);
+const Links = z.array(z.object({ kind: z.enum(["record", "repo"]), ref: z.string() }));
+const Fields = z.record(z.string(), z.unknown());
+const NewPage = z.object({
+  top: TopId.default("team"),
+  type: z.string().default("Doc"),
+  title: z.string().trim().default(""),
+  folder: z.string().default(""),
+  body: z.string().default(""),
+  fields: Fields.default({}),
+  links: Links.default([]),
+});
+const PageEdit = z.object({
+  top: TopId.optional(),
+  title: z.string().trim().optional(),
+  folder: z.string().optional(),
+  body: z.string().optional(),
+  fields: Fields.optional(),
+  links: Links.optional(),
+  baseVersion: z.number().int().optional(),
+});
+const FolderMove = z.object({ top: TopId, from: z.string().min(1), to: z.string().min(1), toTop: TopId.optional() });
+const Decision = z.object({ accept: z.boolean().default(false) });
 
 /** The editor's records: the tree, search, a record with its links, history and anchors' changes, and every write. */
 /** As many records as a list may hold: every one this machine has. */
@@ -98,19 +123,11 @@ export function recordRoutes(deps: AdminDeps): Hono {
 
   /** Moves a folder and every page under it: `to` is the folder's new path, in `toTop` or its own top folder. */
   app.post("/folders/move", async (c) => {
-    const body = await bodyOf(c);
-    const top = String(body.top ?? "");
-    const from = String(body.from ?? "");
-    const to = String(body.to ?? "");
-    const toTop = typeof body.toTop === "string" ? body.toTop : top;
-    if (from === "" || to === "") return c.json({ error: "a move names the folder and where it goes" }, 400);
+    const { top, from, to, toTop = top } = await bodyAs(c, FolderMove);
     const why = folderProblem(to);
     if (why) return c.json({ error: why }, 400);
     if (toTop === top && (to === from || to.startsWith(`${from}/`))) {
       return c.json({ error: "a folder cannot move into itself" }, 400);
-    }
-    if (!(TOPS as readonly string[]).includes(toTop)) {
-      return c.json({ error: `there is no top folder ${toTop}` }, 400);
     }
     const inside = (await store.records.list({ tops: [top], limit: ALL })).filter(
       (record) => record.folder === from || record.folder.startsWith(`${from}/`),
@@ -179,18 +196,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
 
   app.post("/records", async (c) => {
     const storeDeps = await deps.storeDeps();
-    const body = (await bodyOf(c)) as Partial<RecordInput>;
-    const top = typeof body.top === "string" ? body.top : "team";
-    if (!(TOPS as readonly string[]).includes(top)) return c.json({ error: `there is no top folder ${top}` }, 400);
-    const record = newRecord(storeDeps.me, {
-      top,
-      type: typeof body.type === "string" ? body.type : "Doc",
-      title: String(body.title ?? "").trim(),
-      folder: typeof body.folder === "string" ? body.folder : "",
-      body: String(body.body ?? ""),
-      fields: body.fields && typeof body.fields === "object" ? body.fields : {},
-      links: Array.isArray(body.links) ? body.links : [],
-    });
+    const record = newRecord(storeDeps.me, await bodyAs(c, NewPage));
     const result = await save(record, undefined, 0);
     return c.json({ ...result, id: record.id }, 201);
   });
@@ -198,24 +204,20 @@ export function recordRoutes(deps: AdminDeps): Hono {
   app.put("/records/:id", async (c) => {
     const before = await store.records.get(c.req.param("id"));
     if (!before) return c.json({ error: "no such record" }, 404);
-    const body = (await bodyOf(c)) as Partial<RecordInput> & { baseVersion?: number };
+    const { baseVersion = before.version, ...body } = await bodyAs(c, PageEdit);
     const current = toInput(before);
     const record: RecordInput = {
       ...current,
-      ...(typeof body.title === "string" ? { title: body.title.trim() } : {}),
-      ...(typeof body.folder === "string" ? { folder: body.folder } : {}),
-      ...(typeof body.body === "string" ? { body: body.body } : {}),
-      ...(body.fields && typeof body.fields === "object" ? { fields: body.fields } : {}),
-      ...(Array.isArray(body.links) ? { links: body.links } : {}),
-      ...(typeof body.top === "string" ? { top: body.top } : {}),
+      // Only the parts the save names change.
+      ...Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined)),
       updatedAt: Date.now(),
     };
-    const result = await save(record, before, typeof body.baseVersion === "number" ? body.baseVersion : before.version);
+    const result = await save(record, before, baseVersion);
     return "conflict" in result ? c.json(result, 409) : c.json(result);
   });
 
   app.post("/records/:id/decide", async (c) =>
-    (await decide(await deps.storeDeps(), c.req.param("id"), (await bodyOf(c)).accept === true))
+    (await decide(await deps.storeDeps(), c.req.param("id"), (await bodyAs(c, Decision)).accept))
       ? c.json({ decided: c.req.param("id") })
       : c.json({ error: "no such suggestion, or decided already" }, 404),
   );

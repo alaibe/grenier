@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
-    "smol-toml": "1.9.1"
+    "smol-toml": "1.9.1",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@grenier/core": "workspace:*",

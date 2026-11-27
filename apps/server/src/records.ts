@@ -1,11 +1,12 @@
 import { ftsMatch, searchWords } from "@grenier/core";
 import { builtinType, MEMBER_WRITES, memberMay, recordProblem } from "@grenier/core/records";
 import { type ChangesAnswer, meTop, RECORD_PARTS } from "@grenier/core/team";
+import { z } from "zod";
 import {
   type Applied,
+  bodyAs,
   type Change,
   type Device,
-  jsonBody,
   type Member,
   problem,
   type Row,
@@ -221,8 +222,9 @@ export function recordRoutes(app: TeamApp, team: TeamData): void {
   const open = new Map<string, Map<string, { member: string; device: string; at: number }>>();
 
   app.post("/api/changes", async (c) => {
-    const body = await jsonBody<{ changes?: Change[] }>(c);
-    const changes = Array.isArray(body.changes) ? body.changes : [];
+    const body = await bodyAs(c, z.object({ changes: z.array(z.unknown()).default([]) }));
+    if (body instanceof Response) return body;
+    const changes = body.changes as Change[];
     if (changes.length > MAX_BATCH) return problem(400, `send at most ${MAX_BATCH} changes at once`);
     const { applied, refused, conflicts }: ChangesAnswer = { applied: [], refused: [], conflicts: [] };
     for (const change of changes) {

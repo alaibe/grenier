@@ -1,6 +1,7 @@
 import { randomHex } from "@grenier/core";
 import type { Change, StoredRecord } from "@grenier/core/team";
 import type { Hono } from "hono";
+import type { z } from "zod";
 
 export interface Member {
   id: string;
@@ -47,9 +48,14 @@ export type TeamApp = Hono<{ Variables: Vars }>;
 
 export const SEEN = 3 * 60 * 1000;
 
-/** A request's JSON body; an empty object when there is none or it doesn't parse. */
-export const jsonBody = <T extends object = Record<string, unknown>>(c: { req: { json: <U>() => Promise<U> } }) =>
-  c.req.json<T>().catch(() => ({}) as T);
+/** A request's JSON body read by its schema, or the 400 that says what is wrong with it. */
+export async function bodyAs<T>(
+  c: { req: { json: <U>() => Promise<U> } },
+  schema: z.ZodType<T>,
+): Promise<T | Response> {
+  const read = schema.safeParse(await c.req.json<unknown>().catch(() => ({})));
+  return read.success ? read.data : problem(400, read.error.issues[0]?.message ?? "the request is not as expected");
+}
 
 /** A device's state as the team sees it: offline once it has said nothing for a while. */
 export const liveState = (row: Row) =>

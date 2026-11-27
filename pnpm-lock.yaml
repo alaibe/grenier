@@ -74,6 +74,9 @@ importers:
       smol-toml:
         specifier: 1.9.1
         version: 1.9.1
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       '@grenier/core':
         specifier: workspace:*
@@ -181,6 +184,9 @@ importers:
       hono:
         specifier: 4.13.17
         version: 4.13.17
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 5.20261109.1

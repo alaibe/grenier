@@ -2,6 +2,7 @@ import { posix } from "node:path";
 import { secretIn } from "@grenier/core";
 import type { FoundServer, FoundSkill } from "@grenier/core/api";
 import { manifestField } from "@grenier/core/skill-manifest";
+import { z } from "zod";
 import { Refusal } from "./io.ts";
 import { KEY_NAME, templateNames } from "./server-config.ts";
 import { MAX_SKILL_BYTES, MAX_SKILL_FILES, type SkillFiles, skillFromFiles, TOO_BIG } from "./skill-files.ts";
@@ -14,6 +15,49 @@ const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/(?!\.\.?$)[\w.-]{1,100}$/;
 const COMMIT = /^[0-9a-f]{6,64}$/;
 const MAX_RESULTS = 30;
 const MAX_MANIFESTS = 20;
+
+/** What each source answers, as Grenier reads it: anything else in an entry is skipped, never trusted. */
+const SkillHit = z.object({
+  id: z.string(),
+  name: z.string().min(1).max(100),
+  source: z.string().optional(),
+  installs: z.number().optional(),
+});
+const Commit = z.object({ sha: z.string().regex(COMMIT) });
+const Tree = z.object({ tree: z.array(z.object({ path: z.string(), type: z.string(), size: z.number().optional() })) });
+/** A header or variable a server in the MCP Registry asks for: a fixed value, or a key each person enters. */
+const Input = z.object({
+  name: z.string().optional(),
+  value: z.string().optional(),
+  default: z.string().optional(),
+  isRequired: z.boolean().optional(),
+  isSecret: z.boolean().optional(),
+  type: z.string().optional(),
+});
+const Remote = z.object({ type: z.string(), url: z.string(), headers: z.array(Input).default([]) });
+const Package = z.object({
+  registryType: z.string(),
+  identifier: z.string(),
+  version: z.string().optional(),
+  transport: z.object({ type: z.string() }),
+  packageArguments: z.array(Input).default([]),
+  environmentVariables: z.array(Input).default([]),
+});
+const Server = z.object({
+  name: z.string(),
+  version: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  websiteUrl: z.string().optional(),
+  remotes: z.array(z.unknown()).default([]),
+  packages: z.array(z.unknown()).default([]),
+});
+/** The entries of a list, each read on its own: one that doesn't fit is dropped, not the whole answer. */
+const each = <T>(schema: z.ZodType<T>, items: unknown): T[] =>
+  (Array.isArray(items) ? items : []).flatMap((item) => {
+    const read = schema.safeParse(item);
+    return read.success ? [read.data] : [];
+  });
 
 /** A request to the web, whose failure to get there is refused with what fetch said. */
 function reach(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promise<Response> {
@@ -32,12 +76,10 @@ export async function searchSkills(words: string, fetchImpl: typeof fetch = fetc
   if (!response.ok) throw new Refusal(`skills.sh answered ${response.status}`);
   const answer = (await response.json().catch(() => ({}))) as { skills?: unknown };
   const found: FoundSkill[] = [];
-  for (const entry of Array.isArray(answer.skills) ? answer.skills : []) {
-    const { id, name, source, installs } = (entry ?? {}) as Record<string, unknown>;
-    if (typeof id !== "string" || typeof name !== "string" || !name || name.length > 100) continue;
-    const repo = typeof source === "string" && source ? source : id.split("/").slice(0, 2).join("/");
+  for (const { id, name, source, installs } of each(SkillHit, answer.skills)) {
+    const repo = source || id.split("/").slice(0, 2).join("/");
     if (!REPO.test(repo)) continue;
-    found.push({ id, name, source: repo, installs: typeof installs === "number" ? installs : 0 });
+    found.push({ id, name, source: repo, installs: installs ?? 0 });
   }
   return found.slice(0, MAX_RESULTS);
 }
@@ -45,18 +87,17 @@ export async function searchSkills(words: string, fetchImpl: typeof fetch = fetc
 /** The skill named `name` in the GitHub repository `source`, from one commit, within a shared skill's limits. */
 export async function fetchSkill(source: string, name: string, fetchImpl: typeof fetch = fetch): Promise<SkillFiles> {
   if (!REPO.test(source)) throw new Refusal("a skill's source is a GitHub repository, as owner/repo");
-  const github = async <T>(path: string): Promise<T> => {
+  const github = async <T>(path: string, schema: z.ZodType<T>, what: string): Promise<T> => {
     const response = await reach(fetchImpl, `${GITHUB}/${source}${path}`, {
       headers: { accept: "application/vnd.github+json" },
     });
     if (!response.ok) throw new Refusal(`GitHub answered ${response.status} for ${source}`);
-    return (await response.json()) as T;
+    const read = schema.safeParse(await response.json().catch(() => null));
+    if (!read.success) throw new Refusal(`GitHub named no ${what} for ${source}`);
+    return read.data;
   };
-  const { sha } = await github<{ sha: unknown }>("/commits/HEAD");
-  if (typeof sha !== "string" || !COMMIT.test(sha)) throw new Refusal(`GitHub named no commit for ${source}`);
-  const { tree } = await github<{ tree: { path: string; type: string; size?: number }[] }>(
-    `/git/trees/${sha}?recursive=1`,
-  );
+  const { sha } = await github("/commits/HEAD", Commit, "commit");
+  const { tree } = await github(`/git/trees/${sha}?recursive=1`, Tree, "files");
   const raw = async (path: string) => {
     const response = await reach(
       fetchImpl,
@@ -89,26 +130,16 @@ export async function fetchSkill(source: string, name: string, fetchImpl: typeof
 
 const REGISTRY = "https://registry.modelcontextprotocol.io/v0/servers";
 
-/** A header or variable a server in the MCP Registry asks for: a fixed value, or a key each person enters. */
-interface RegistryInput {
-  name?: unknown;
-  value?: unknown;
-  default?: unknown;
-  isRequired?: unknown;
-  isSecret?: unknown;
-  type?: unknown;
-}
-
 const named = (value: unknown): value is string => typeof value === "string" && KEY_NAME.test(value);
 const variable = (name: string) => name.replace(/-/g, "_");
 
 /** A remote entry: its URL and the headers, as templates naming what each person enters. */
-function remoteConfig(remote: Record<string, unknown>): Pick<FoundServer, "config" | "credentials"> | null {
+function remoteConfig(remote: z.infer<typeof Remote>): Pick<FoundServer, "config" | "credentials"> | null {
   const type = remote.type === "sse" ? "sse" : remote.type === "streamable-http" ? "http" : null;
-  if (!type || typeof remote.url !== "string" || !/^https:\/\/[^{}\s]+$/.test(remote.url)) return null;
+  if (!type || !/^https:\/\/[^{}\s]+$/.test(remote.url)) return null;
   const headers: Record<string, string> = {};
   const credentials: string[] = [];
-  for (const header of (Array.isArray(remote.headers) ? remote.headers : []) as RegistryInput[]) {
+  for (const header of remote.headers) {
     if (!named(header.name)) return null;
     const template = typeof header.value === "string" ? header.value : `{${variable(header.name)}}`;
     const names = templateNames(template);
@@ -123,36 +154,31 @@ function remoteConfig(remote: Record<string, unknown>): Pick<FoundServer, "confi
 }
 
 /** A Docker image pinned by its tag or digest, which the Registry puts in the identifier or gives apart as the version. */
-function pinnedImage(identifier: string, version: unknown): string | null {
-  const image = /[:@][^/]+$/.test(identifier)
-    ? identifier
-    : typeof version === "string"
-      ? `${identifier}:${version}`
-      : null;
+function pinnedImage(identifier: string, version: string | undefined): string | null {
+  const image = /[:@][^/]+$/.test(identifier) ? identifier : version ? `${identifier}:${version}` : null;
   if (!image || image.length > 300 || image.endsWith(":latest")) return null;
   return /^[a-z0-9][\w.-]*(:\d+)?(\/[\w.-]+)*(:[\w.+-]{1,128}|@sha256:[0-9a-f]{64})$/.test(image) ? image : null;
 }
 
 /** An npm, PyPI or Docker package run over stdio, pinned to its version; null when it needs what only a person can say. */
-function packageConfig(pkg: Record<string, unknown>): Pick<FoundServer, "config" | "credentials"> | null {
-  const transport = (pkg.transport ?? {}) as { type?: unknown };
-  if (transport.type !== "stdio" || typeof pkg.identifier !== "string") return null;
+function packageConfig(pkg: z.infer<typeof Package>): Pick<FoundServer, "config" | "credentials"> | null {
+  if (pkg.transport.type !== "stdio") return null;
   const image = pkg.registryType === "oci" ? pinnedImage(pkg.identifier, pkg.version) : null;
-  const version = String(pkg.version ?? "");
+  const version = pkg.version ?? "";
   if (!image && (!/^[@\w./-]{1,200}$/.test(pkg.identifier) || !/^[\w.+-]{1,50}$/.test(version))) return null;
   const args: string[] = [];
-  for (const arg of (Array.isArray(pkg.packageArguments) ? pkg.packageArguments : []) as RegistryInput[]) {
-    const value = typeof arg.value === "string" ? arg.value : typeof arg.default === "string" ? arg.default : null;
+  for (const arg of pkg.packageArguments) {
+    const value = arg.value ?? arg.default ?? null;
     if (value === null) {
       if (arg.isRequired === true) return null;
       continue;
     }
-    if (arg.type === "named" && typeof arg.name === "string") args.push(arg.name, value);
+    if (arg.type === "named" && arg.name) args.push(arg.name, value);
     else args.push(value);
   }
   const env: Record<string, string> = {};
   const credentials: string[] = [];
-  for (const entry of (Array.isArray(pkg.environmentVariables) ? pkg.environmentVariables : []) as RegistryInput[]) {
+  for (const entry of pkg.environmentVariables) {
     if (!named(entry.name)) return null;
     if (entry.isSecret === true || (entry.isRequired === true && typeof entry.default !== "string")) {
       credentials.push(entry.name);
@@ -185,11 +211,10 @@ export async function searchServers(words: string, fetchImpl: typeof fetch = fet
   if (!response.ok) throw new Refusal(`the MCP Registry answered ${response.status}`);
   const answer = (await response.json().catch(() => ({}))) as { servers?: unknown };
   const found: FoundServer[] = [];
-  for (const item of Array.isArray(answer.servers) ? answer.servers : []) {
-    const server = ((item ?? {}) as { server?: Record<string, unknown> }).server ?? {};
-    if (!named(String(server.name ?? "").replace(/[./]/g, "-")) || typeof server.version !== "string") continue;
-    const remotes = (Array.isArray(server.remotes) ? server.remotes : []) as Record<string, unknown>[];
-    const packages = (Array.isArray(server.packages) ? server.packages : []) as Record<string, unknown>[];
+  for (const { server } of each(z.object({ server: Server }), answer.servers)) {
+    if (!named(server.name.replace(/[./]/g, "-"))) continue;
+    const remotes = each(Remote, server.remotes);
+    const packages = each(Package, server.packages);
     // Docker comes last: a person is likelier to have Node or uv than Docker running.
     const ordered = [
       ...packages.filter((pkg) => pkg.registryType !== "oci"),
@@ -199,12 +224,12 @@ export async function searchServers(words: string, fetchImpl: typeof fetch = fet
     if (!shape) continue;
     if (secretIn(JSON.stringify(shape.config))) continue;
     found.push({
-      name: String(server.name),
-      title: typeof server.title === "string" ? server.title : (String(server.name).split("/").at(-1) ?? ""),
-      description: typeof server.description === "string" ? server.description.slice(0, 300) : "",
+      name: server.name,
+      title: server.title ?? server.name.split("/").at(-1) ?? "",
+      description: (server.description ?? "").slice(0, 300),
       version: server.version,
       ...shape,
-      website: typeof server.websiteUrl === "string" ? server.websiteUrl : null,
+      website: server.websiteUrl ?? null,
     });
   }
   return found.slice(0, MAX_RESULTS);
