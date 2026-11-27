@@ -15,7 +15,6 @@ import {
 import { type FullRecord, type RecordInput, toInput } from "@grenier/store";
 import { Hono } from "hono";
 import { z } from "zod";
-import { decide } from "../librarian.ts";
 import { personalKey } from "../runtime.ts";
 import type { AdminDeps } from "./admin.ts";
 import { bodyAs } from "./request.ts";
@@ -65,7 +64,6 @@ const PageEdit = z.object({
   baseVersion: z.number().int().optional(),
 });
 const FolderMove = z.object({ top: TopId, from: z.string().min(1), to: z.string().min(1), toTop: TopId.optional() });
-const Decision = z.object({ accept: z.boolean().default(false) });
 
 /** The editor's records: the tree, search, a record with its links, history and anchors' changes, and every write. */
 /** As many records as a list may hold: every one this machine has. */
@@ -215,12 +213,6 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const result = await save(record, before, baseVersion);
     return "conflict" in result ? c.json(result, 409) : c.json(result);
   });
-
-  app.post("/records/:id/decide", async (c) =>
-    (await decide(await deps.storeDeps(), c.req.param("id"), (await bodyAs(c, Decision)).accept))
-      ? c.json({ decided: c.req.param("id") })
-      : c.json({ error: "no such suggestion, or decided already" }, 404),
-  );
 
   app.delete("/records/:id", async (c) =>
     (await retire(await deps.storeDeps(), c.req.param("id")))

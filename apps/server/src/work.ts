@@ -1,4 +1,4 @@
-import { nextDue, taskFor } from "@grenier/core/routines";
+import { isRunning, nextDue, taskFor } from "@grenier/core/routines";
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, min, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -175,20 +175,8 @@ function offer(team: TeamData, device: Device): { task: StoredRecord; routine: S
   };
   for (const task of tasks) {
     const routine = team.get(String(task.fields.routine));
-    if (!routine || routine.retiredAt !== null) continue;
-    // A collector gathers what its person's agent can reach: it runs on that person's machines only.
-    const person = typeof routine.fields.owner === "string" ? routine.fields.owner : routine.author;
-    const owner =
-      routine.fields.collector === "yes"
-        ? (db
-            .select({ id: members.id })
-            .from(members)
-            .where(and(eq(members.name, person), isNull(members.removedAt)))
-            .get()?.id ?? null)
-        : undefined;
-    if (owner === null || (owner !== undefined && owner !== device.memberId)) continue;
+    if (!routine || routine.retiredAt !== null || !isRunning(routine)) continue;
     const can = (candidate: { memberId: string; agents: string[] }) => {
-      if (owner !== undefined && candidate.memberId !== owner) return false;
       if (!reads(candidate.memberId, task.top) || !reads(candidate.memberId, routine.top)) return false;
       const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : "claude";
       return candidate.agents.includes(agent);
@@ -214,7 +202,7 @@ function offer(team: TeamData, device: Device): { task: StoredRecord; routine: S
   return null;
 }
 
-/** Each scheduled routine's next run, and the alarm set for the soonest. */
+/** Each running routine's next scheduled run, and the alarm set for the soonest: a paused one has none. */
 export async function schedule(team: TeamData): Promise<void> {
   const { db } = team;
   const now = Date.now();
@@ -223,7 +211,13 @@ export async function schedule(team: TeamData): Promise<void> {
     .select()
     .from(records)
     .where(
-      and(eq(records.type, "Routine"), isNull(records.retiredAt), isNull(records.sealed), ne(field("schedule"), "")),
+      and(
+        eq(records.type, "Routine"),
+        isNull(records.retiredAt),
+        isNull(records.sealed),
+        eq(field("state"), "running"),
+        ne(field("schedule"), ""),
+      ),
     )
     .all();
   for (const routine of routines) {
@@ -256,7 +250,7 @@ export async function fileDue(team: TeamData): Promise<void> {
   const now = Date.now();
   for (const row of db.select().from(schedules).where(lte(schedules.nextAt, now)).all()) {
     const routine = team.get(row.routineId);
-    if (routine && routine.retiredAt === null) {
+    if (routine && routine.retiredAt === null && isRunning(routine)) {
       const waiting = db
         .select({ id: records.id })
         .from(records)

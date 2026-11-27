@@ -3,13 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Config, defaultConfig } from "@grenier/core";
 import { type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
-import { loadPrices } from "@grenier/log";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Probes } from "../../../apps/cli/src/machine.ts";
-import { addRoutine, approve } from "../../../apps/cli/src/routines.ts";
+import { addRoutine, setRunning } from "../../../apps/cli/src/routines.ts";
 import { Runner, type Spawner } from "../../../apps/cli/src/runner.ts";
 import { storeDeps, TestRepo } from "../../support/repo.ts";
 import { SETUP_TOKEN, startWorker } from "../../support/worker.ts";
@@ -27,7 +26,6 @@ let calls: {
   signal: AbortSignal | undefined;
 }[];
 let answer: (runner: Runner, args: string[]) => Promise<{ code: number; text: string }>;
-let notices: string[];
 let logs: string[];
 
 const idle: Probes = {
@@ -49,7 +47,6 @@ function newRunner(): Runner {
     port: 7788,
     team: () => team,
     storeDeps: async () => deps,
-    prices: loadPrices(),
     tell: async (state) => {
       await teamApi(team, "/api/machines/me", { method: "PUT", body: state });
     },
@@ -57,7 +54,6 @@ function newRunner(): Runner {
       await syncOnce({ store, team, embedder: null, personalKey: null });
     },
     log: (line) => logs.push(line),
-    notify: (title, message) => notices.push(`${title}: ${message}`),
     probes: idle,
     spawner: (async (command, args, options) => {
       calls.push({
@@ -113,7 +109,6 @@ beforeEach(async () => {
   await store.state.set("team_me_top", "me:ada");
   deps = await storeDeps(store);
   calls = [];
-  notices = [];
   logs = [];
   answer = async () => ({ code: 0, text: JSON.stringify({ result: "Bumped hono to 4.12." }) });
 }, 60_000);
@@ -124,22 +119,33 @@ afterEach(async () => {
 });
 
 describe("a machine that takes the team's routine runs", () => {
-  it("declines a request for a routine its person has not approved, and tells them", async () => {
+  it("never runs outside a team: no routine exists there", async () => {
+    const runner = newRunner();
+    const told: unknown[] = [];
+    const lone = new Runner({ ...runner.deps, team: () => null, tell: async (state) => void told.push(state) });
+    await lone.tick(true);
+    expect(told).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it("takes nothing of a paused routine, and its task once an admin resumes it", async () => {
     const routine = await addRoutine(deps, {
       title: "Update dependencies",
       prompt: "Update the dependencies.",
-      fields: {},
-      top: "team",
+      fields: { mode: "read-only" },
     });
+    await setRunning(deps, (await store.records.get(routine.id)) as FullRecord, false);
     await task("Bump hono", routine.id);
-    await newRunner().tick(true);
+    const runner = newRunner();
+    await runner.tick(true);
     expect(calls).toEqual([]);
-    expect(notices[0]).toContain("Update dependencies");
-    const offer = await teamApi<{ offer: unknown }>(team, "/api/work/claim", { body: {} });
-    expect(offer.offer).toBeNull();
+    await setRunning(deps, (await store.records.get(routine.id)) as FullRecord, true);
+    await syncOnce({ store, team, embedder: null, personalKey: null });
+    await runner.claim();
+    expect(calls).toHaveLength(1);
   });
 
-  it("runs an approved routine read-only in the work folder, and attaches the result to the task", async () => {
+  it("runs a routine read-only, as its admin set it, in the work folder, and attaches the result to the task", async () => {
     const repo = new TestRepo({ "router.ts": "export function route() {}\n" });
     try {
       await repo.ready();
@@ -147,10 +153,8 @@ describe("a machine that takes the team's routine runs", () => {
       const routine = await addRoutine(deps, {
         title: "Update dependencies",
         prompt: "Update the dependencies.",
-        fields: {},
-        top: "team",
+        fields: { mode: "read-only" },
       });
-      await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
       const id = await task("Bump hono", routine.id);
       await newRunner().tick(true);
 
@@ -187,10 +191,8 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Tidy",
       prompt: "Tidy up.",
-      fields: {},
-      top: "team",
+      fields: { mode: "read-only" },
     });
-    await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
     const id = await task("Tidy the readme", routine.id);
     answer = async (runner) => {
       const running = await store.runs.list({ routineId: routine.id });
@@ -213,8 +215,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Explain",
       prompt: "Explain the router.",
-      fields: { agent: "codex" },
-      top: "team",
+      fields: { agent: "codex", mode: "read-only" },
     });
     const record = (await store.records.get(routine.id)) as FullRecord;
     const seen: Record<string, boolean> = {};
@@ -229,7 +230,7 @@ describe("a machine that takes the team's routine runs", () => {
     const runner = newRunner();
     // Told and asked already: the tick after the run has nothing to send while the test ends.
     await runner.tick(true);
-    await runner.run({ routine: record, trigger: "manual", mode: "read-only", limit: 10 });
+    await runner.run({ routine: record, trigger: "manual" });
     expect(calls[0]?.command).toBe("codex");
     expect(calls[0]?.args.slice(0, 3)).toEqual(["exec", "--sandbox", "read-only"]);
     expect(seen).toEqual({
@@ -245,10 +246,8 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Fix typos",
       prompt: "Fix the typos.",
-      fields: { agent: "codex" },
-      top: "team",
+      fields: { agent: "codex", mode: "limited", limit: 2 },
     });
-    await approve(store, (await store.records.get(routine.id)) as FullRecord, "limited", 2);
     const seen: boolean[] = [];
     answer = async (runner) => {
       const running = await store.runs.list({ routineId: routine.id });
@@ -262,8 +261,6 @@ describe("a machine that takes the team's routine runs", () => {
     await runner.run({
       routine: (await store.records.get(routine.id)) as FullRecord,
       trigger: "manual",
-      mode: "limited",
-      limit: 2,
     });
     expect(seen).toEqual([...Array(12).fill(true), true, true, false]);
     expect((await store.runs.list({ routineId: routine.id }))[0]?.actions).toBe(2);
@@ -273,10 +270,8 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Label issues",
       prompt: "Label them.",
-      fields: {},
-      top: "team",
+      fields: { mode: "limited", limit: 2 },
     });
-    await approve(store, (await store.records.get(routine.id)) as FullRecord, "limited", 2);
     await task("Label this week's", routine.id);
     const seen: boolean[] = [];
     answer = async (runner) => {
@@ -294,7 +289,7 @@ describe("a machine that takes the team's routine runs", () => {
 
     seen.length = 0;
     const record = (await store.records.get(routine.id)) as FullRecord;
-    await runner.run({ routine: record, trigger: "manual", mode: "limited", limit: 2 });
+    await runner.run({ routine: record, trigger: "manual" });
     expect(seen).toEqual([false, false, false]);
   });
 
@@ -302,10 +297,8 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Deploy",
       prompt: "Deploy.",
-      fields: {},
-      top: "team",
+      fields: { mode: "read-only" },
     });
-    await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
     const id = await task("Deploy the site", routine.id);
     answer = async () => ({ code: 0, text: JSON.stringify({ result: "Deployed with AKIAABCDEFGHIJKLMNOP." }) });
     await newRunner().tick(true);
@@ -320,8 +313,7 @@ describe("a machine that takes the team's routine runs", () => {
     const routine = await addRoutine(deps, {
       title: "Elsewhere",
       prompt: "Do it.",
-      fields: {},
-      top: "team",
+      fields: { mode: "read-only" },
     });
     const record = (await store.records.get(routine.id)) as FullRecord;
     const runner = newRunner();
@@ -329,66 +321,12 @@ describe("a machine that takes the team's routine runs", () => {
     await runner.tick(true);
     config.machine.workdir = "";
     try {
-      await runner.run({ routine: record, trigger: "manual", mode: "read-only", limit: 10 });
+      await runner.run({ routine: record, trigger: "manual" });
     } finally {
       config.machine.workdir = tmpdir();
     }
     const [run] = await store.runs.list({ routineId: routine.id });
     expect(run).toMatchObject({ status: "failed", result: "this machine has no work folder: set it in Settings" });
     expect(calls).toEqual([]);
-  });
-
-  it("leaves the librarian to an admin's machine: it writes for the team", async () => {
-    const routine = await addRoutine(deps, {
-      title: "Librarian",
-      prompt: "Built in.",
-      fields: { builtin: "librarian" },
-      top: "team",
-    });
-    await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
-    await task("Look through the store", routine.id);
-    await store.state.set("team_role", "member");
-    await newRunner().tick(true);
-    expect(logs).toContainEqual(expect.stringContaining("an admin's machine runs it"));
-    expect(await store.records.list({ tops: ["team"], type: "Suggestion" })).toEqual([]);
-  });
-
-  it("runs the librarian on an admin's machine, which suggests fixes instead of starting an agent", async () => {
-    const routine = await addRoutine(deps, {
-      title: "Librarian",
-      prompt: "Built in.",
-      fields: { builtin: "librarian" },
-      top: "team",
-    });
-    await approve(store, (await store.records.get(routine.id)) as FullRecord, "read-only");
-    for (const [id, updatedAt] of [
-      ["old", 1],
-      ["new", 2],
-    ] as const) {
-      await write(deps, {
-        id,
-        top: "team",
-        type: "Doc",
-        title: "How to release",
-        folder: "",
-        body: "",
-        fields: {},
-        author: "ada",
-        device: "ada-mbp",
-        sessionId: null,
-        createdAt: updatedAt,
-        updatedAt,
-        retiredAt: null,
-        version: 0,
-        anchors: [],
-        links: [],
-      });
-    }
-    await task("Look through the store", routine.id);
-    await newRunner().tick(true);
-    expect(calls).toEqual([]);
-    const suggestions = await store.records.list({ tops: ["team"], type: "Suggestion" });
-    expect(suggestions).toHaveLength(1);
-    expect(suggestions[0]?.fields).toMatchObject({ target: "old", change: { retire: true } });
   });
 });

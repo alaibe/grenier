@@ -183,10 +183,22 @@ describe("the CLI does what the app does", () => {
     expect((await grenier("instructions", "show", "grenier/mcp")).out).not.toBe("Call get.");
   });
 
-  it("shows the status, Grenier's routines, the key, and refuses team commands without a team", async () => {
+  it("shows the status, the templates, the key, and refuses team commands and routines without a team", async () => {
     expect((await grenier("status")).out).toMatch(/team\s+none/);
-    expect((await grenier("routine", "builtins")).out).toContain("librarian");
-    expect((await grenier("routine", "add", "librarian")).err).toContain("start or join a team");
+    expect((await grenier("routine", "templates")).out).toMatch(/keeper\s+Instructions keeper\s+fri 16:00/);
+    for (const argv of [
+      ["list"],
+      ["runs"],
+      ["new", "--template", "keeper"],
+      ["pause", "Tidy"],
+      ["resume", "Tidy"],
+      ["run", "Tidy"],
+    ]) {
+      const answer = await grenier("routine", ...argv);
+      expect(answer.code).not.toBe(0);
+      expect(answer.err).toContain("routines run on the team's machines: start or join a team first");
+    }
+    expect((await grenier("routine", "new", "--template", "nothing")).err).toContain("--template is keeper");
     expect((await grenier("session", "list")).out).toBe("no paused sessions");
     expect((await grenier("key", "show")).out).toMatch(/\S{20,}/);
     expect((await grenier("team", "members")).err).toContain("in no team");

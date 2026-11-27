@@ -77,7 +77,10 @@ describe("the admin API", () => {
     const { id } = (await (
       await call("/routines", { method: "POST", body: JSON.stringify({ title: "Tidy", prompt: "Tidy up." }) })
     ).json()) as { id: string };
-    const wrong = await call(`/routines/${id}/approve`, { method: "POST", body: JSON.stringify({ mode: "anything" }) });
+    const wrong = await call(`/routines/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ title: "Tidy", prompt: "Tidy up.", mode: "anything" }),
+    });
     expect(wrong.status).toBe(409);
     expect(((await wrong.json()) as { error: string }).error).toContain("a mode is one of");
 

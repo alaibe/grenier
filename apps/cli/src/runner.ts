@@ -1,16 +1,13 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { setPriority } from "node:os";
-import { type Config, hasPrompt, isAction, mayCall, type RoutineMode } from "@grenier/core";
+import { type Config, hasPrompt, isAction, isRunning, mayCall, type RoutineMode, runSettings } from "@grenier/core";
 import type { Availability } from "@grenier/core/api";
 import type { RunGuard } from "@grenier/gateway";
 import { newId, refusal, type StoreDeps, type TeamClient, teamApi, write } from "@grenier/index";
-import type { Prices } from "@grenier/log";
 import { type FullRecord, type RecordInput, type Session, type Store, toInput } from "@grenier/store";
 import { agentNamed } from "./agents/index.ts";
-import { builtinOf } from "./builtins.ts";
 import { availability, type Probes, systemProbes } from "./machine.ts";
-import { routineApproval } from "./routines.ts";
 import { newSessionId, repoResolver, sessionProxy } from "./runtime.ts";
 
 export interface AgentResult {
@@ -31,14 +28,11 @@ export interface RunnerDeps {
   port: number;
   team: () => TeamClient | null;
   storeDeps: () => Promise<StoreDeps>;
-  /** For a built-in that reports cost. */
-  prices: Prices;
   /** Tells the team store this machine's state, over the live connection. */
   tell: (state: Record<string, unknown>) => Promise<void>;
   /** A round of sync now, so a result reaches the team at once. */
   sync: () => Promise<void>;
   log: (line: string) => void;
-  notify?: (title: string, message: string) => void;
   probes?: Probes;
   spawner?: Spawner;
   now?: () => number;
@@ -161,7 +155,7 @@ export class Runner {
     if (force || changed || this.now() - this.#lastClaim >= CLAIM_EVERY) await this.claim();
   }
 
-  /** Asks the team store for a task, and runs it if this machine's person approved its routine as it is now. */
+  /** Asks the team store for a task, and runs it as its routine's admin set it. */
   async claim(): Promise<void> {
     const team = this.deps.team();
     if (!team || this.#current) return;
@@ -183,26 +177,9 @@ export class Runner {
       this.deps.log(`grenier: declined ${task.title} (${routine.title}): ${why}`);
       await this.#decline(team, task.id);
     };
-    const approval = await routineApproval(this.deps.store, routine);
-    if (!approval?.current) {
-      this.deps.notify?.(
-        "A routine waits for your approval",
-        `${routine.title}: approve it on the app's Routines screen.`,
-      );
-      return decline(approval ? "it changed since it was approved here" : "it is not approved here");
-    }
-    const builtin = builtinOf(routine);
-    if (builtin?.admins && (await this.deps.store.state.get("team_role")) === "member") {
-      return decline(`${builtin.title} writes for the team: an admin's machine runs it`);
-    }
+    if (!isRunning(routine)) return decline("it is paused");
     if (!hasPrompt(routine)) return decline("it says nothing to do yet");
-    await this.run({
-      routine,
-      task,
-      trigger: "schedule",
-      mode: approval.mode,
-      limit: approval.limit,
-    });
+    await this.run({ routine, task, trigger: "schedule" });
   }
 
   /** The guard the proxy holds the current run to; null for any other session. */
@@ -245,12 +222,10 @@ export class Runner {
     /** By hand: what to do this time, in place of a task. */
     prompt?: string;
     trigger: "schedule" | "manual";
-    mode: RoutineMode;
-    /** `limited`'s actions a day, from the approval. */
-    limit: number;
   }): Promise<RunOutcome> {
     if (this.#current) throw new Error("a run is going on this machine already");
-    const { routine, task, mode, limit } = input;
+    const { routine, task } = input;
+    const { mode, limit } = runSettings(routine.fields);
     const store = this.deps.store;
     const config = this.deps.config();
     const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : config.machine.agent;
@@ -330,15 +305,6 @@ export class Runner {
         }, LEASE_RENEW);
       }
 
-      const builtin = builtinOf(routine);
-      if (builtin?.run) {
-        const result = await builtin.run({
-          deps: await this.deps.storeDeps(),
-          prices: this.deps.prices,
-          now: this.now(),
-        });
-        return await this.#finish(runId, { status: "done", result, cost: 0, actions: 0 }, report, task);
-      }
       const prompt = [
         routine.body,
         input.prompt ?? (task ? `## The task\n\n${task.title}\n\n${task.body}`.trim() : ""),
@@ -350,21 +316,14 @@ export class Runner {
         .filter(Boolean)
         .join("\n\n");
       const proxy = sessionProxy(this.deps.port, sessionId);
-      const collector = routine.fields.collector === "yes";
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        ...proxy.env,
-        GRENIER_RUN_TOP: collector || routine.top === "me" ? "me" : "team",
-      };
+      const env: NodeJS.ProcessEnv = { ...process.env, ...proxy.env, GRENIER_RUN_TOP: "team" };
       const signal = this.#current.stop.signal;
       const started = agentNamed(agent).routine(prompt, mode, proxy.openai);
       const outcome = await this.spawner(started.command, started.args, { cwd, env, signal });
       const cut = this.#current.cut;
       const result = cut
         ? `Cut off: it called ${cut}, which this machine does not allow it.`
-        : collector && outcome.code === 0
-          ? "Done: what it gathered is in its person's Me folder."
-          : resultText(outcome.text);
+        : resultText(outcome.text);
       const cost = (await store.usage.list({ sessionId })).reduce((total, row) => total + (row.cost ?? 0), 0);
       return await this.#finish(
         runId,

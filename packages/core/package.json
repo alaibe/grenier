@@ -14,6 +14,7 @@
     "./routines": "./src/routines.ts",
     "./server-name": "./src/server-name.ts",
     "./team": "./src/team.ts",
+    "./templates": "./src/templates.ts",
     "./vault": "./src/vault.ts",
     "./names": "./src/names.ts",
     "./node": "./src/node.ts",

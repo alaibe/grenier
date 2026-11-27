@@ -5,7 +5,7 @@ import type { StoreDeps, TeamClient } from "@grenier/index";
 import type { FullRecord, Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { addRoutine, editRoutine } from "../../../../apps/cli/src/routines.ts";
+import { addRoutine, routineFromForm } from "../../../../apps/cli/src/routines.ts";
 import type { Runner } from "../../../../apps/cli/src/runner.ts";
 import { testAdmin } from "../../../support/gateway.ts";
 import { storeDeps } from "../../../support/repo.ts";
@@ -26,7 +26,7 @@ afterEach(async () => {
 describe("the routines' admin routes", () => {
   let home: string;
   let team: TeamClient | null;
-  let runs: { routine: FullRecord; mode: string }[];
+  let runs: { routine: FullRecord }[];
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "grenier-routines-"));
@@ -42,56 +42,52 @@ describe("the routines' admin routes", () => {
     const runner = {
       running: false,
       tick: async () => {},
-      run: async (input: { routine: FullRecord; mode: string }) => {
+      run: async (input: { routine: FullRecord }) => {
         runs.push(input);
       },
     } as unknown as Runner;
     return testAdmin(store, home, { runner, storeDeps: async () => deps, team: () => team }).reply;
   }
 
-  it("runs a routine by hand only as this machine's person approved it", async () => {
-    const { id } = await addRoutine(deps, {
-      title: "Tidy",
-      prompt: "Tidy up.",
-      fields: {},
-      top: "team",
-    });
+  it("runs a running routine by hand, as its admin set it, and a paused one not at all", async () => {
+    const { id } = await addRoutine(deps, routineFromForm({ title: "Tidy", prompt: "Tidy up.", mode: "shadow" }));
     const run = () => route()("POST", `/routines/${id}/run`, {});
-    expect(await run()).toEqual({ status: 409, body: { error: "approve the routine as it is now before running it" } });
-    expect(runs).toEqual([]);
-    expect((await route()("POST", `/routines/${id}/approve`, { mode: "shadow" }))?.status).toBe(200);
     expect((await run())?.status).toBe(202);
-    expect(runs[0]?.mode).toBe("shadow");
-    await editRoutine(deps, (await store.records.get(id)) as FullRecord, {
-      title: "Tidy",
-      prompt: "Tidy up, and delete what is old.",
-      fields: {},
-    });
-    expect((await run())?.status).toBe(409);
+    expect(runs[0]?.routine.fields.mode).toBe("shadow");
+    expect((await route()("POST", `/routines/${id}/pause`, {}))?.body).toEqual({ paused: id });
+    expect(await run()).toEqual({ status: 409, body: { error: "the routine is paused: an admin resumes it first" } });
     expect(runs).toHaveLength(1);
+    const listed = (await route()("GET", "/routines"))?.body as { routines: { state: string; mode: string }[] };
+    expect(listed.routines[0]).toMatchObject({ state: "paused", mode: "shadow", limit: 10 });
+    expect((await route()("POST", `/routines/${id}/resume`, {}))?.body).toEqual({ resumed: id });
+    expect((await run())?.status).toBe(202);
   });
 
-  it("stops running a routine here once its approval is taken back", async () => {
-    const { id } = await addRoutine(deps, { title: "Tidy", prompt: "Tidy up.", fields: {}, top: "team" });
-    await route()("POST", `/routines/${id}/approve`, { mode: "read-only" });
-    expect(await store.approvals.get(id, "routine")).toBeDefined();
-    expect((await route()("DELETE", `/routines/${id}/approve`))?.body).toEqual({ stopped: id });
-    expect(await store.approvals.get(id, "routine")).toBeUndefined();
-    expect((await route()("POST", `/routines/${id}/run`, {}))?.status).toBe(409);
+  it("refuses a member's pause: only an admin sets a routine running or paused", async () => {
+    const { id } = await addRoutine(deps, routineFromForm({ title: "Tidy", prompt: "Tidy up." }));
+    await store.state.set("team_role", "member");
+    const reply = await route()("POST", `/routines/${id}/pause`, {});
+    expect(reply?.status).toBe(409);
+    expect((await store.records.get(id))?.fields.state).toBe("running");
   });
 
-  it("adds no routine and no built-in outside a team: routines run on the team's machines", async () => {
+  it("has no routines outside a team: every route says to start or join one", async () => {
+    const { id } = await addRoutine(deps, routineFromForm({ title: "Tidy", prompt: "Tidy up." }));
     team = null;
-    const form = { title: "Tidy", prompt: "Tidy up." };
-    for (const reply of [
-      await route()("POST", "/routines", form),
-      await route()("POST", "/routines/builtin/librarian", {}),
-    ]) {
+    for (const [method, path] of [
+      ["GET", "/routines"],
+      ["GET", "/runs"],
+      ["POST", "/routines"],
+      ["PUT", `/routines/${id}`],
+      ["POST", `/routines/${id}/pause`],
+      ["POST", `/routines/${id}/resume`],
+      ["POST", `/routines/${id}/run`],
+    ] as const) {
+      const reply = await route()(method, path, method === "GET" ? undefined : { title: "New", prompt: "Do it." });
       expect(reply?.status).toBe(409);
-      expect(reply?.body).toEqual({ error: expect.stringContaining("start or join a team first") });
+      expect(reply?.body).toEqual({ error: "routines run on the team's machines: start or join a team first" });
     }
-    expect(await store.records.list({ tops: ["team"], type: "Routine" })).toEqual([]);
-    team = { url: "https://team.test", token: "gt_x" };
-    expect((await route()("POST", "/routines", form))?.status).toBe(200);
+    expect(runs).toEqual([]);
+    expect(await store.records.list({ tops: ["team"], type: "Routine" })).toHaveLength(1);
   });
 });

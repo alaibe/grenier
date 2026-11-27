@@ -8,11 +8,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePaths } from "@grenier/core/node";
 import { openSqliteStore } from "@grenier/store/sqlite";
+import type { Miniflare } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addRoutine, routineFromForm } from "../../apps/cli/src/routines.ts";
 import { freePort, messageStream } from "../support/anthropic.ts";
 import { startDaemon } from "../support/daemon.ts";
 import { storeDeps } from "../support/repo.ts";
+import { SETUP_TOKEN, startWorker } from "../support/worker.ts";
 
 const BINARY = fileURLToPath(new URL("../../apps/cli/dist/grenier.js", import.meta.url));
 const claude = (() => {
@@ -27,6 +29,7 @@ let dir: string;
 let repo: string;
 let upstream: Server;
 let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+let worker: Miniflare | undefined;
 let port: number;
 const offered: string[][] = [];
 
@@ -114,13 +117,19 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
     port = await freePort();
+    // Routines exist only in a team: this machine is its admin's, on a team store of its own.
+    const team = await startWorker({ listen: true });
+    worker = team.mf;
+    await team.call("/api/setup", SETUP_TOKEN, { body: { member: "ada", device: "ada-mbp" } });
     const paths = resolvePaths(env());
     mkdirSync(paths.home, { recursive: true });
+    writeFileSync(paths.teamToken, SETUP_TOKEN);
     writeFileSync(
       paths.config,
       [
         `[proxy]\nport = ${port}\nupstream_anthropic = "http://127.0.0.1:${(upstream.address() as AddressInfo).port}"`,
         `[store]\nembeddings = "off"`,
+        `[team]\nurl = ${JSON.stringify(String(team.url).replace(/\/$/, ""))}`,
         `[machine]\nworkdir = ${JSON.stringify(dir)}\nroutines = true\nidle_minutes = 0\nplugged_in = false\ncpu_max = 1\nmemory_max = 1`,
       ].join("\n\n"),
     );
@@ -129,17 +138,17 @@ describe.skipIf(claude === null)("a routine's run with Claude Code", () => {
 
   afterAll(async () => {
     await daemon?.stop();
+    await worker?.dispose();
     await new Promise((resolve) => upstream?.close(resolve));
     rmSync(dir, { recursive: true, force: true });
   });
 
   it("offers the agent read tools only, and cuts the run off at an edit", async () => {
-    // Written as the app's New routine form writes it, in Me since this machine has no team.
+    // Written as the app's New routine form writes it: read-only, as its admin set it.
     const store = openSqliteStore(resolvePaths(env()).db);
-    const form = routineFromForm({ title: "Tidy", prompt: "Tidy app.ts." });
-    const { id } = await addRoutine(await storeDeps(store), { ...form, top: "me" });
+    const form = routineFromForm({ title: "Tidy", prompt: "Tidy app.ts.", mode: "read-only" });
+    const { id } = await addRoutine(await storeDeps(store), form);
     await store.close();
-    await admin(`/routines/${id}/approve`, { mode: "read-only" });
 
     const started = Date.now();
     await admin(`/routines/${id}/run`, {});

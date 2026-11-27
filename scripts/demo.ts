@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { joinCode, newVaultKey, RECORD_PARTS, routineHash, sha256, sharedHash } from "@grenier/core";
+import { joinCode, newVaultKey, RECORD_PARTS, ROUTINE_TEMPLATES, sha256, sharedHash } from "@grenier/core";
 import { resolvePaths } from "@grenier/core/node";
 import { blobHashes, gitFiles, repoId } from "@grenier/git";
 import { newId, newRecord, type StoreDeps, syncOnce, type TeamClient, teamApi, write } from "@grenier/index";
@@ -244,31 +244,21 @@ const update = await record({
   title: "Update dependencies",
   author: "anthony",
   device: "anthony-mbp",
-  fields: {
-    schedule: "mon 06:00",
-    repo: repoIdentity,
-    tools: ["Edit", "Bash(pnpm install:*)", "Bash(pnpm test:*)"],
-  },
+  fields: { schedule: "mon 06:00", mode: "limited", limit: 10, state: "running" },
   body: "Update the dependencies to their newest release older than 7 days, run the tests, and explain what changed.",
 });
+const keeper = ROUTINE_TEMPLATES[0] as (typeof ROUTINE_TEMPLATES)[number];
 await record({
   type: "Routine",
-  title: "Librarian",
-  fields: {
-    schedule: "daily 05:00",
-    builtin: "librarian",
-  },
-  body: "Built in: looks through the store for stale memories, duplicates, broken rules and orphaned tasks, and suggests fixes.",
+  title: keeper.title,
+  fields: { schedule: keeper.schedule, mode: keeper.mode, state: "running" },
+  body: keeper.prompt,
 });
 await record({
   type: "Routine",
-  title: "My meetings",
-  fields: {
-    schedule: "weekdays 18:00",
-    collector: "yes",
-    tools: ["mcp__granola__list_meetings", "mcp__granola__get_transcript"],
-  },
-  body: "Gather today's meeting transcripts as pages in Me/Meetings, one per meeting.",
+  title: "Triage Sentry issues",
+  fields: { schedule: "weekdays 08:00", mode: "shadow", state: "paused" },
+  body: "Read the new Sentry issues of the last day, find the code each comes from, and say who should look at it and why.",
 });
 await record({
   type: "Task",
@@ -287,18 +277,6 @@ writeFileSync(
   `${files["src/payments/retry.ts"]}\nexport const MAX_ATTEMPTS = 5;\n`,
 );
 git("commit", "-q", "-am", "PAY-112 cap retries at five attempts");
-await record({
-  type: "Suggestion",
-  title: "Where are failed payments retried?: Its files changed since it was written",
-  folder: "Suggestions",
-  author: "marie",
-  fields: {
-    target: retryAnswer,
-    change: { retire: true },
-    reason: "Its files changed since it was written (src/payments/retry.ts): check it again, or retire it.",
-  },
-  links: [link(retryAnswer)],
-});
 await syncOnce({ store, team: marie, embedder: null, personalKey });
 for (const [id, times] of [
   [retryAnswer, 7],
@@ -308,16 +286,6 @@ for (const [id, times] of [
   for (let n = 0; n < times; n++) await store.records.hit(id);
 }
 
-await store.approvals.put({
-  recordId: update,
-  kind: "routine",
-  hash: await routineHash(
-    (await store.records.get(update)) as NonNullable<Awaited<ReturnType<Store["records"]["get"]>>>,
-  ),
-  approvedAt: now,
-  settings: { mode: "read-only", limit: 10 },
-  previousHash: null,
-});
 await store.approvals.put({
   recordId: skill,
   kind: "skill",

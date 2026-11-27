@@ -1,5 +1,5 @@
 import { sha256 } from "./policy.ts";
-import type { ROUTINE_MODES } from "./records.ts";
+import { ROUTINE_MODES } from "./records.ts";
 
 export type RoutineMode = (typeof ROUTINE_MODES)[number];
 
@@ -59,17 +59,19 @@ export function hasPrompt(routine: RoutineShape): boolean {
   return routine.body.trim() !== "";
 }
 
-/** What a machine's person approves: any change to these fields waits for their approval again. */
-export async function routineHash(routine: RoutineShape): Promise<string> {
-  const { fields } = routine;
-  return sha256(
-    JSON.stringify({
-      prompt: routine.body,
-      agent: fields.agent ?? "claude",
-      collector: fields.collector ?? "no",
-      owner: fields.collector === "yes" ? (fields.owner ?? "") : "",
-    }),
-  );
+/** How many actions a run in `limited` takes a day, unless its admin set another number. */
+export const DEFAULT_ACTION_LIMIT = 10;
+
+/** How a routine's runs go, as its admin set them: its mode, and `limited`'s actions a day. */
+export function runSettings(fields: Record<string, unknown>): { mode: RoutineMode; limit: number } {
+  const mode = (ROUTINE_MODES as readonly unknown[]).includes(fields.mode) ? (fields.mode as RoutineMode) : "read-only";
+  const limit = Number(fields.limit);
+  return { mode, limit: Number.isInteger(limit) && limit > 0 ? limit : DEFAULT_ACTION_LIMIT };
+}
+
+/** Whether a routine is running: offered on its schedule and run by hand; a paused one is neither. */
+export function isRunning(routine: { fields: Record<string, unknown> }): boolean {
+  return routine.fields.state === "running";
 }
 
 /** A routine's run to do, from its schedule: a task in the routine's top folder, which names the routine and links to it. */

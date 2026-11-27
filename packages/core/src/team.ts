@@ -1,7 +1,7 @@
 import type { Anchor, Link } from "./api.ts";
 
-/** What a machine and the team store built from this tree speak, checked before a sync: 2 added folders, 3 named top folders, 4 one text per routine, 5 claimed runs and removable machines, 6 no more member-only folders, 7 no record kind, 8 only Me and Team. */
-export const TEAM_PROTOCOL = 8;
+/** What a machine and the team store built from this tree speak, checked before a sync: 2 added folders, 3 named top folders, 4 one text per routine, 5 claimed runs and removable machines, 6 no more member-only folders, 7 no record kind, 8 only Me and Team, 9 routines run as their admin set them. */
+export const TEAM_PROTOCOL = 9;
 
 /** The parts of a record a change carries, which the team store applies over what it has. */
 export const RECORD_PARTS = [

@@ -98,7 +98,7 @@ const icon = (name) => {
   return svg;
 };
 const kbd = (...keys) => keys.length === 1 ? el("kbd", { class: "kbd", text: keys[0] }) : el("span", { class: "keys" }, ...keys.map((key) => el("kbd", { class: "kbd", text: key })));
-const STATES = { "to-do": ["tag", "to-do"], doing: ["tag tag-accent", "doing"], running: ["tag tag-accent", "running"], done: ["tag tag-ok", "done"], failed: ["tag tag-err", "failed"], cut: ["tag tag-warn", "cut"], available: ["tag tag-ok", "available"], busy: ["tag tag-accent", "busy"], away: ["tag", "away"] };
+const STATES = { "to-do": ["tag", "to-do"], doing: ["tag tag-accent", "doing"], running: ["tag tag-accent", "running"], done: ["tag tag-ok", "done"], failed: ["tag tag-err", "failed"], cut: ["tag tag-warn", "cut"], available: ["tag tag-ok", "available"], busy: ["tag tag-accent", "busy"], away: ["tag", "away"], paused: ["tag", "paused"] };
 const tag = (state) => {
   const [look, word] = STATES[state] || ["tag", state];
   return el("span", { class: look }, look.includes("tag-accent") ? el("i", { class: "tag-dot", "aria-hidden": "true" }) : null, word);
@@ -293,7 +293,7 @@ async function routines() {
     ...(records.length ? records.map((r) => {
       const mine = runs.filter((run) => run.routine_id === r.id).slice(0, 10);
       return el("section", { class: "section" },
-        el("header", { class: "section-header" }, el("div", {}, el("h2", { class: "section-heading", text: r.title }), el("p", { class: "section-desc", text: r.fields.schedule ? "On a schedule, " + r.fields.schedule : "Run by hand" }))),
+        el("header", { class: "section-header" }, el("div", {}, el("h2", { class: "section-heading", text: r.title }), el("p", { class: "section-desc", text: r.fields.schedule ? "On a schedule, " + r.fields.schedule : "Run by hand" })), tag(r.fields.state === "running" ? "running" : "paused")),
         mine.length ? table("Runs of " + r.title, [["State"], ["Machine"], ["Started"], ["API cost", true]], mine.map((run) => el("tr", {}, td(tag(run.status)), td(run.machine, "mono"), td(time(run.started_at), "mono"), td(money(run.cost), "num mono")))) : el("p", { class: "meta", text: "No run yet." }));
     }) : [empty("no routines yet", "An admin adds them in the Grenier app.")])));
 }

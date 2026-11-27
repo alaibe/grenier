@@ -1,11 +1,17 @@
-import { acts, isAction, mayCall, nextDue, READ_TOOLS, readsByName, routineHash } from "@grenier/core";
+import {
+  acts,
+  builtinType,
+  isAction,
+  isRunning,
+  mayCall,
+  nextDue,
+  READ_TOOLS,
+  ROUTINE_TEMPLATES,
+  readsByName,
+  recordProblem,
+  runSettings,
+} from "@grenier/core";
 import { describe, expect, it } from "vitest";
-
-const routine = (fields: Record<string, unknown>, body = "Update, then test.") => ({
-  title: "Update dependencies",
-  body,
-  fields,
-});
 
 describe("what a routine's run may call", () => {
   it("reads only, until its machine lets it act; then anything, auto mode judging each call", () => {
@@ -49,12 +55,33 @@ describe("what a routine's run may call", () => {
   });
 });
 
-describe("approving a routine", () => {
-  it("is needed again when its text or its agent changes, not when its schedule does", async () => {
-    const approved = await routineHash(routine({ schedule: "daily 05:00" }));
-    expect(await routineHash(routine({ schedule: "hourly" }))).toBe(approved);
-    expect(await routineHash(routine({ agent: "codex" }))).not.toBe(approved);
-    expect(await routineHash(routine({}, "Update everything."))).not.toBe(approved);
+describe("a routine as its admin set it", () => {
+  it("runs in its mode, with `limited`'s actions a day, only while running", () => {
+    expect(runSettings({ mode: "limited", limit: 3 })).toEqual({ mode: "limited", limit: 3 });
+    expect(runSettings({ mode: "on" })).toEqual({ mode: "on", limit: 10 });
+    expect(runSettings({ mode: "wild", limit: -1 })).toEqual({ mode: "read-only", limit: 10 });
+    expect(isRunning({ fields: { state: "running" } })).toBe(true);
+    expect(isRunning({ fields: { state: "paused" } })).toBe(false);
+    expect(isRunning({ fields: {} })).toBe(false);
+  });
+
+  it("names its mode and whether it is running, or the store refuses it", () => {
+    const type = builtinType("Routine");
+    const routine = (fields: Record<string, unknown>) => ({ type: "Routine", title: "Tidy", body: "Tidy.", fields });
+    expect(recordProblem(routine({ mode: "shadow", state: "paused" }), type)).toBeNull();
+    expect(recordProblem(routine({ state: "running" }), type)).toContain("needs mode");
+    expect(recordProblem(routine({ mode: "on" }), type)).toContain("needs state");
+    expect(recordProblem(routine({ mode: "on", state: "approved" }), type)).toContain("running, paused");
+  });
+
+  it("can start from a template that fills in a routine the store takes", () => {
+    for (const template of ROUTINE_TEMPLATES) {
+      expect(nextDue(template.schedule, Date.now())).not.toBeNull();
+      const fields = { schedule: template.schedule, mode: template.mode, state: "running" };
+      const record = { type: "Routine", title: template.title, body: template.prompt, fields };
+      expect(recordProblem(record, builtinType("Routine"))).toBeNull();
+    }
+    expect(ROUTINE_TEMPLATES.find((template) => template.id === "keeper")?.prompt).toContain("Team/<repository>");
   });
 });
 

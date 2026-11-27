@@ -9,7 +9,7 @@ describe("routines' tasks", () => {
       type: "Routine",
       title: "Update dependencies",
       body: "Update",
-      fields: {},
+      fields: { mode: "read-only", state: "running" },
     });
     await push(token, {
       id: "task",
@@ -42,7 +42,7 @@ describe("routines' tasks", () => {
       type: "Routine",
       title: "Nightly digest",
       body: "Digest",
-      fields: { schedule },
+      fields: { schedule, mode: "read-only", state: "running" },
     });
     expect((await push(ADA, routine("mon 09:00"))).applied).toHaveLength(1);
     expect((await push(ADA, routine("hourly"), 1)).applied).toHaveLength(1);
@@ -76,29 +76,21 @@ describe("routines' tasks", () => {
     expect((await claim())?.task.id).toBe("task");
   });
 
-  it("offers a collector's task only to its person's machines", async () => {
-    const bob = await join("bob", "bob-mbp", "admin");
-    await push(bob, {
-      id: "collector",
-      top: "team",
-      type: "Routine",
-      title: "My meetings",
-      body: "Gather",
-      fields: { collector: "yes" },
-    });
-    await push(ADA, {
-      id: "gather",
-      top: "team",
-      type: "Task",
-      title: "Gather today",
-      fields: { status: "to-do", routine: "collector" },
-    });
-    await state(ADA, 0.9);
-    await state(bob, 0.1);
-    expect((await json<{ offer: unknown }>(await call("/api/work/claim", ADA, { method: "POST" }))).offer).toBeNull();
-    const offer = await json<{ offer: { task: { id: string } } | null }>(
-      await call("/api/work/claim", bob, { method: "POST" }),
-    );
-    expect(offer.offer?.task.id).toBe("gather");
+  it("offers no task of a paused routine, and takes a pause only from an admin", async () => {
+    const bob = await join("bob");
+    await routineAndTask(ADA);
+    await state(ADA, 0.5);
+    const paused = { id: "routine", fields: { mode: "read-only", state: "paused" } };
+    const refused = await push(bob, paused, 1);
+    expect(refused.refused[0]?.reason).toContain("only an admin writes in Team");
+    expect((await push(ADA, paused, 1)).applied).toHaveLength(1);
+    const claim = async () =>
+      (await json<{ offer: { task: { id: string } } | null }>(await call("/api/work/claim", ADA, { method: "POST" })))
+        .offer;
+    expect(await claim()).toBeNull();
+    expect(
+      (await push(ADA, { id: "routine", fields: { mode: "read-only", state: "running" } }, 3)).applied,
+    ).toHaveLength(1);
+    expect((await claim())?.task.id).toBe("task");
   });
 });

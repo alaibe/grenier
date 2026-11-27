@@ -163,7 +163,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     async (input) =>
       answer(async () => {
         const client = await reader();
-        // A run writes where its approval says; anywhere else, only Me takes a page unasked.
+        // A routine's run writes in its top folder, as its admin set it; anywhere else, only Me takes a page unasked.
         const unasked = (top: string) => top === "me" || top === deps.runTop;
         const resolved = input.folder ? resolveFolderPath(input.folder) : null;
         if (resolved && !unasked(resolved.top)) {

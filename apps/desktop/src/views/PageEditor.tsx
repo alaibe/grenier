@@ -12,17 +12,7 @@ import type {
 import { hunks, lineDiff } from "@grenier/core/diff";
 import type { StoredRecord } from "@grenier/core/team";
 import { topName } from "@grenier/core/team";
-import {
-  Archive,
-  Check,
-  ChevronDown,
-  ChevronUp,
-  FileText,
-  FolderInput,
-  History as HistoryIcon,
-  Undo2,
-  X,
-} from "lucide-react";
+import { Archive, ChevronDown, ChevronUp, FileText, FolderInput, History as HistoryIcon, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
@@ -173,7 +163,6 @@ export function PageEditor({
   const choices = allowed.some((path) => pathKey(path) === pathKey(here))
     ? allowed
     : [...allowed, { ...here, label: folderPath(draft.top, draft.folder) }];
-  const suggestion = record.data?.type === "Suggestion";
 
   const dirty =
     !record.data ||
@@ -254,7 +243,7 @@ export function PageEditor({
           />
           {record.data && (
             <p className="mt-2 font-mono text-xs text-muted tabular-nums">
-              {suggestion && "Suggestion · "}by {record.data.author} on {record.data.device} ·{" "}
+              by {record.data.author} on {record.data.device} ·{" "}
               <time title={exact(record.data.updatedAt)}>changed {ago(record.data.updatedAt)}</time>
               {record.data.hits > 0 && ` · used ${record.data.hits} times`}
             </p>
@@ -278,7 +267,6 @@ export function PageEditor({
             {record.data?.retiredAt && <Notice kind="info">Retired {ago(record.data.retiredAt)}.</Notice>}
             {!editable && <Notice kind="info">Only an admin changes the pages here.</Notice>}
             {id && <Presence id={id} />}
-            {record.data?.type === "Suggestion" && <Suggestion record={record.data} back={closed} />}
           </div>
 
           <div className="mt-6">
@@ -554,44 +542,5 @@ function Presence({ id }: { id: string }) {
     <Notice kind="info" more="The second save is asked to choose.">
       Also open: {others.map((other) => `${other.member} on ${other.device}`).join(", ")}.
     </Notice>
-  );
-}
-
-/** A suggestion of the librarian: accepted, its change goes into the record it names; either way it is retired. */
-function Suggestion({ record, back }: { record: RecordFull; back: () => void }) {
-  const action = useAction();
-  const decide = (accept: boolean) =>
-    void action.run(accept ? "accept" : "dismiss", async () => {
-      await api(`/records/${encodeURIComponent(record.id)}/decide`, { body: { accept } });
-      back();
-      return accept ? "Accepted the suggestion" : "Dismissed the suggestion";
-    });
-  return (
-    <>
-      <Notice
-        kind="accent"
-        tag="SUGGESTION"
-        action={
-          <Button
-            size="sm"
-            icon={Check}
-            busy={action.busy === "accept"}
-            disabled={action.busy !== null}
-            onClick={() => decide(true)}
-          >
-            Accept
-          </Button>
-        }
-        onDismiss={() => decide(false)}
-      >
-        {String(record.fields.reason ?? "The librarian suggests a change.")}
-      </Notice>
-      <p className="mt-2 text-muted">
-        {(record.fields.change as { retire?: boolean }).retire
-          ? "Accepting retires the page it names."
-          : "Nothing changes on its own: fix the page, then dismiss this."}
-      </p>
-      <Problem error={action.problem} />
-    </>
   );
 }

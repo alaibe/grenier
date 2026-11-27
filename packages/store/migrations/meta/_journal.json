@@ -78,6 +78,13 @@
       "when": 1795782680670,
       "tag": "0010_no_installed_path",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1795785114922,
+      "tag": "0011_no_routine_approvals",
+      "breakpoints": true
     }
   ]
 }

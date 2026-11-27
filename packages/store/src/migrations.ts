@@ -9,6 +9,7 @@ import toolUses from "../migrations/0007_tool_uses.sql";
 import noRecordKind from "../migrations/0008_no_record_kind.sql";
 import meAndTeam from "../migrations/0009_me_and_team.sql";
 import noInstalledPath from "../migrations/0010_no_installed_path.sql";
+import noRoutineApprovals from "../migrations/0011_no_routine_approvals.sql";
 
 export interface Migration {
   /** 1 for the first migration: the schema version a database has once it is applied. */
@@ -30,4 +31,5 @@ export const migrations: readonly Migration[] = [
   { version: 9, name: "0008_no_record_kind", sql: noRecordKind },
   { version: 10, name: "0009_me_and_team", sql: meAndTeam },
   { version: 11, name: "0010_no_installed_path", sql: noInstalledPath },
+  { version: 12, name: "0011_no_routine_approvals", sql: noRoutineApprovals },
 ];

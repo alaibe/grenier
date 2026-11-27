@@ -123,7 +123,6 @@ export async function runDaemon(io: Io): Promise<number> {
     port,
     team: () => team,
     storeDeps: () => storeDeps(store, rules, embedder),
-    prices,
     tell: async (state) => {
       await link?.tell(state);
     },
@@ -131,7 +130,6 @@ export async function runDaemon(io: Io): Promise<number> {
       await link?.sync();
     },
     log: io.err,
-    notify,
   });
   const linkTo = (client: TeamClient) => {
     const made = new TeamLink(client, store, config, paths, embedder, io.err);

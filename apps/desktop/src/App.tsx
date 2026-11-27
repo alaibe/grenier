@@ -151,6 +151,7 @@ function Shell() {
   useUsage(SCREENS[route.place].url, sendPageView);
 
   const team = overview.data?.team ?? null;
+  const role = overview.data?.role;
   const commands = useMemo<Command[]>(() => {
     const names = [...PLACES, "settings" as const];
     const letters = goLetters(names);
@@ -173,7 +174,9 @@ function Shell() {
         run: () => setPalette((open) => !open),
       },
       { id: "new-page", label: "New page", icon: FilePlus, run: () => go("knowledge", "new") },
-      { id: "new-routine", label: "New routine", icon: Plus, run: () => go("routines", "new") },
+      ...(team && role !== "member"
+        ? [{ id: "new-routine", label: "New routine", icon: Plus, run: () => go("routines", "new") }]
+        : []),
       ...(team
         ? [
             {
@@ -190,7 +193,7 @@ function Shell() {
       { id: "region-back", label: "Previous region", keys: "shift+f6", run: () => cycleRegions(-1) },
       { id: "shortcuts", label: "Keyboard shortcuts", icon: CircleHelp, keys: "?", run: () => setShortcuts(true) },
     ];
-  }, [go, back, forward, team, syncNow]);
+  }, [go, back, forward, team, role, syncNow]);
   useCommands(commands, "shell");
 
   // The splash: the attic window on the dark, until the daemon first answers.

@@ -246,7 +246,7 @@ describe("what members write", () => {
       type: "Routine",
       title: "Bump",
       body: "Bump",
-      fields: {},
+      fields: { mode: "read-only", state: "running" },
     });
     await push(ADA, {
       id: "task",
@@ -273,7 +273,7 @@ describe("what members write", () => {
       type: "Routine",
       title: "Bump",
       body: "Bump",
-      fields: {},
+      fields: { mode: "read-only", state: "running" },
     });
     await push(ADA, {
       id: "task",

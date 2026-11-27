@@ -132,15 +132,14 @@ describe("the MCP server", () => {
     expect((change as { content: { text: string }[] }).content[0]?.text).toContain("the team's");
   });
 
-  it("keeps a run's pages where its approval says, and refuses a member's run a page for the team", async () => {
+  it("keeps a routine run's pages in Team, as its admin set it, and refuses a member's run a page there", async () => {
     const about = (title: string) => ({ title, body: "In proxy.ts.", files: ["proxy.ts"] });
     const kept = async (client: Awaited<ReturnType<typeof connect>>, args: Record<string, unknown>) =>
       structured(await client.callTool({ name: "set", arguments: args }))?.top;
     const run = await connect({ runTop: "team" });
     expect(await kept(run, about("Where is the proxy?"))).toBe("team");
     expect(await kept(run, { title: "The proxy listens on 7788" })).toBe("team");
-    const collector = await connect({ runTop: "me" });
-    expect(await kept(collector, about("Who calls the proxy?"))).toBe("me");
+    expect(await kept(run, { title: "Instructions to update", folder: "Team/checkout" })).toBe("team");
 
     await store.state.set("team_role", "member");
     const member = await connect({ runTop: "team" });

@@ -22,6 +22,10 @@ export class TeamStore extends Store {
     ahead = Number(request.headers.get("x-ahead") ?? 0);
     return super.fetch(request);
   }
+  // RPC can't call alarm itself.
+  async ring() {
+    return this.alarm();
+  }
 }
 export default worker;
 `;

@@ -156,15 +156,15 @@ export const outbox = sqliteTable("outbox", {
   createdAt: integer("created_at").notNull(),
 });
 
-/** What this machine's person approved, by hash: a change to the item needs approval again. */
+/** The team's skills and MCP servers this machine's person approved, by hash: a change needs approval again. */
 export const approvals = sqliteTable(
   "approvals",
   {
     recordId: text("record_id").notNull(),
-    kind: text("kind", { enum: ["skill", "mcp", "routine"] }).notNull(),
+    kind: text("kind", { enum: ["skill", "mcp"] }).notNull(),
     hash: text("hash").notNull(),
     approvedAt: integer("approved_at").notNull(),
-    /** For a routine on this machine: its mode, its extra tools and daily action limit. */
+    /** What it was installed as: its name in the agents' folders. */
     settings: text("settings", { mode: "json" }).$type<Record<string, unknown>>().notNull().default({}),
     /** The hash installed before, to go back. */
     previousHash: text("previous_hash"),

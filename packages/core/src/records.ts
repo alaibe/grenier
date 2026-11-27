@@ -22,6 +22,7 @@ export interface TypeDef {
 
 const TASK_STATUSES = ["to-do", "doing", "done"] as const;
 export const ROUTINE_MODES = ["read-only", "shadow", "limited", "on"] as const;
+export const ROUTINE_STATES = ["running", "paused"] as const;
 
 const LONG = 200_000;
 
@@ -68,26 +69,16 @@ const BUILTIN_TYPES: readonly TypeDef[] = [
   {
     name: "Routine",
     description:
-      "One kind of task the team's machines run, in each machine's work folder, on its schedule or by hand: its prompt as the page's text.",
+      "One kind of task the team's machines run, in each machine's work folder, on its schedule or by hand, as its admin set it: its prompt as the page's text.",
     fields: [
       { name: "schedule", kind: "text" },
-      { name: "collector", kind: "select", options: ["yes", "no"] },
-      { name: "owner", kind: "person" },
       { name: "agent", kind: "select", options: ["claude", "codex"] },
+      { name: "mode", kind: "select", options: ROUTINE_MODES, required: true },
+      { name: "limit", kind: "text" },
+      { name: "state", kind: "select", options: ROUTINE_STATES, required: true },
     ],
     body: true,
     maxBody: 20_000,
-  },
-  {
-    name: "Suggestion",
-    description: "An edit the librarian suggests to another record. A person accepts or dismisses it.",
-    fields: [
-      { name: "target", kind: "record", required: true },
-      { name: "change", kind: "json", required: true },
-      { name: "reason", kind: "text", required: true },
-    ],
-    body: false,
-    maxBody: 0,
   },
 ];
 

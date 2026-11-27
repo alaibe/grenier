@@ -25,25 +25,29 @@ export {
   memberMay,
   type RecordShape,
   ROUTINE_MODES,
+  ROUTINE_STATES,
   recordProblem,
   secretIn,
   type TypeDef,
 } from "./records.ts";
 export {
   acts,
+  DEFAULT_ACTION_LIMIT,
   hasPrompt,
   isAction,
+  isRunning,
   mayCall,
   nextDue,
   READ_TOOLS,
   type RoutineMode,
   type RoutineShape,
   readsByName,
-  routineHash,
+  runSettings,
   STORE_TOOLS,
   sharedHash,
   taskFor,
 } from "./routines.ts";
 export { ftsMatch, searchWords } from "./search.ts";
 export { RECORD_PARTS, SEALED_PARTS, TEAM_PROTOCOL, TOPS, topName } from "./team.ts";
+export { ROUTINE_TEMPLATES, type RoutineTemplate } from "./templates.ts";
 export { newVaultKey, open, seal, VaultError } from "./vault.ts";

@@ -1,5 +1,6 @@
 import { ROUTINE_MODES } from "@grenier/core";
-import type { BuiltinView, LocalRun, RoutineView } from "@grenier/core/api";
+import type { LocalRun, RoutineView } from "@grenier/core/api";
+import { ROUTINE_TEMPLATES, type RoutineTemplate } from "@grenier/core/templates";
 import { AGENTS } from "../agents/index.ts";
 import { UsageError } from "../io.ts";
 import {
@@ -21,38 +22,39 @@ const routines = async (admin: Admin) => (await admin<{ routines: RoutineView[] 
 const routineNamed = async (admin: Admin, wanted: string) =>
   pick(await routines(admin), wanted, "routine", (routine) => routine.title);
 
-const approval = (routine: RoutineView) =>
-  !routine.approval
-    ? "not approved"
-    : routine.approval.current
-      ? `approved, ${routine.approval.mode}`
-      : "changed: approve it again";
+const how = (routine: RoutineView) => (routine.mode === "limited" ? `limited, ${routine.limit} a day` : routine.mode);
 
 const FORM = {
   prompt: { type: "string" },
   schedule: { type: "string" },
   agent: { type: "string" },
-  collector: { type: "boolean" },
+  mode: { type: "string" },
+  limit: { type: "string" },
 } as const;
 
-/** The form a routine is written with: what it does, when, and by which agent. */
-function form(flags: Record<string, unknown>, before?: RoutineView) {
+/** The form a routine is written with: when, by which agent, and what a run may do; else as it was, or its template. */
+function form(flags: Record<string, unknown>, before?: RoutineView | RoutineTemplate) {
   if (flags.agent !== undefined && !AGENTS.some((agent) => agent.agent === flags.agent)) {
     throw new UsageError(`--agent is ${AGENTS.map((agent) => agent.agent).join(" or ")}`);
   }
+  if (flags.mode !== undefined && !(ROUTINE_MODES as readonly unknown[]).includes(flags.mode)) {
+    throw new UsageError(`--mode is one of ${ROUTINE_MODES.join(", ")}`);
+  }
+  const was = before && "limit" in before ? before : undefined;
   return {
     schedule: (flags.schedule as string | undefined) ?? before?.schedule ?? "",
-    agent: (flags.agent as string | undefined) ?? before?.agent ?? "claude",
-    collector: (flags.collector as boolean | undefined) ?? before?.collector ?? false,
+    agent: (flags.agent as string | undefined) ?? was?.agent ?? "claude",
+    mode: (flags.mode as string | undefined) ?? before?.mode ?? "read-only",
+    ...(flags.limit !== undefined ? { limit: flags.limit } : was ? { limit: was.limit } : {}),
   };
 }
 
 export const ROUTINES: Group = {
-  summary: "Routines: work the team's machines run for it, each approved here first.",
+  summary: "Routines: work the team's machines run for it, as its admins set it.",
   commands: {
     list: {
       usage: "list",
-      summary: "List the team's routines, and how this machine approved each",
+      summary: "List the team's routines: when, which agent, what a run may do, running or paused",
       call: ({ admin }) => routines(admin),
       show: (all: RoutineView[]) =>
         table(
@@ -61,7 +63,8 @@ export const ROUTINES: Group = {
             routine.title,
             routine.schedule ?? "by hand",
             routine.agent,
-            approval(routine),
+            how(routine),
+            routine.state,
           ]),
         ) || "no routines",
     },
@@ -73,7 +76,7 @@ export const ROUTINES: Group = {
       show: (routine: RoutineView) =>
         [
           `# ${routine.title}`,
-          `${routine.schedule ?? "by hand"} · ${routine.agent} · ${approval(routine)}${routine.builtin ? ` · built in: ${routine.builtin}` : ""}`,
+          `${routine.schedule ?? "by hand"} · ${routine.agent} · ${how(routine)} · ${routine.state}`,
           "",
           routine.prompt,
         ].join("\n"),
@@ -104,83 +107,62 @@ export const ROUTINES: Group = {
           ]),
         ) || "no runs",
     },
-    builtins: {
-      usage: "builtins",
-      summary: "List the routines Grenier ships",
-      call: async ({ admin }) => (await admin<{ builtins: BuiltinView[] }>("GET", "/routines/builtins")).builtins,
-      show: (builtins: BuiltinView[]) =>
-        table(
-          builtins.map((builtin) => [builtin.id, builtin.title, builtin.schedule, builtin.local ? "no agent" : ""]),
-        ),
-    },
-    add: {
-      usage: "add <builtin>",
-      summary: "Add one of Grenier's routines to the team (admins)",
-      takes: [1, 1],
-      call: ({ admin, args }) => admin("POST", `/routines/builtin/${q(args[0] as string)}`),
-      show: (answer: { id: string }) => `Added ${answer.id}: approve it on each machine that runs it`,
+    templates: {
+      usage: "templates",
+      summary: "List the templates a new routine can start from",
+      call: async () => ROUTINE_TEMPLATES,
+      show: (templates: readonly RoutineTemplate[]) =>
+        table(templates.map((template) => [template.id, template.title, template.schedule, template.mode])),
     },
     new: {
-      usage: "new <name> [--prompt <file>|-] [--schedule <when>] [--agent claude|codex] [--collector]",
-      summary: 'Write a routine for the team (admins); a schedule reads "daily 05:00" or "mon 09:00"',
-      options: FORM,
-      takes: [1, 1],
-      call: ({ admin, args, flags, io }) =>
-        admin("POST", "/routines", {
-          title: args[0],
-          prompt: edited(io, flags.prompt, "", "prompt") ?? "",
-          ...form(flags),
-        }),
-      show: (answer: { id: string }) => `Wrote ${answer.id}: approve it on each machine that runs it`,
+      usage: `new [<name>] [--template <id>] [--prompt <file>|-] [--schedule <when>] [--agent claude|codex] [--mode ${ROUTINE_MODES.join("|")}] [--limit <actions>]`,
+      summary: 'Write a routine for the team (admins), from a template if given; a schedule reads "mon 09:00"',
+      options: { ...FORM, template: { type: "string" } },
+      takes: [0, 1],
+      call: ({ admin, args, flags, io }) => {
+        const template = flags.template === undefined ? undefined : templateNamed(String(flags.template));
+        const title = args[0] ?? template?.title;
+        if (!title) throw new UsageError("new names the routine, or gives --template");
+        const prompt =
+          flags.prompt === undefined && template ? template.prompt : (edited(io, flags.prompt, "", "prompt") ?? "");
+        return admin("POST", "/routines", { title, prompt, ...form(flags, template) });
+      },
+      show: (answer: { id: string }) => `Wrote ${answer.id}: it is running`,
     },
     edit: {
-      usage:
-        "edit <id|name> [--title <name>] [--prompt <file>|-] [--schedule <when>] [--agent claude|codex] [--collector]",
+      usage: `edit <id|name> [--title <name>] [--prompt <file>|-] [--schedule <when>] [--agent claude|codex] [--mode ${ROUTINE_MODES.join("|")}] [--limit <actions>]`,
       summary: "Change a routine (admins): its text in $EDITOR when nothing else is given",
       options: { ...FORM, title: { type: "string" } },
       takes: [1, 1],
       call: async ({ admin, args, flags, io }) => {
         const routine = await routineNamed(admin, args[0] as string);
-        const edit = editedUnless(io, flags, ["title", "schedule", "agent", "collector"], "prompt", routine.prompt);
+        const edit = editedUnless(io, flags, ["title", "schedule", "agent", "mode", "limit"], "prompt", routine.prompt);
         if (edit === null) return UNCHANGED;
-        const prompt = edit ?? routine.prompt;
         return admin("PUT", `/routines/${q(routine.id)}`, {
           title: flags.title ?? routine.title,
-          prompt,
+          prompt: edit ?? routine.prompt,
           ...form(flags, routine),
         });
       },
-      show: (answer: { id: string }) => `Saved ${answer.id}: each machine approves it again`,
+      show: (answer: { id: string }) => `Saved ${answer.id}`,
     },
-    approve: {
-      usage: `approve <id|name> [--mode ${ROUTINE_MODES.join("|")}] [--limit <actions>]`,
-      summary: "Let this machine run a routine, read-only unless --mode allows more",
-      options: { mode: { type: "string" }, limit: { type: "string" } },
-      takes: [1, 1],
-      call: async ({ admin, args, flags }) => {
-        const mode = (flags.mode as string | undefined) ?? "read-only";
-        if (!(ROUTINE_MODES as readonly string[]).includes(mode)) {
-          throw new UsageError(`--mode is one of ${ROUTINE_MODES.join(", ")}`);
-        }
-        const routine = await routineNamed(admin, args[0] as string);
-        await admin("POST", `/routines/${q(routine.id)}/approve`, {
-          mode,
-          ...(flags.limit ? { limit: Number(flags.limit) } : {}),
-        });
-        return { approved: routine.title, mode };
-      },
-      show: (answer: { approved: string; mode: string }) => `Approved ${answer.approved}, ${answer.mode}`,
-    },
-    stop: onOne({
-      usage: "stop <id|name>",
-      summary: "Stop running a routine on this machine; the team keeps it",
+    pause: onOne({
+      usage: "pause <id|name>",
+      summary: "Pause a routine (admins): no machine runs it until it is resumed",
       find: routineNamed,
-      send: (admin, routine) => admin("DELETE", `/routines/${q(routine.id)}/approve`),
-      done: (routine) => `This machine no longer runs ${routine.title}`,
+      send: (admin, routine) => admin("POST", `/routines/${q(routine.id)}/pause`),
+      done: (routine) => `Paused ${routine.title}`,
+    }),
+    resume: onOne({
+      usage: "resume <id|name>",
+      summary: "Set a paused routine running again (admins)",
+      find: routineNamed,
+      send: (admin, routine) => admin("POST", `/routines/${q(routine.id)}/resume`),
+      done: (routine) => `${routine.title} is running`,
     }),
     run: {
       usage: "run <id|name> [<task…>]",
-      summary: "Run a routine here now, with a task of its own if given",
+      summary: "Run a running routine here now, with a task of its own if given",
       takes: [1, 99],
       call: async ({ admin, args }) => {
         const [wanted, ...task] = args;
@@ -199,3 +181,9 @@ export const ROUTINES: Group = {
     }),
   },
 };
+
+function templateNamed(wanted: string): RoutineTemplate {
+  const found = ROUTINE_TEMPLATES.find((template) => template.id === wanted);
+  if (!found) throw new UsageError(`--template is ${ROUTINE_TEMPLATES.map((template) => template.id).join(" or ")}`);
+  return found;
+}
