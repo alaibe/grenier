@@ -109,15 +109,18 @@ export class TeamLink {
         // A message this version does not know.
       }
     });
-    socket.addEventListener("close", () => {
-      this.#socket = null;
+    let dropped = false;
+    const drop = () => {
+      if (dropped) return;
+      dropped = true;
+      if (this.#socket === socket) this.#socket = null;
       if (this.#closed) return;
       this.#reconnect = setTimeout(() => this.#connect(), this.#retry);
       this.#retry = Math.min(this.#retry * 2, 60_000);
-    });
-    socket.addEventListener("error", () => {
-      socket.close();
-    });
+    };
+    socket.addEventListener("close", drop);
+    // Node's WebSocket fires no close after a refused handshake, and close() there fires error again.
+    socket.addEventListener("error", drop);
   }
 
   /** Tells the store this machine's state over the live connection, else over HTTP. */
