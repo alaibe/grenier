@@ -150,7 +150,7 @@ describe("creating the team store from the app", () => {
     await expect(deployTeamStore(deps, { token: TOKEN, name: "grenier-team", member: "ada" })).rejects.toThrow(
       "it answered 400: a name takes letters, digits and . _ -",
     );
-    expect(asked).toBe(60);
+    expect(asked).toBe(18);
   });
 
   it("says what Cloudflare refused, never the token", async () => {
