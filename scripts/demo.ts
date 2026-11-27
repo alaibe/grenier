@@ -151,57 +151,32 @@ const link = (id: string) => ({ kind: "record" as const, ref: id });
 
 const project = await record({
   id: "5c3f0a1e9b2d4c6e8a7f1b3d",
-  type: "Project",
+  type: "Doc",
   title: "Checkout",
-  folder: "Projects",
-  fields: { owner: "marie", status: "active", repos: [repoIdentity] },
-  body: "The new checkout: one page, retries that never charge twice, and Apple Pay by January.\n\n## Goals\n\n- Fewer abandoned carts\n- No double charge, ever\n- Apple Pay before the sales",
+  folder: "checkout",
+  body: "The new checkout: one page, retries that never charge twice, and Apple Pay by January.\n\n## Goals\n\n- Fewer abandoned carts\n- No double charge, ever\n- Apple Pay before the sales\n\n| Who | Takes |\n| --- | --- |\n| Sam | Retries on the queue |\n| Léa | Apple Pay |",
 });
 const decision = await record({
-  type: "Decision",
+  type: "Doc",
   title: "Retry failed payments from a queue",
-  folder: "Projects/Checkout/Decisions",
-  fields: { owner: "marie", date: "2026-11-18", reason: "A retry in the request doubled a charge twice last month." },
-  body: "Failed payments go to the payments queue and are retried there, with the attempt number as the idempotency key.",
+  folder: "Decisions",
+  body: "Failed payments go to the payments queue and are retried there, with the attempt number as the idempotency key.\n\n**Why:** a retry in the request doubled a charge twice last month. Marie, 2026-11-18.",
   links: [link(project)],
 });
 await record({
   id: "8e2b6d4f1a3c5e7b9d0f2a4c",
-  type: "Meeting",
-  title: "Checkout weekly",
-  folder: "Projects/Checkout/Meetings",
+  type: "Doc",
+  title: "Checkout weekly, 2026-11-18",
+  folder: "checkout/Meetings",
   author: "lea",
   device: "sam-thinkpad",
-  fields: { date: "2026-11-18", people: ["marie", "sam", "lea", "anthony"] },
   body: `Marie, Sam, Léa and Anthony.\n\n- Payments retried in the request doubled two charges: [Retry failed payments from a queue](record:${decision}).\n- Léa takes Apple Pay; Sam moves the retries.\n- Anthony keeps the dependencies up to date with the routine.`,
   links: [link(project), link(decision)],
 });
 await record({
-  type: "Task",
-  title: "Move payment retries to the queue",
-  author: "lea",
-  device: "sam-thinkpad",
-  fields: { status: "doing", owner: "sam" },
-  links: [link(project), link(decision)],
-});
-await record({
-  type: "Task",
-  title: "Add Apple Pay",
-  author: "lea",
-  device: "lea-pc",
-  fields: { status: "to-do", owner: "lea" },
-  links: [link(project)],
-});
-await record({
-  type: "Task",
-  title: "One-page checkout",
-  fields: { status: "done", owner: "marie" },
-  links: [link(project)],
-});
-await record({
   type: "Doc",
   title: "How to run checkout locally",
-  folder: "Onboarding",
+  folder: "checkout/Runbooks",
   body: "## Setup\n\n1. `pnpm install`\n2. Copy `.env.example` to `.env`\n3. `pnpm dev`, then open http://localhost:3000\n\nPayments use the test keys of the sandbox; **never** a live key.",
   links: [link(project)],
 });
@@ -293,7 +268,7 @@ await record({
     collector: "yes",
     tools: ["mcp__granola__list_meetings", "mcp__granola__get_transcript"],
   },
-  body: "Gather today's meeting transcripts as Meeting records, linked to their project.",
+  body: "Gather today's meeting transcripts as pages in Me/Meetings, one per meeting.",
 });
 await record({
   type: "Task",
