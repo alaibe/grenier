@@ -1,12 +1,11 @@
-use std::sync::Mutex;
-
 use serde::Serialize;
 use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::daemon::{grenier_home, start_daemon, stop_daemon, Sidecar};
+use crate::daemon::{grenier_home, start_daemon, stop_daemon, Sidecar, Stop};
 
 mod daemon;
+mod feedback;
 #[cfg(target_os = "macos")]
 mod menu_bar;
 mod updater;
@@ -61,11 +60,13 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(Sidecar(Mutex::new(None)))
+        .manage(Sidecar::default())
         .invoke_handler(tauri::generate_handler![
             daemon_connection,
             pick_folder,
+            feedback::open_feedback,
             usage::usage_page_view,
             usage::usage_enabled,
             usage::usage_set_enabled
@@ -102,7 +103,7 @@ pub fn run() {
         #[cfg(target_os = "macos")]
         menu_bar::on_run_event(handle, &event);
         if let RunEvent::Exit = event {
-            stop_daemon(handle);
+            stop_daemon(handle, Stop::Own);
         }
     });
 }

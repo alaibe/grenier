@@ -40,6 +40,8 @@ export function copiedLines(text: string, source: string): number {
   let longest = 0;
   for (const [index, line] of ours.entries()) {
     for (const start of at.get(line) ?? []) {
+      // A run that the lines before also match was counted from its own start: repeated lines stay quadratic, not cubic.
+      if (index > 0 && start > 0 && ours[index - 1] === theirs[start - 1]) continue;
       let run = 1;
       while (index + run < ours.length && ours[index + run] === theirs[start + run]) run++;
       longest = Math.max(longest, run);

@@ -56,3 +56,21 @@ it("schedules only running routines: a paused one's time passes without a task",
   expect(((await pushed.json()) as { applied: unknown[] }).applied).toHaveLength(2);
   expect(await filed(2 * HOUR)).toEqual(["on"]);
 });
+
+it("files a task whose title fits, however long its routine's", async () => {
+  expect((await call("/api/setup", { body: { member: "ada", device: "ada-mbp" } })).status).toBe(201);
+  const long = routine("long", "running");
+  long.record.title = "x".repeat(300);
+  expect(
+    ((await (await call("/api/changes", { body: { changes: [long] } })).json()) as { applied: unknown[] }).applied,
+  ).toHaveLength(1);
+  expect(await filed(2 * HOUR)).toEqual(["long"]);
+  const { records } = (await (
+    await call("/api/changes?after=0&limit=500", { method: "GET", ahead: 2 * HOUR })
+  ).json()) as {
+    records: { type: string; title: string }[];
+  };
+  const task = records.find((record) => record.type === "Task");
+  expect(task?.title.length).toBe(300);
+  expect(task?.title).toMatch(/^x+, \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+});

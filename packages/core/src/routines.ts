@@ -9,11 +9,11 @@ export const READ_TOOLS = ["Read", "Grep", "Glob", "LS", "NotebookRead", "TodoWr
 /** Grenier's own tools: a run reads the store and writes its output there. */
 export const STORE_TOOLS = ["mcp__grenier__get", "mcp__grenier__set"] as const;
 
-/** An MCP tool whose name says it only reads: list_, get_, search_ and the like. */
+/** An MCP tool whose name says it only reads: list_, get_, search_ and the like; a query or a fetch can write. */
 export function readsByName(tool: string): boolean {
   if (!tool.startsWith("mcp__")) return false;
   const name = tool.split("__").at(-1) ?? "";
-  return /^(get|list|search|read|fetch|query|find|view|show)(_|[A-Z]|$)/.test(name);
+  return /^(get|list|search|read|find|view|show)(_|[A-Z]|$)/.test(name);
 }
 
 /** Codex's patch tool, which its read-only sandbox does not hold back. */

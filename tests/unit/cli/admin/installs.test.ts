@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sharedHash } from "@grenier/core";
 import type { StoreDeps } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
@@ -135,6 +136,52 @@ describe("adding to the team from the app", () => {
     expect(server?.fields).toEqual({
       config: { type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer {api_key}" } },
       credentials: ["api_key"],
+    });
+  });
+});
+
+describe("installing what the app showed", () => {
+  let store: Store;
+  let deps: StoreDeps;
+  let home: string;
+
+  beforeEach(async () => {
+    store = openSqliteStore(":memory:");
+    deps = await storeDeps(store);
+    home = mkdtempSync(join(tmpdir(), "grenier-catalog-"));
+    await store.state.set("team_member", "ada");
+  });
+
+  afterEach(async () => {
+    await store.close();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("refuses a version that changed since the page showed it, and pins the one it showed", async () => {
+    const route = testAdmin(store, home, { storeDeps: async () => deps }).reply;
+    await route("POST", "/installs/skill", {
+      name: "release-notes",
+      description: "Writes notes.",
+      instructions: "One.",
+    });
+    const [shown] = await store.records.list({ tops: ["team"], type: "Skill" });
+    if (!shown) throw new Error("no skill shared");
+    const seen = await sharedHash(shown);
+
+    const manifest = "---\nname: release-notes\ndescription: Writes notes.\n---\nTwo.\n";
+    expect((await route("PUT", `/installs/${shown.id}/skill`, { manifest }))?.status).toBe(200);
+    expect(await route("POST", `/installs/${shown.id}`, { hash: seen })).toEqual({
+      status: 409,
+      body: { error: "release-notes changed since you opened it: look at it again, then install it" },
+    });
+    expect(await store.approvals.get(shown.id, "skill")).toBeUndefined();
+
+    const now = await store.records.get(shown.id);
+    if (!now) throw new Error("the skill is gone");
+    const current = await sharedHash(now);
+    expect(await route("POST", `/installs/${shown.id}`, { hash: current })).toMatchObject({
+      status: 200,
+      body: { hash: current },
     });
   });
 });

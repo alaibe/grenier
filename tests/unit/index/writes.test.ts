@@ -14,6 +14,14 @@ describe("a member, not an admin", () => {
     );
     await expect(retire(deps, fact.id)).resolves.toBe(true);
   });
+
+  it("is refused a routine of their own in Me, as the team store would refuse it", async () => {
+    await store.state.set("team_role", "member");
+    const fields = { mode: "on", state: "running", schedule: "hourly" };
+    await expect(
+      remember(deps, PERSON, null, { type: "Routine", title: "Mine", body: "Run.", fields }),
+    ).rejects.toThrow("a routine and its tasks live in Team");
+  });
 });
 
 describe("where a record goes", () => {

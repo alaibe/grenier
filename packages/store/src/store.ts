@@ -129,6 +129,14 @@ export interface RecordStore {
   search(terms: readonly string[], tops: readonly string[], limit: number): Promise<{ id: string; score: number }[]>;
   /** Every vector of these top folders' records made by `model`, without the retired ones. */
   vectors(tops: readonly string[], model: string): Promise<{ id: string; vector: Float32Array }[]>;
+  /** Up to `limit` of these top folders' records, without the retired ones, that have no vector made by `model`. */
+  unembedded(
+    tops: readonly string[],
+    model: string,
+    limit: number,
+  ): Promise<{ id: string; title: string; body: string }[]>;
+  /** Sets a record's vector, leaving the record as it is. */
+  embed(id: string, embedding: { model: string; vector: Float32Array }): Promise<void>;
   hit(id: string): Promise<void>;
   /** The number the team store gave the record, once it took it. */
   setVersion(id: string, version: number): Promise<void>;

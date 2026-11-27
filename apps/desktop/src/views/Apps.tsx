@@ -41,7 +41,17 @@ export function Apps() {
       }
     >
       <div className="grid gap-4">
-        <Problem error={apps.error ?? clients.error ?? action.problem} />
+        <Problem
+          error={apps.error ?? clients.error ?? action.problem}
+          retry={
+            apps.error || clients.error
+              ? () => {
+                  apps.reload();
+                  clients.reload();
+                }
+              : undefined
+          }
+        />
         {created && (
           <Notice
             kind="accent"

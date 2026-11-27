@@ -15,6 +15,15 @@ describe("copiedLines", () => {
     expect(copiedLines("See:\n  b();\n  c();\n\n  d();\nThen more.", source)).toBe(3);
     expect(copiedLines("d();\nc();", source)).toBe(1);
     expect(copiedLines("Nothing in common.", source)).toBe(0);
+    expect(copiedLines("x\na();\nb();\nx\nb();\nc();\nd();", "a();\nb();\nc();\nd();\nb();")).toBe(3);
+  });
+
+  it("stays fast on thousands of repeated lines", () => {
+    const repeated = Array.from({ length: 3000 }, () => "}").join("\n");
+    const started = performance.now();
+    expect(copiedLines(repeated, repeated)).toBe(3000);
+    expect(copiedLines(repeated.slice(0, 2999), repeated)).toBe(1500);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });
 

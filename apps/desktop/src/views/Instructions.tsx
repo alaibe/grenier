@@ -70,7 +70,7 @@ function InstructionEditor({ file, changed }: { file: InstructionFile; changed: 
 
   useSaveCommand("instructions.save", "Save the file", true, () => dirty && save());
 
-  if (current.error) return <Problem error={current.error} />;
+  if (current.error) return <Problem error={current.error} retry={current.reload} />;
   if (!current.data || text === null) return <Skeleton rows={6} shape="text" />;
   return (
     <article className="flex h-full min-w-0 flex-col overflow-y-auto" data-verb="save">
@@ -185,7 +185,7 @@ export function Instructions({ item, go }: ViewProps) {
     <>
       {searchField}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Problem error={files.error} />
+        <Problem error={files.error} retry={files.reload} />
         {files.error ? null : !files.data ? (
           <Skeleton rows={8} />
         ) : (

@@ -234,8 +234,9 @@ export async function runDaemon(io: Io): Promise<number> {
   const ignore = () => {};
   process.on("SIGTERM", ignore);
   process.on("SIGINT", ignore);
+  // The run going on ends first, so its result still reaches the store and the team.
+  await runner.stop();
   link?.stop();
-  runner.stop();
   clearInterval(pruneTimer);
   const closed = new Promise<void>((resolve) => server.close(() => resolve()));
   // A stream still open is cut after a grace period, so stopping never waits for an agent to finish.

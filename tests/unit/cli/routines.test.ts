@@ -45,6 +45,14 @@ describe("a routine written in the app", () => {
     expect(() => routineFromForm({ title: "", prompt: "y" })).toThrow("a name and what it does");
   });
 
+  it("keeps Claude Code when the admin chose it, so a Codex machine runs it with Claude Code", () => {
+    expect(routineFromForm({ title: "x", prompt: "y", agent: "claude" }).fields).toEqual({
+      agent: "claude",
+      mode: "read-only",
+    });
+    expect(() => routineFromForm({ title: "x", prompt: "y", agent: "gemini" })).toThrow("an agent is claude or codex");
+  });
+
   it("keeps one text per routine in Team, changed in place, running or paused as it was", async () => {
     const form = routineFromForm({ title: "Tidy", prompt: "Tidy up.", agent: "codex" });
     const first = await addRoutine(deps, form);

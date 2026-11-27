@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react";
 import { useCallback } from "react";
 import { api } from "../api.ts";
 import { ago, exact } from "../format.ts";
+import { PageCommands } from "../shell/commands.tsx";
 import { stateTag } from "../states.ts";
 import { Button } from "../ui/button.tsx";
 import { useConfirm } from "../ui/dialog.tsx";
@@ -19,7 +20,7 @@ export function Machines({ me, removed }: { me: TeamMe | null; removed: (self: b
   );
   const action = useAction();
   const { ask, dialog } = useConfirm();
-  if (machines.error) return <Problem error={machines.error} />;
+  if (machines.error) return <Problem error={machines.error} retry={machines.reload} />;
   if (!machines.data) return null;
   const mayRemove = (machine: Machine) => me !== null && (me.role === "admin" || machine.member === me.name);
   const remove = (machine: Machine) =>
@@ -30,8 +31,26 @@ export function Machines({ me, removed }: { me: TeamMe | null; removed: (self: b
       removed(self);
       return `Removed ${machine.name}`;
     });
+  const confirmRemove = (machine: Machine) =>
+    ask({
+      title: `Remove ${machine.name}?`,
+      body:
+        machine.id === me?.deviceId
+          ? "It is the machine you are on: removing it signs it out of the team, and it syncs nothing after."
+          : "It is signed out of the team. Joining again takes a new invite.",
+      action: "Remove the machine",
+      run: () => remove(machine),
+    });
   return (
     <Section heading title="Machines">
+      <PageCommands
+        commands={machines.data.filter(mayRemove).map((machine) => ({
+          id: `machine.remove:${machine.id}`,
+          label: `Remove ${machine.name}…`,
+          icon: Trash2,
+          run: () => confirmRemove(machine),
+        }))}
+      />
       <Problem error={action.problem} />
       <Table
         label="Machines"
@@ -71,17 +90,7 @@ export function Machines({ me, removed }: { me: TeamMe | null; removed: (self: b
                   size="sm"
                   icon={Trash2}
                   disabled={action.busy !== null}
-                  onClick={() =>
-                    ask({
-                      title: `Remove ${machine.name}?`,
-                      body:
-                        machine.id === me?.deviceId
-                          ? "It is the machine you are on: removing it signs it out of the team, and it syncs nothing after."
-                          : "It is signed out of the team. Joining again takes a new invite.",
-                      action: "Remove the machine",
-                      run: () => remove(machine),
-                    })
-                  }
+                  onClick={() => confirmRemove(machine)}
                 >
                   Remove
                 </Button>

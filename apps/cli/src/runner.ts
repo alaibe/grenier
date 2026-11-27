@@ -53,6 +53,14 @@ interface Current {
   stop: AbortController;
 }
 
+export interface RunInput {
+  routine: FullRecord;
+  task?: FullRecord;
+  /** By hand: what to do this time, in place of a task. */
+  prompt?: string;
+  trigger: "schedule" | "manual";
+}
+
 export interface RunOutcome {
   id: string;
   status: "done" | "failed" | "cut";
@@ -110,6 +118,9 @@ export class Runner {
   #timer: ReturnType<typeof setInterval> | undefined;
   #lastClaim = 0;
   #toldAt = 0;
+  #stopping = false;
+  /** The current run, to its end: stopping waits for it. */
+  #ended: Promise<unknown> = Promise.resolve();
   readonly probes: Probes;
   readonly spawner: Spawner;
   readonly now: () => number;
@@ -126,8 +137,12 @@ export class Runner {
     void this.tick();
   }
 
-  stop(): void {
+  /** Takes no more work, stops the run going on and waits for it to end, while the store is still open. */
+  async stop(): Promise<void> {
+    this.#stopping = true;
     if (this.#timer) clearInterval(this.#timer);
+    this.#current?.stop.abort();
+    await this.#ended;
   }
 
   get running(): boolean {
@@ -143,7 +158,15 @@ export class Runner {
 
   /** Checks the rules, says so when the state changed, and asks for work when available. */
   async tick(force = false): Promise<void> {
-    if (!this.deps.team()) return;
+    try {
+      await this.#tick(force);
+    } catch (error) {
+      this.deps.log(`grenier: could not check for routine work: ${(error as Error).message}`);
+    }
+  }
+
+  async #tick(force: boolean): Promise<void> {
+    if (this.#stopping || !this.deps.team()) return;
     const now = await this.state();
     const changed = !this.#last || this.#last.state !== now.state || Math.abs(this.#last.room - now.room) > 0.2;
     if (changed || this.now() - this.#toldAt >= TELL_EVERY) {
@@ -183,7 +206,11 @@ export class Runner {
     };
     if (!isRunning(routine)) return decline("it is paused");
     if (!hasPrompt(routine)) return decline("it says nothing to do yet");
-    await this.run({ routine, task, trigger: "schedule" });
+    try {
+      await this.run({ routine, task, trigger: "schedule" });
+    } catch (error) {
+      await decline((error as Error).message);
+    }
   }
 
   /** The guard the proxy holds the current run to; null for any other session. */
@@ -206,7 +233,7 @@ export class Runner {
       },
       hold: async (signal) => {
         const until = this.now() + HOLD_LIMIT;
-        while (current.cut === null && !signal.aborted) {
+        while (current.cut === null && !signal.aborted && !current.stop.signal.aborted) {
           const rules = this.deps.config();
           const now = rules.machine.routines ? await availability(rules.machine, this.probes, false) : null;
           if (now?.state === "available") return true;
@@ -220,22 +247,35 @@ export class Runner {
   }
 
   /** One run of a routine, as its text says now: for a task, or by hand. */
-  async run(input: {
-    routine: FullRecord;
-    task?: FullRecord;
-    /** By hand: what to do this time, in place of a task. */
-    prompt?: string;
-    trigger: "schedule" | "manual";
-  }): Promise<RunOutcome> {
+  async run(input: RunInput): Promise<RunOutcome> {
+    if (this.#stopping) throw new Error("the daemon is stopping");
     if (this.#current) throw new Error("a run is going on this machine already");
-    const { routine, task } = input;
-    const { mode, limit } = runSettings(routine.fields);
-    const store = this.deps.store;
+    const { mode, limit } = runSettings(input.routine.fields);
     const config = this.deps.config();
-    const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : config.machine.agent;
+    // Taken before the first await, so a second run is refused and the guard stays this run's.
+    const current: Current = {
+      runId: newId(),
+      sessionId: newSessionId(),
+      routineId: input.routine.id,
+      agent: typeof input.routine.fields.agent === "string" ? input.routine.fields.agent : config.machine.agent,
+      mode,
+      limit,
+      usedToday: 0,
+      actions: 0,
+      cut: null,
+      stop: new AbortController(),
+    };
+    this.#current = current;
+    const going = this.#run(input, current, config);
+    this.#ended = going.catch(() => undefined);
+    return going;
+  }
+
+  async #run(input: RunInput, current: Current, config: Config): Promise<RunOutcome> {
+    const { routine, task } = input;
+    const { runId, sessionId, agent, mode } = current;
+    const store = this.deps.store;
     const cwd = config.machine.workdir;
-    const runId = newId();
-    const sessionId = newSessionId();
     const startedAt = this.now();
     const team = this.deps.team();
     const report = (fields: Record<string, unknown>) =>
@@ -251,46 +291,34 @@ export class Runner {
           }).catch(() => undefined)
         : Promise.resolve(undefined);
 
-    // The run is listed before anything can fail, so whoever waits for it sees it end.
-    await store.runs.add({
-      id: runId,
-      routineId: routine.id,
-      taskId: task?.id ?? null,
-      sessionId,
-      trigger: input.trigger,
-      status: "running",
-      startedAt,
-      endedAt: null,
-      actions: 0,
-      result: null,
-    });
-    if (!cwd || !existsSync(cwd)) {
-      return this.#finish(
-        runId,
-        { status: "failed", result: "this machine has no work folder: set it in Settings", cost: 0, actions: 0 },
-        report,
-        task,
-      );
-    }
-    const midnight = new Date(startedAt).setHours(0, 0, 0, 0);
-    const usedToday = (await store.runs.list({ routineId: routine.id, since: midnight })).reduce(
-      (total, run) => total + run.actions,
-      0,
-    );
-    this.#current = {
-      runId,
-      sessionId,
-      routineId: routine.id,
-      agent,
-      mode,
-      limit,
-      usedToday,
-      actions: 0,
-      cut: null,
-      stop: new AbortController(),
-    };
     let renew: ReturnType<typeof setInterval> | undefined;
     try {
+      // The run is listed before anything can fail, so whoever waits for it sees it end.
+      await store.runs.add({
+        id: runId,
+        routineId: routine.id,
+        taskId: task?.id ?? null,
+        sessionId,
+        trigger: input.trigger,
+        status: "running",
+        startedAt,
+        endedAt: null,
+        actions: 0,
+        result: null,
+      });
+      if (!cwd || !existsSync(cwd)) {
+        return await this.#finish(
+          runId,
+          { status: "failed", result: "this machine has no work folder: set it in Settings", cost: 0, actions: 0 },
+          report,
+          task,
+        );
+      }
+      const midnight = new Date(startedAt).setHours(0, 0, 0, 0);
+      current.usedToday = (await store.runs.list({ routineId: routine.id, since: midnight })).reduce(
+        (total, run) => total + run.actions,
+        0,
+      );
       const repo = await repoResolver(cwd)(undefined).catch(() => null);
       await store.sessions.create({
         id: sessionId,
@@ -321,17 +349,17 @@ export class Runner {
         .join("\n\n");
       const proxy = sessionProxy(this.deps.port, sessionId);
       const env: NodeJS.ProcessEnv = { ...process.env, ...proxy.env, GRENIER_RUN_TOP: "team" };
-      const signal = this.#current.stop.signal;
+      const signal = current.stop.signal;
       const started = agentNamed(agent).routine(prompt, mode, proxy.openai);
       const outcome = await this.spawner(started.command, started.args, { cwd, env, signal });
-      const cut = this.#current.cut;
+      const cut = current.cut;
       const result = cut
         ? `Cut off: it called ${cut}, which this machine does not allow it.`
         : resultText(outcome.text);
       const cost = (await store.usage.list({ sessionId })).reduce((total, row) => total + (row.cost ?? 0), 0);
       return await this.#finish(
         runId,
-        { status: cut ? "cut" : outcome.code === 0 ? "done" : "failed", result, cost, actions: this.#current.actions },
+        { status: cut ? "cut" : outcome.code === 0 ? "done" : "failed", result, cost, actions: current.actions },
         report,
         task,
       );

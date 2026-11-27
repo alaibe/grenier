@@ -2,6 +2,7 @@ import { isRunning, nextDue, ROUTINE_MODES, type RoutineMode, runSettings } from
 import type { RoutineView } from "@grenier/core/api";
 import { newRecord, type StoreDeps, write } from "@grenier/index";
 import { type FullRecord, type Store, toInput } from "@grenier/store";
+import { AGENTS } from "./agents/index.ts";
 import { Refusal } from "./io.ts";
 
 /** What every routine command says without a team: routines exist only in one. */
@@ -36,6 +37,10 @@ export function routineFromForm(input: Record<string, unknown>): {
   }
   const mode = String(input.mode ?? "read-only") as RoutineMode;
   if (!ROUTINE_MODES.includes(mode)) throw new Refusal(`a mode is one of ${ROUTINE_MODES.join(", ")}`);
+  const agent = input.agent === undefined || input.agent === "" ? undefined : String(input.agent);
+  if (agent !== undefined && !AGENTS.some((known) => known.agent === agent)) {
+    throw new Refusal(`an agent is ${AGENTS.map((known) => known.agent).join(" or ")}`);
+  }
   const limit = input.limit === undefined || input.limit === "" ? undefined : Number(input.limit);
   if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
     throw new Refusal("a limit is a number of actions a day, 1 or more");
@@ -45,7 +50,7 @@ export function routineFromForm(input: Record<string, unknown>): {
     prompt,
     fields: {
       ...(schedule ? { schedule } : {}),
-      ...(input.agent === "codex" ? { agent: "codex" } : {}),
+      ...(agent ? { agent } : {}),
       mode,
       ...(mode === "limited" && limit !== undefined ? { limit } : {}),
     },

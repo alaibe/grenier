@@ -10,6 +10,7 @@ import {
   VaultError,
 } from "@grenier/core";
 import type { Change, ChangesAnswer, StoredRecord } from "@grenier/core/team";
+import { localDate } from "@grenier/log";
 import { type FullRecord, type OutboxEntry, type RecordInput, type Store, toInput } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
 import { newId, type StoreDeps, StoreUseError } from "./records.ts";
@@ -280,7 +281,7 @@ async function pushUsage(deps: SyncDeps): Promise<void> {
   const runs = await deps.store.runs.list({ since, limit: 10_000 });
   const totals = new Map<string, UsageTotal>();
   const totalFor = (ts: number, repo: string): UsageTotal => {
-    const day = new Date(ts).toISOString().slice(0, 10);
+    const day = localDate(ts);
     const key = `${day}\u0000${repo}`;
     const total = totals.get(key) ?? {
       day,

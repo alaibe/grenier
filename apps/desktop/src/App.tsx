@@ -1,15 +1,26 @@
 import type { Overview, Synced } from "@grenier/core/api";
-import { ArrowLeft, ArrowRight, CircleHelp, Command as CommandIcon, FilePlus, Plus, RefreshCw } from "lucide-react";
-import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CircleHelp,
+  Command as CommandIcon,
+  FilePlus,
+  Flag,
+  Lightbulb,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
+import { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityProvider } from "./activity.tsx";
-import { api, sendPageView } from "./api.ts";
+import { api, openFeedback, sendPageView } from "./api.ts";
 import { since } from "./format.ts";
 import { Banner } from "./shell/banner.tsx";
 import { type Command, CommandProvider, useCommands } from "./shell/commands.tsx";
+import { CrashBoundary, Crashed } from "./shell/crashed.tsx";
 import { Palette } from "./shell/palette.tsx";
 import { goLetters, PLACE_ICONS, PLACES, placeKeys } from "./shell/places.ts";
 import { usePrefs } from "./shell/prefs.ts";
-import { ItemTitleProvider, type RegionName } from "./shell/regions.tsx";
+import { Detail, ItemTitleProvider, type RegionName } from "./shell/regions.tsx";
 import { useRouter } from "./shell/router.ts";
 import { Shortcuts } from "./shell/shortcuts.tsx";
 import { Sidebar } from "./shell/sidebar.tsx";
@@ -36,8 +47,8 @@ import { useStoreUpdate } from "./views/TeamJoin.tsx";
 export interface ViewProps {
   /** What the route names in this place: a record, or `new` for the form that makes one. */
   item: string | undefined;
-  /** Goes to a place, and to an item in it. */
-  go: (place: ViewName, item?: string) => void;
+  /** Goes to a place, and to an item in it; `replace` moves through items without a history entry each. */
+  go: (place: ViewName, item?: string, options?: { replace?: boolean }) => void;
   /** Tells the shell that something it shows (the records waiting to sync) may have changed. */
   changed: () => void;
   /** A member, not an admin: they read the team's pages, write in Me, and run what an admin shares. */
@@ -70,7 +81,19 @@ export function App() {
     <CommandProvider>
       <ActivityProvider>
         <ToastProvider>
-          <Shell />
+          <CrashBoundary
+            fallback={(error, retry) => (
+              <div className="grid h-dvh place-items-center bg-bg p-6">
+                <Crashed
+                  error={error}
+                  retry={retry}
+                  what="Grenier's window hit an error. Your pages and settings are not affected."
+                />
+              </div>
+            )}
+          >
+            <Shell />
+          </CrashBoundary>
           <TooltipLayer />
         </ToastProvider>
       </ActivityProvider>
@@ -129,10 +152,14 @@ function Shell() {
     [runSync],
   );
 
+  // A new place shows the overview again; moving between the items of one place leaves it be.
+  const at = useRef(route.place);
+  at.current = route.place;
   const go = useCallback(
-    (place: ViewName, next?: string) => {
-      navigate({ place, ...(next ? { item: next } : {}) });
-      reloadOverview();
+    (place: ViewName, next?: string, options?: { replace?: boolean }) => {
+      const elsewhere = place !== at.current;
+      navigate({ place, ...(next ? { item: next } : {}) }, options);
+      if (elsewhere) reloadOverview();
     },
     [navigate, reloadOverview],
   );
@@ -192,6 +219,18 @@ function Shell() {
       { id: "region-next", label: "Next region", keys: "f6", run: () => cycleRegions(1) },
       { id: "region-back", label: "Previous region", keys: "shift+f6", run: () => cycleRegions(-1) },
       { id: "shortcuts", label: "Keyboard shortcuts", icon: CircleHelp, keys: "?", run: () => setShortcuts(true) },
+      {
+        id: "report-problem",
+        label: "Report a problem",
+        icon: Flag,
+        run: () => void openFeedback("problem").catch(() => {}),
+      },
+      {
+        id: "suggest-feature",
+        label: "Suggest a feature",
+        icon: Lightbulb,
+        run: () => void openFeedback("feature").catch(() => {}),
+      },
     ];
   }, [go, back, forward, team, role, syncNow]);
   useCommands(commands, "shell");
@@ -250,16 +289,30 @@ function Shell() {
           update={update}
         />
         <Sidebar current={route.place} go={go} />
-        <View
+        <CrashBoundary
           key={route.place}
-          item={route.item}
-          go={go}
-          changed={reloadOverview}
-          member={overview.data?.role === "member"}
-          team={overview.data ? team : undefined}
-          admin={Boolean(team) && overview.data?.role !== "member"}
-          overview={overview}
-        />
+          fallback={(error, retry) => (
+            <Detail title={SCREENS[route.place].title}>
+              <div className="px-6 pt-6">
+                <Crashed
+                  error={error}
+                  retry={retry}
+                  what="This screen hit an error. Your pages and settings are not affected."
+                />
+              </div>
+            </Detail>
+          )}
+        >
+          <View
+            item={route.item}
+            go={go}
+            changed={reloadOverview}
+            member={overview.data?.role === "member"}
+            team={overview.data ? team : undefined}
+            admin={Boolean(team) && overview.data?.role !== "member"}
+            overview={overview}
+          />
+        </CrashBoundary>
         <StatusBar overview={overview.data} error={overview.error} go={go} retry={reloadOverview} />
         {palette && <Palette openPage={(id) => go("knowledge", id)} onClose={() => setPalette(false)} />}
         {shortcuts && <Shortcuts onClose={() => setShortcuts(false)} />}

@@ -44,6 +44,14 @@ export function Input({ mono = false, ...props }: Plain<"input"> & { mono?: bool
   return <input className={mono ? "input input-mono" : "input"} {...useField()} {...props} />;
 }
 
+/**
+ * An item's name, typed where it reads: the item name's type with no box, the focus ring while it has focus. The
+ * system has no component for it; `aria-label` names it, as it has no label above.
+ */
+export function TitleInput(props: Omit<Plain<"input">, "type"> & { "aria-label": string }) {
+  return <input className="title-input" type="text" {...props} />;
+}
+
 export function Textarea({ mono = false, ...props }: Plain<"textarea"> & { mono?: boolean }) {
   return <textarea className={mono ? "input input-mono" : "input"} {...useField()} {...props} />;
 }

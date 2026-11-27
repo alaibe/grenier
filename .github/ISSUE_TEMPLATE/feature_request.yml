@@ -1,0 +1,32 @@
+name: Suggest a feature
+description: Something you would like Grenier to do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public. Leave out your pages, prompts, keys, tokens and anything else you would not post openly.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What it would help with
+      description: What you do today instead, and where that falls short.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Filled in when you come from Grenier's Suggest a feature.
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: The system and its version.
+      placeholder: macOS 26.1, Windows 11, Ubuntu 24.04

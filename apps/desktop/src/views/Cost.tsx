@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { ViewProps } from "../App.tsx";
 import { api } from "../api.ts";
 import { ago, count, day, exact, money, since, times } from "../format.ts";
+import { PageCommands } from "../shell/commands.tsx";
 import { Detail } from "../shell/regions.tsx";
 import { Button } from "../ui/button.tsx";
 import { BarChart } from "../ui/chart.tsx";
@@ -47,7 +48,7 @@ export function Cost({ changed: reload, overview }: ViewProps) {
         title="Cost"
         intro="Your agents' requests through Grenier in the last 7 days, priced at API rates. Cached is what Anthropic's prompt cache took off."
       >
-        <Problem error={error} />
+        <Problem error={error} retry={reload} />
         {data && data.paused > 0 && <Paused key={data.paused} changed={reload} />}
         {!data && !error && <Skeleton rows={6} shape="table" />}
         {data && days.length === 0 && (
@@ -190,10 +191,23 @@ function Paused({ changed }: { changed: () => void }) {
     reload();
     changed();
   });
-  if (error) return <Problem error={error} />;
+  if (error) return <Problem error={error} retry={reload} />;
   if (!data || data.sessions.length === 0) return null;
+  const resume = (session: PausedSession) =>
+    void action.run(`resume:${session.id}`, async () => {
+      await api(`/sessions/${encodeURIComponent(session.id)}/resume`, { method: "POST" });
+      return `Resumed ${session.client ?? "the session"}`;
+    });
   return (
     <>
+      <PageCommands
+        commands={data.sessions.map((session) => ({
+          id: `session.resume:${session.id}`,
+          label: `Resume ${session.client ?? "the session"}${session.repo ? ` in ${session.repo}` : ""}`,
+          icon: Play,
+          run: () => resume(session),
+        }))}
+      />
       <Problem error={action.problem} />
       {data.sessions.map((session) => (
         <Notice
@@ -206,12 +220,7 @@ function Paused({ changed }: { changed: () => void }) {
               icon={Play}
               busy={action.busy === `resume:${session.id}`}
               disabled={action.busy !== null}
-              onClick={() =>
-                void action.run(`resume:${session.id}`, async () => {
-                  await api(`/sessions/${encodeURIComponent(session.id)}/resume`, { method: "POST" });
-                  return `Resumed ${session.client ?? "the session"}`;
-                })
-              }
+              onClick={() => resume(session)}
             >
               Resume
             </Button>

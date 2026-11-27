@@ -43,6 +43,23 @@ describe("remember and recall", () => {
     expect(found.results[0]?.similarity).toBeGreaterThan(0.9);
   });
 
+  it("embeds a record kept without a vector, or with an older model's, before it searches by vectors", async () => {
+    const table: Record<string, [number, number, number]> = {
+      "Where are paths split?": [1, 0, 0],
+      "path splitting location": [0.9, 0.1, 0],
+    };
+    const kept = await answer("Where are paths split?", "In route().", ["src/router.ts"]);
+    await embedWith(new TableEmbedder(table));
+    const first = await recall(deps, PERSON, { query: "path splitting location", repo: repo.repo });
+    expect(first.results[0]).toMatchObject({ id: kept.id, similarity: expect.closeTo(0.99, 1) });
+    const before = new TableEmbedder(table);
+    await embedWith({ model: "table@2", embed: (texts) => before.embed(texts) });
+    expect(await store.records.unembedded(["me", "team"], "table@2", 10)).toHaveLength(1);
+    const found = await recall(deps, PERSON, { query: "path splitting location", repo: repo.repo });
+    expect(found.results[0]?.similarity).toBeGreaterThan(0.9);
+    expect(await store.records.unembedded(["me", "team"], "table@2", 10)).toEqual([]);
+  });
+
   it("replaces an answer to the same question in the same repository", async () => {
     const first = await answer("How does routing work?", "Old.", ["src/router.ts"]);
     const second = await answer("how does routing work?", "New.", ["src/router.ts"]);

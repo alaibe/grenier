@@ -46,6 +46,8 @@ const SCOPES: Scope[] = ["shell", "screen"];
 export interface Layer {
   kind: "dialog" | "palette";
   hints: Hint[];
+  /** Its own keys, wherever focus is: true when it took the key. */
+  key?: (chord: string) => boolean;
 }
 
 /** One store for every command, layer and pending chord; the shell, the palette, the bar and `?` read it. */
@@ -102,6 +104,16 @@ export class Registry {
 
   get state() {
     return this.#state;
+  }
+
+  /**
+   * A key press while a dialog or the palette is open: true when the top layer took it, false when it waits, null
+   * when there is no layer or it is ⌘K, which the palette's command answers from anywhere.
+   */
+  layerKey(chord: string): boolean | null {
+    const layer = this.layer;
+    if (!layer || chord === "mod+k") return null;
+    return layer.key?.(chord) ?? false;
   }
 
   setChord(chord: string | null) {

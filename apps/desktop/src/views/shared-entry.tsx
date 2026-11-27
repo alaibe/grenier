@@ -1,7 +1,9 @@
-import type { SharedState } from "@grenier/core/api";
+import type { RecordFull, SharedState } from "@grenier/core/api";
+import { sharedHash } from "@grenier/core/routines";
 import { Check, Download, type LucideIcon, Trash2, Undo2 } from "lucide-react";
 import { type ReactNode, useCallback } from "react";
-import { api } from "../api.ts";
+import { ApiError, api } from "../api.ts";
+import type { Command } from "../shell/commands.tsx";
 import { installTag } from "../states.ts";
 import { Button, Primary } from "../ui/button.tsx";
 import { Dialog, type useConfirm } from "../ui/dialog.tsx";
@@ -49,26 +51,38 @@ export function teamGroup(entries: SharedState[], icon: LucideIcon, actions: Rea
  */
 export function sharedEntryParts({
   entry,
+  shown,
   admin,
   action,
   ask,
   removed,
+  stale,
   primary,
   askKeys,
 }: {
   entry: SharedState;
+  /** The version the page shows: Install installs that one, or is refused when it changed since. */
+  shown: RecordFull;
   admin: boolean;
   action: ReturnType<typeof useAction>;
   ask: ReturnType<typeof useConfirm>["ask"];
   /** After an admin removed it from the team. */
   removed: () => void;
+  /** After Install was refused: the page loads the version there is now. */
+  stale: () => void;
   /** Install is the page's Primary; not when the page's own Save is. */
   primary: boolean;
   askKeys?: () => void;
 }) {
   const install = (keys?: Record<string, string>) =>
     void action.run("install", async () => {
-      await api(`/installs/${entry.id}`, { body: keys ? { keys } : {} });
+      const hash = await sharedHash(shown);
+      try {
+        await api(`/installs/${entry.id}`, { body: { hash, ...(keys ? { keys } : {}) } });
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409) stale();
+        throw error;
+      }
       return `${entry.state === "update" ? "Approved the update of" : "Installed"} ${entry.title}: restart your agents to load it`;
     });
   const uninstall = () =>
@@ -116,6 +130,28 @@ export function sharedEntryParts({
   ];
   const Install = primary ? Primary : Button;
   const needsKeys = entry.state === "available" && entry.credentials.length > 0 && askKeys;
+  const installing = entry.state === "update" ? "Approve the update" : "Install";
+  const commands: Command[] = [
+    ...(entry.state !== "installed"
+      ? [
+          {
+            id: "shared.install",
+            label: needsKeys ? `${installing}…` : installing,
+            icon: entry.state === "update" ? Check : Download,
+            run: () => (needsKeys ? askKeys() : install()),
+          },
+        ]
+      : []),
+    ...(entry.state !== "available"
+      ? [{ id: "shared.uninstall", label: "Uninstall", icon: Trash2, run: uninstall }]
+      : []),
+    ...items.map((item) => ({
+      id: `shared.${item.label}`,
+      label: item.danger ? `${item.label}…` : item.label,
+      icon: item.icon,
+      run: item.run,
+    })),
+  ];
   const buttons = (
     <>
       {entry.state !== "installed" && (
@@ -125,7 +161,7 @@ export function sharedEntryParts({
           busy={action.busy === "install"}
           onClick={() => (needsKeys ? askKeys() : install())}
         >
-          {entry.state === "update" ? "Approve the update" : "Install"}
+          {installing}
         </Install>
       )}
       {entry.state !== "available" && (
@@ -138,7 +174,7 @@ export function sharedEntryParts({
   const notice = entry.state === "update" && (
     <Notice kind="warn">Changed since you installed it: nothing changes here until you approve the update.</Notice>
   );
-  return { install, buttons, items, notice };
+  return { install, buttons, items, notice, commands };
 }
 
 /** Asks for the keys a server needs, one password field each; they go only into this person's agents' configs. */

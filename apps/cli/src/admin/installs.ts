@@ -1,3 +1,4 @@
+import { sharedHash } from "@grenier/core";
 import type { SharedNow } from "@grenier/core/api";
 import type { FullRecord } from "@grenier/store";
 import { Hono } from "hono";
@@ -77,10 +78,15 @@ export function installRoutes(deps: AdminDeps): Hono {
     c.json(await rollback(store, deps.where, await found(c.req.param("id")))),
   );
 
+  /** Installs it as the person saw it: a `hash` that is no longer the record's is refused, as nothing they approved. */
   app.post("/installs/:id", async (c) => {
     const record = await found(c.req.param("id"));
-    const keys = stringRecord((await bodyOf(c)).keys);
-    return c.json(await install(store, deps.where, record, { keys }));
+    const input = await bodyOf(c);
+    const hash = await sharedHash(record);
+    if (typeof input.hash === "string" && input.hash !== hash) {
+      throw new Refusal(`${record.title} changed since you opened it: look at it again, then install it`);
+    }
+    return c.json(await install(store, deps.where, record, { hash, keys: stringRecord(input.keys) }));
   });
 
   app.delete("/installs/:id", async (c) => {

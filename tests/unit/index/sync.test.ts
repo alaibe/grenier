@@ -238,4 +238,27 @@ describe("sync between machines", () => {
     expect(sent.id).toBeDefined();
     expect(await laptop.outbox.list()).toEqual([]);
   });
+
+  it("sends usage by this machine's day, as its reports count it, not by UTC's", async () => {
+    const zone = process.env.TZ;
+    // Fourteen hours ahead of UTC: early in the day here is still yesterday there.
+    process.env.TZ = "Pacific/Kiritimati";
+    try {
+      const day = new Date();
+      day.setDate(day.getDate() - 3);
+      const at = (hour: number) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 30).getTime();
+      await laptop.usage.add({ sessionId: "s1", ts: at(0), model: "m", cost: 1 });
+      await laptop.usage.add({ sessionId: "s1", ts: at(23), model: "m", cost: 2 });
+      await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
+      const response = await workerFetch("https://team.test/api/usage?since=2000-01-01", {
+        headers: { authorization: `Bearer ${SETUP_TOKEN}` },
+      });
+      const { usage } = (await response.json()) as { usage: { day: string; requests: number; cost: number }[] };
+      const local = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+      expect(usage).toMatchObject([{ day: local, requests: 2, cost: 3 }]);
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
+  });
 });

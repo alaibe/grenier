@@ -1,8 +1,10 @@
 import type { MachineRules, MachineState } from "@grenier/core/api";
 import { isTauri } from "@tauri-apps/api/core";
+import { FolderOpen } from "lucide-react";
 import type { FocusEvent } from "react";
 import { useSaved } from "../activity.tsx";
 import { api, pickFolder } from "../api.ts";
+import { PageCommands } from "../shell/commands.tsx";
 import { stateTag } from "../states.ts";
 import { Button } from "../ui/button.tsx";
 import { Toggle } from "../ui/choice.tsx";
@@ -59,7 +61,12 @@ export function MachineSettings() {
       title="This machine"
       description="Routines run here only while every rule holds, at the lowest priority. When you come back, a run waits for you to leave again, or goes to another machine."
     >
-      <Problem error={error ?? action.problem} />
+      {data && isTauri() && (
+        <PageCommands
+          commands={[{ id: "machine.workdir", label: "Choose the work folder…", icon: FolderOpen, run: choose }]}
+        />
+      )}
+      <Problem error={error ?? action.problem} retry={error ? reload : undefined} />
       {!data && !error && <Skeleton rows={4} shape="text" />}
       {data && (
         <div key={JSON.stringify(data.rules)} className="grid gap-4">

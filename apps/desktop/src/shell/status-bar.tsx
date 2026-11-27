@@ -84,19 +84,19 @@ export function StatusBar({
       <span aria-live="polite" className="contents">
         {busy && <span className="statusbar-busy">{busy}</span>}
         {saved && <span className="statusbar-busy">Saved</span>}
-        {segments.map((segment, index) => (
-          <Fragment key={segment.key}>
-            {(index > 0 || busy || saved) && <span className="statusbar-sep">·</span>}
-            {segment.open ? (
-              <button type="button" className="statusbar-segment" title={segment.title} onClick={segment.open}>
-                {segment.content}
-              </button>
-            ) : (
-              <span title={segment.title}>{segment.content}</span>
-            )}
-          </Fragment>
-        ))}
       </span>
+      {segments.map((segment, index) => (
+        <Fragment key={segment.key}>
+          {(index > 0 || busy || saved) && <span className="statusbar-sep">·</span>}
+          {segment.open ? (
+            <button type="button" className="statusbar-segment" title={segment.title} onClick={segment.open}>
+              {segment.content}
+            </button>
+          ) : (
+            <span title={segment.title}>{segment.content}</span>
+          )}
+        </Fragment>
+      ))}
       {prefs.tips && (
         <span className="statusbar-hints">
           {tries.length > 0 ? (

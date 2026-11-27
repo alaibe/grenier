@@ -30,9 +30,13 @@ export function Menu({ label, items, icon = Ellipsis }: { label: string; items: 
     const away = (event: PointerEvent) => {
       if (!menu.current?.contains(event.target as Node) && !button.current?.contains(event.target as Node)) setAt(null);
     };
+    const resized = () => setAt(null);
     document.addEventListener("pointerdown", away);
-    window.addEventListener("resize", () => setAt(null), { once: true });
-    return () => document.removeEventListener("pointerdown", away);
+    window.addEventListener("resize", resized, { once: true });
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      window.removeEventListener("resize", resized);
+    };
   }, [at]);
 
   const close = () => {
@@ -88,6 +92,7 @@ export function Menu({ label, items, icon = Ellipsis }: { label: string; items: 
             className="menu"
             role="menu"
             aria-label={label}
+            aria-activedescendant={ordered[highlighted] ? `${id}-${highlighted}` : undefined}
             tabIndex={-1}
             style={{ position: "fixed", top: at.top, right: at.right, zIndex: "var(--layer-popover)" }}
             onKeyDown={keyDown}
@@ -96,6 +101,7 @@ export function Menu({ label, items, icon = Ellipsis }: { label: string; items: 
               <div key={item.label}>
                 {item.danger && !ordered[index - 1]?.danger && index > 0 && <hr className="menu-separator border-0" />}
                 <div
+                  id={`${id}-${index}`}
                   className={item.danger ? "menu-item menu-item-danger" : "menu-item"}
                   role="menuitem"
                   tabIndex={-1}

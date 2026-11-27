@@ -41,10 +41,6 @@ export class TeamStore extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
-      // A store from before drizzle's migrations starts empty: the team pushes its pages again.
-      if (this.#data.db.get(sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'`)) {
-        await ctx.storage.deleteAll();
-      }
       await migrate(this.#data.db, migrations);
     });
     this.#app = this.#routes();

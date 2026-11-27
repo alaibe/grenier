@@ -4,7 +4,7 @@ import { FileText, Share2, Trash2 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
-import { useSaveCommand } from "../shell/commands.tsx";
+import { PageCommands, useSaveCommand } from "../shell/commands.tsx";
 import { DetailBar, ItemName, Reading, useItemTitle } from "../shell/regions.tsx";
 import { installTag } from "../states.ts";
 import { Button, Primary } from "../ui/button.tsx";
@@ -151,7 +151,7 @@ export function LocalSkillView({
     changed();
   });
   const { ask, dialog } = useConfirm();
-  if (skill.error) return <Problem error={skill.error} />;
+  if (skill.error) return <Problem error={skill.error} retry={skill.reload} />;
   const data = skill.data;
   if (!data) return <Skeleton rows={6} shape="text" />;
 
@@ -208,7 +208,7 @@ export function LocalSkillView({
         actions={
           <>
             {(data.kind === "own" || data.kind === "linked") && (
-              <Button size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={remove}>
+              <Button variant="danger" size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={remove}>
                 {data.kind === "linked" ? "Remove the link" : "Delete"}
               </Button>
             )}
@@ -225,6 +225,21 @@ export function LocalSkillView({
           })
         }
         open={open}
+      />
+      <PageCommands
+        commands={[
+          ...(data.kind === "own" || data.kind === "linked"
+            ? [
+                {
+                  id: "skill.remove",
+                  label: data.kind === "linked" ? "Remove the link…" : "Delete the skill…",
+                  icon: Trash2,
+                  run: remove,
+                },
+              ]
+            : []),
+          ...items.map((item) => ({ id: "skill.share", label: item.label, icon: item.icon, run: item.run })),
+        ]}
       />
       {dialog}
     </>
@@ -253,11 +268,20 @@ export function TeamSkillView({
     record.reload();
     changed();
   });
-  if (record.error) return <Problem error={record.error} />;
+  if (record.error) return <Problem error={record.error} retry={record.reload} />;
   if (!record.data) return <Skeleton rows={6} shape="text" />;
   const files = (record.data.fields.files ?? {}) as Record<string, string>;
 
-  const shared = sharedEntryParts({ entry, admin, action, ask, removed, primary: !admin });
+  const shared = sharedEntryParts({
+    entry,
+    shown: record.data,
+    admin,
+    action,
+    ask,
+    removed,
+    stale: record.reload,
+    primary: !admin,
+  });
 
   return (
     <>
@@ -287,6 +311,7 @@ export function TeamSkillView({
         }
         open={open}
       />
+      <PageCommands commands={shared.commands} />
       {dialog}
     </>
   );

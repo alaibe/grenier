@@ -253,6 +253,9 @@ importers:
       '@grenier/core':
         specifier: workspace:*
         version: link:../core
+      '@grenier/log':
+        specifier: workspace:*
+        version: link:../log
       '@grenier/store':
         specifier: workspace:*
         version: link:../store

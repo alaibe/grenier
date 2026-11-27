@@ -13,10 +13,10 @@ export type By = "member" | "machine" | "day" | "repo";
 /** What the agents cost, priced at API rates: an admin sees everyone's, a member their own. */
 export function Usage({ admin }: { admin: boolean }) {
   const [by, setBy] = useState<By>(admin ? "member" : "machine");
-  const { data, error } = useLoad(
+  const { data, error, reload } = useLoad(
     useCallback(() => api<{ usage: TeamUsage[] }>("/team/usage").then((a) => a.usage), []),
   );
-  if (error) return <Problem error={error} />;
+  if (error) return <Problem error={error} retry={reload} />;
   if (!data) return null;
   const rows = new Map<string, { requests: number; cost: number; minutes: number }>();
   for (const row of data) {

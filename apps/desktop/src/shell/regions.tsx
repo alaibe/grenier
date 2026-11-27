@@ -40,12 +40,22 @@ export function Detail({ title, children }: { title: string; children: ReactNode
 /** A list of the place's items beside the open one (layout.md#window-regions); the list resizes from 280 to 480. */
 export function ListDetail({ title, list, children }: { title: string; list: ReactNode; children: ReactNode }) {
   const [width, setWidth] = useState(savedWidth);
-  useEffect(() => store(LIST.key, width), [width]);
+  const keep = (final: number) => {
+    setWidth(final);
+    store(LIST.key, final);
+  };
   return (
     <main className="content" data-list style={{ "--list-width": `${width}px` } as React.CSSProperties}>
       <section className="region-list" data-region="list" aria-label={`${title}: list`}>
         {list}
-        <Resizer min={LIST.min} max={LIST.max} onResize={setWidth} onReset={() => setWidth(LIST.width)} />
+        <Resizer
+          width={width}
+          min={LIST.min}
+          max={LIST.max}
+          onResize={setWidth}
+          onDone={keep}
+          onReset={() => keep(LIST.width)}
+        />
       </section>
       <section className="region-detail" data-region="detail" tabIndex={-1} aria-label={title}>
         <PrimaryScope name={title}>{children}</PrimaryScope>
@@ -54,37 +64,81 @@ export function ListDetail({ title, list, children }: { title: string; list: Rea
   );
 }
 
-/** A region's right edge: drag to resize between `min` and `max`, double-click to reset. */
+/** How far an arrow key moves the list's edge; with Shift, further. */
+const STEP = 8;
+const SHIFT_STEP = 40;
+
+/**
+ * A region's right edge: drag it, or focus it and press ← →, to resize between `min` and `max`; double-click or Enter
+ * resets it. The width is kept once the drag or the key is done.
+ */
 function Resizer({
+  width,
   min,
   max,
   onResize,
+  onDone,
   onReset,
 }: {
+  width: number;
   min: number;
   max: number;
   onResize: (width: number) => void;
+  onDone: (width: number) => void;
   onReset: () => void;
 }) {
+  const clamp = (value: number) => Math.round(Math.max(min, Math.min(max, value)));
   return (
     // biome-ignore lint/a11y/useSemanticElements: a draggable edge, which an <hr> can't be
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize"
+      aria-label="Resize the list"
+      aria-valuenow={width}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      tabIndex={0}
       className="resizer"
       onDoubleClick={onReset}
+      onKeyDown={(event) => {
+        const by = event.shiftKey ? SHIFT_STEP : STEP;
+        const next =
+          event.key === "ArrowLeft"
+            ? clamp(width - by)
+            : event.key === "ArrowRight"
+              ? clamp(width + by)
+              : event.key === "Home"
+                ? min
+                : event.key === "End"
+                  ? max
+                  : null;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onReset();
+        } else if (next !== null) {
+          event.preventDefault();
+          event.stopPropagation();
+          onDone(next);
+        }
+      }}
       onPointerDown={(event) => {
         const edge = event.currentTarget;
         edge.setPointerCapture(event.pointerId);
         const left = edge.parentElement?.getBoundingClientRect().left ?? 0;
-        const move = (next: PointerEvent) => onResize(Math.round(Math.max(min, Math.min(max, next.clientX - left))));
+        let last = width;
+        const move = (next: PointerEvent) => {
+          last = clamp(next.clientX - left);
+          onResize(last);
+        };
         const stop = () => {
           edge.removeEventListener("pointermove", move);
           edge.removeEventListener("pointerup", stop);
+          edge.removeEventListener("pointercancel", stop);
+          onDone(last);
         };
         edge.addEventListener("pointermove", move);
         edge.addEventListener("pointerup", stop);
+        edge.addEventListener("pointercancel", stop);
       }}
     />
   );

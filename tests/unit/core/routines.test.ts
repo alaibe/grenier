@@ -45,6 +45,8 @@ describe("what a routine's run may call", () => {
     expect(readsByName("mcp__calendar__list_events")).toBe(true);
     expect(readsByName("mcp__github__get_pull_request")).toBe(true);
     expect(readsByName("mcp__github__merge_pull_request")).toBe(false);
+    expect(readsByName("mcp__postgres__query")).toBe(false);
+    expect(readsByName("mcp__web__fetch_url")).toBe(false);
     expect(readsByName("Read")).toBe(false);
     expect(isAction("Read", "claude")).toBe(false);
     expect(isAction("mcp__grenier__set", "claude")).toBe(false);

@@ -93,4 +93,44 @@ describe("routines' tasks", () => {
     ).toHaveLength(1);
     expect((await claim())?.task.id).toBe("task");
   });
+
+  it("keeps a routine and its tasks in Team: a member's own routine is refused, and never offered", async () => {
+    const bob = await join("bob");
+    await routineAndTask(ADA);
+    const mine = {
+      id: "mine",
+      top: "me",
+      type: "Routine",
+      title: "Mine",
+      body: "Run",
+      fields: { mode: "on", state: "running", schedule: "hourly" },
+    };
+    expect((await push(bob, mine)).refused[0]?.reason).toBe("a routine and its tasks live in Team");
+    const task = {
+      id: "bobs",
+      top: "me",
+      type: "Task",
+      title: "Run it",
+      fields: { status: "to-do", routine: "routine" },
+    };
+    expect((await push(bob, task)).refused[0]?.reason).toBe("a routine and its tasks live in Team");
+  });
+
+  it("lets the machine that ran a task set its run fields, never its links or anchors", async () => {
+    const bob = await join("bob");
+    await routineAndTask(ADA);
+    await state(bob, 0.8);
+    await call("/api/work/claim", bob, { method: "POST" });
+    await call("/api/runs", bob, { body: { id: "run", routineId: "routine", taskId: "task" } });
+    const done = { status: "done", routine: "routine", result: "Bumped." };
+    expect((await push(bob, { id: "task", fields: done }, 2)).applied).toHaveLength(1);
+    const relinked = await push(bob, { id: "task", links: [{ kind: "record", ref: "elsewhere" }] }, 3);
+    expect(relinked.refused[0]?.reason).toContain("only an admin writes in Team");
+    const anchored = await push(
+      bob,
+      { id: "task", anchors: [{ kind: "item", repoId: null, ref: "linear:x/1", version: "1" }] },
+      3,
+    );
+    expect(anchored.refused[0]?.reason).toContain("only an admin writes in Team");
+  });
 });

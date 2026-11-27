@@ -12,14 +12,14 @@ import { Table } from "../ui/table.tsx";
 
 /** A skill's or server's last 30 days here, for its `/usage` query: skill=, server= or shared=. */
 export function UsageSection({ query, what }: { query: string; what: "skill" | "server" }) {
-  const { data, error } = useLoad(useCallback(() => api<ToolUsage>(`/usage?${query}`), [query]));
+  const { data, error, reload } = useLoad(useCallback(() => api<ToolUsage>(`/usage?${query}`), [query]));
   const verb = what === "skill" ? "Loads" : "Calls";
   return (
     <Section
       title="Usage"
       description="The last 30 days on this machine, counted from Claude Code's own transcripts: nothing leaves it."
     >
-      <Problem error={error} />
+      <Problem error={error} retry={reload} />
       {data &&
         (data.calls === 0 ? (
           <p className="text-muted">

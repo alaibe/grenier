@@ -3,7 +3,7 @@ import { folderName } from "@grenier/core/names";
 import { Plus, Settings, Share2, Trash2, Undo2 } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
 import { api } from "../api.ts";
-import { useSaveCommand } from "../shell/commands.tsx";
+import { PageCommands, useSaveCommand } from "../shell/commands.tsx";
 import { DetailBar, ItemMeta, ItemName, Reading } from "../shell/regions.tsx";
 import { installTag } from "../states.ts";
 import { Button, IconButton, Primary } from "../ui/button.tsx";
@@ -278,7 +278,7 @@ export function LocalServerView({
           <>
             {editable && <span className="text-xs text-muted">{dirty ? "Edited" : "Saved"}</span>}
             {editable && (
-              <Button size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={remove}>
+              <Button variant="danger" size="sm" icon={Trash2} busy={action.busy === "remove"} onClick={remove}>
                 Remove
               </Button>
             )}
@@ -337,6 +337,12 @@ export function LocalServerView({
           onChange={setKeys}
         />
       </ServerPage>
+      <PageCommands
+        commands={[
+          ...(editable ? [{ id: "server.remove", label: "Remove the server…", icon: Trash2, run: remove }] : []),
+          ...items.map((item) => ({ id: "server.share", label: item.label, icon: item.icon, run: item.run })),
+        ]}
+      />
       {dialog}
     </>
   );
@@ -363,16 +369,18 @@ export function TeamServerView({
     setAsking(false);
     changed();
   });
-  if (record.error) return <Problem error={record.error} />;
+  if (record.error) return <Problem error={record.error} retry={record.reload} />;
   if (!record.data) return <Skeleton rows={6} shape="text" />;
   const config = (record.data.fields.config ?? {}) as { url?: string; command?: string; args?: string[] };
 
   const shared = sharedEntryParts({
     entry,
+    shown: record.data,
     admin,
     action,
     ask,
     removed,
+    stale: record.reload,
     primary: true,
     askKeys: () => setAsking(true),
   });
@@ -406,6 +414,7 @@ export function TeamServerView({
           Needs your {entry.credentials.join(", ")}: they go only into your agents' configs.
         </p>
       )}
+      <PageCommands commands={shared.commands} />
       {dialog}
       {asking && (
         <KeysDialog

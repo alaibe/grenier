@@ -38,6 +38,27 @@ export function useCommands(commands: Command[], scope: Scope = "screen") {
   useEffect(() => () => registry.delete(owner), [registry, owner]);
 }
 
+/**
+ * Registers the actions an item's page shows as buttons, so the palette and `?` list them too: registered again only
+ * when what they say changes, each run as it is when chosen. A component, so a page registers them where its data is.
+ */
+export function PageCommands({ commands }: { commands: Command[] }) {
+  const latest = useRef(commands);
+  latest.current = commands;
+  const said = JSON.stringify(commands.map(({ run: _run, icon: _icon, ...shown }) => shown));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the commands are compared by what they say
+  const stable = useMemo<Command[]>(
+    () =>
+      latest.current.map((command) => ({
+        ...command,
+        run: () => latest.current.find((now) => now.id === command.id)?.run(),
+      })),
+    [said],
+  );
+  useCommands(stable);
+  return null;
+}
+
 /** ⌘↵ and ⌘S save what the page edits, while it can be saved; the save runs as it is when the keys are pressed. */
 export function useSaveCommand(id: string, label: string, enabled: boolean, save: () => void) {
   const latest = useRef(save);
@@ -61,12 +82,20 @@ export function useSaveCommand(id: string, label: string, enabled: boolean, save
   useCommands(commands);
 }
 
-/** A dialog or the palette, while it is open: global keys wait, and the status bar shows its hints. */
-export function useLayer(kind: Layer["kind"], hints: Hint[] = []) {
+/**
+ * A dialog or the palette, while it is open: global keys wait, the status bar shows its hints, and `key` gets every
+ * key press, wherever focus is, as it is when pressed.
+ */
+export function useLayer(kind: Layer["kind"], hints: Hint[] = [], key?: (chord: string) => boolean) {
   const registry = useRegistry();
+  const latest = useRef(key);
+  latest.current = key;
   const said = JSON.stringify(hints);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the hints are compared by what they say
-  useEffect(() => registry.pushLayer({ kind, hints }), [registry, kind, said]);
+  useEffect(
+    () => registry.pushLayer({ kind, hints, key: (chord) => latest.current?.(chord) ?? false }),
+    [registry, kind, said],
+  );
 }
 
 const CHORD_MS = 1500;
@@ -102,7 +131,11 @@ export function CommandProvider({ children }: { children: ReactNode }) {
       const chord = chordOf(event);
       if (!chord) return;
       // A dialog and the palette take their own keys; only the palette's ⌘K reaches past them.
-      if (registry.layer && chord !== "mod+k") return;
+      const layered = registry.layerKey(chord);
+      if (layered !== null) {
+        if (layered) event.preventDefault();
+        return;
+      }
       const pending = registry.state.chord;
       if (pending) {
         endChord();

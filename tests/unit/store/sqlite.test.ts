@@ -137,6 +137,32 @@ describe("openSqliteStore", () => {
     expect(tableNames()).toEqual(["schema_migrations"]);
   });
 
+  it("keeps the rows that point at a table its migration rebuilds, and checks them after", async () => {
+    const tables: Migration = {
+      version: 1,
+      name: "0001_tables",
+      sql: `CREATE TABLE parent (id TEXT PRIMARY KEY) STRICT;
+        CREATE TABLE child (parent_id TEXT NOT NULL REFERENCES parent(id) ON DELETE CASCADE) STRICT;
+        INSERT INTO parent VALUES ('p1'); INSERT INTO child VALUES ('p1');`,
+    };
+    const rebuild: Migration = {
+      version: 2,
+      name: "0002_rebuild",
+      sql: `CREATE TABLE parent_new (id TEXT PRIMARY KEY, name TEXT) STRICT;
+        INSERT INTO parent_new (id) SELECT id FROM parent; DROP TABLE parent;
+        ALTER TABLE parent_new RENAME TO parent;`,
+    };
+    await openSqliteStore(file, { migrations: [tables] }).close();
+    await openSqliteStore(file, { migrations: [tables, rebuild] }).close();
+    expect(inspect((db) => db.prepare("SELECT parent_id FROM child").all())).toEqual([{ parent_id: "p1" }]);
+
+    const orphan: Migration = { version: 3, name: "0003_orphan", sql: "INSERT INTO child VALUES ('gone');" };
+    expect(() => openSqliteStore(file, { migrations: [tables, rebuild, orphan] })).toThrow(
+      "rows of child point at rows that do not exist",
+    );
+    expect(version()).toBe(2);
+  });
+
   it("refuses a database written by a newer build", async () => {
     await openSqliteStore(file).close();
     const older = migrations.slice(0, -1);

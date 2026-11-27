@@ -1,9 +1,10 @@
 import type { KeyState, ShownKey } from "@grenier/core/api";
-import { AppWindow, Cpu, Eye, KeyRound, SlidersHorizontal } from "lucide-react";
+import { AppWindow, Cpu, Eye, Flag, KeyRound, Lightbulb, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import type { ViewProps } from "../App.tsx";
 import { useSaved } from "../activity.tsx";
-import { api, setUsageEnabled, usageEnabled } from "../api.ts";
+import { api, openFeedback, setUsageEnabled, usageEnabled } from "../api.ts";
+import { PageCommands } from "../shell/commands.tsx";
 import { type Theme, usePrefs } from "../shell/prefs.ts";
 import { ListDetail } from "../shell/regions.tsx";
 import { Button } from "../ui/button.tsx";
@@ -105,6 +106,27 @@ function General({ version }: { version: string | null }) {
       <SectionRow label="Version">
         <span className="font-mono text-sm text-muted tabular-nums">{version ?? "…"}</span>
       </SectionRow>
+      <SectionRow
+        label="Report a problem"
+        description="Opens a public issue form on GitHub, with Grenier's version and your system's name."
+      >
+        <Button
+          size="sm"
+          icon={Flag}
+          onClick={() => void action.run("problem", () => openFeedback("problem").then(() => undefined))}
+        >
+          Report a problem
+        </Button>
+      </SectionRow>
+      <SectionRow label="Suggest a feature" description="Opens a public issue form on GitHub.">
+        <Button
+          size="sm"
+          icon={Lightbulb}
+          onClick={() => void action.run("feature", () => openFeedback("feature").then(() => undefined))}
+        >
+          Suggest a feature
+        </Button>
+      </SectionRow>
     </Section>
   );
 }
@@ -118,6 +140,11 @@ function PersonalKey() {
   const state = useLoad(loadKeyState);
   const action = useAction(state.reload);
   const unopened = state.data?.unopened ?? 0;
+  const show = () =>
+    void action.run("show", async () => {
+      setKey((await api<ShownKey>("/key", { method: "POST" })).key);
+      return undefined;
+    });
   return (
     <Section
       heading
@@ -126,17 +153,7 @@ function PersonalKey() {
       actions={
         <>
           {!key && (
-            <Button
-              size="sm"
-              icon={Eye}
-              disabled={action.busy !== null}
-              onClick={() =>
-                void action.run("show", async () => {
-                  setKey((await api<ShownKey>("/key", { method: "POST" })).key);
-                  return undefined;
-                })
-              }
-            >
+            <Button size="sm" icon={Eye} disabled={action.busy !== null} onClick={show}>
               Show my key
             </Button>
           )}
@@ -146,8 +163,14 @@ function PersonalKey() {
         </>
       }
     >
+      <PageCommands
+        commands={[
+          ...(key ? [] : [{ id: "key.show", label: "Show my key", icon: Eye, run: show }]),
+          { id: "key.use", label: "Use another key…", icon: KeyRound, run: () => setUsing(true) },
+        ]}
+      />
       <div className="grid gap-3">
-        <Problem error={state.error ?? action.problem} />
+        <Problem error={state.error ?? action.problem} retry={state.error ? state.reload : undefined} />
         {unopened > 0 && (
           <Notice
             kind="warn"

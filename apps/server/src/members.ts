@@ -14,7 +14,13 @@ function addDevice(team: TeamData, memberId: string, name: string, tokenHash: st
   team.db.insert(devices).values({ id: randomId(), memberId, name, tokenHash, createdAt: Date.now() }).run();
 }
 
+/** A new member, or one removed before who comes back under the same name, with the role invited. */
 function addMember(team: TeamData, name: string, role: Member["role"]): string {
+  const removed = team.db.select({ id: members.id }).from(members).where(eq(members.name, name)).get();
+  if (removed) {
+    team.db.update(members).set({ role, removedAt: null }).where(eq(members.id, removed.id)).run();
+    return removed.id;
+  }
   const id = randomId();
   team.db.insert(members).values({ id, name, role, createdAt: Date.now() }).run();
   return id;

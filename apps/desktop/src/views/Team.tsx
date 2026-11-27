@@ -31,7 +31,7 @@ export function Team({ item, go, changed: done, overview }: ViewProps) {
   const setInviting = useCallback((open: boolean) => go("team", open ? "invite" : undefined), [go]);
   const content = overview.error ? (
     <div className="p-6">
-      <Problem error={overview.error} />
+      <Problem error={overview.error} retry={done} />
     </div>
   ) : !overview.data ? (
     <div className="p-6">
@@ -207,7 +207,17 @@ function Members({
         )
       }
     >
-      <Problem error={members.error ?? me.error ?? action.problem ?? update.problem} />
+      <Problem
+        error={members.error ?? me.error ?? action.problem ?? update.problem}
+        retry={
+          members.error || me.error
+            ? () => {
+                members.reload();
+                me.reload();
+              }
+            : undefined
+        }
+      />
       {outdated && (
         <Notice
           kind="warn"

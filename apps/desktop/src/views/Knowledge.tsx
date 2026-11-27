@@ -341,7 +341,8 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
       if (!next) return;
       setCursor(next.node.id);
       const page = pageOf(next.node);
-      if (page) open(page);
+      // Moving through the pages is one place in the history, not one per page.
+      if (page) go("knowledge", page, { replace: true });
     };
     return [
       ...(canAdd
@@ -389,7 +390,7 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
           ]
         : []),
     ];
-  }, [canAdd, open, item, startPage, go]);
+  }, [canAdd, item, startPage, go]);
   useCommands(commands);
 
   const target: Target | null = item === "new" ? (newIn ?? fallback) : item ? { id: item } : null;
@@ -398,7 +399,17 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
     <>
       {searchField}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Problem error={tops.error ?? pages.error ?? problem ?? moving.problem} />
+        <Problem
+          error={tops.error ?? pages.error ?? problem ?? moving.problem}
+          retry={
+            tops.error || pages.error
+              ? () => {
+                  tops.reload();
+                  pages.reload();
+                }
+              : undefined
+          }
+        />
         {!tops.data || !pages.data ? (
           <Skeleton rows={8} />
         ) : searching ? (

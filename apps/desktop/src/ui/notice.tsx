@@ -1,6 +1,6 @@
-import { X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { IconButton } from "./button.tsx";
+import { Button, IconButton } from "./button.tsx";
 import { Status, type StatusKind } from "./tag.tsx";
 
 type Kind = "info" | "ok" | "warn" | "err" | "accent";
@@ -53,8 +53,24 @@ export function Notice({
   );
 }
 
-/** A problem that stays until it is fixed or retried, or nothing when there is none. */
-export function Problem({ error }: { error: string | null | undefined }) {
+/**
+ * A problem that stays until it is fixed or retried, or nothing when there is none. `retry` is for what couldn't
+ * load: it loads it again (patterns/feedback.md).
+ */
+export function Problem({ error, retry }: { error: string | null | undefined; retry?: (() => void) | undefined }) {
   if (!error) return null;
-  return <Notice kind="err">{error}</Notice>;
+  return (
+    <Notice
+      kind="err"
+      action={
+        retry && (
+          <Button size="sm" icon={RefreshCw} onClick={retry}>
+            Retry
+          </Button>
+        )
+      }
+    >
+      {error}
+    </Notice>
+  );
 }

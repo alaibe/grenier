@@ -1,12 +1,54 @@
 import { Trash2 } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLayer } from "../shell/commands.tsx";
+import type { Hint } from "../shell/registry.ts";
 import { Button, Primary, PrimaryScope } from "./button.tsx";
 import { Field, Input } from "./field.tsx";
 
 const FOCUSABLE =
   "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex='0']";
+
+/** Tab and ⇧Tab kept inside a box, from wherever focus is: true when it moved focus itself. */
+export function trapTab(box: HTMLElement, back: boolean): boolean {
+  const focusable = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (!first || !last) return false;
+  const active = document.activeElement;
+  const to = !box.contains(active)
+    ? back
+      ? last
+      : first
+    : back && active === first
+      ? last
+      : !back && active === last
+        ? first
+        : null;
+  to?.focus();
+  return to !== null;
+}
+
+/**
+ * A layer's keys, wherever focus is in the window (a click on its text leaves focus on the page): each of `keys` by
+ * its chord, and Tab kept inside `box`.
+ */
+export function useModal(
+  kind: "dialog" | "palette",
+  box: RefObject<HTMLElement | null>,
+  hints: Hint[],
+  keys: Record<string, () => void>,
+) {
+  useLayer(kind, hints, (chord) => {
+    const run = keys[chord];
+    if (run) {
+      run();
+      return true;
+    }
+    if (box.current && (chord === "tab" || chord === "shift+tab")) return trapTab(box.current, chord === "shift+tab");
+    return false;
+  });
+}
 
 /**
  * One decision or one short form (components/dialog.md): Cancel then the action, ⌘↵ runs it, Esc cancels, Tab stays
@@ -39,16 +81,21 @@ export function Dialog({
 }) {
   const heading = useId();
   const box = useRef<HTMLFormElement>(null);
-  useLayer("dialog", [
-    { keys: "mod+enter", says: action.toLowerCase() },
-    { keys: "escape", says: cancel.toLowerCase() },
-  ]);
   const submit = (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     if (disabled || busy || !box.current) return;
     if (!box.current.reportValidity()) return;
     onAction(new FormData(box.current));
   };
+  useModal(
+    "dialog",
+    box,
+    [
+      { keys: "mod+enter", says: action.toLowerCase() },
+      { keys: "escape", says: cancel.toLowerCase() },
+    ],
+    { escape: onCancel, "mod+enter": () => submit() },
+  );
   // Focus starts on the first field, or on Cancel in a removal; it goes back where it was after.
   // biome-ignore lint/correctness/useExhaustiveDependencies: once, as the dialog opens
   useEffect(() => {
@@ -71,27 +118,6 @@ export function Dialog({
           data-verb={action.toLowerCase()}
           noValidate
           onSubmit={submit}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              onCancel();
-            } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              submit();
-            } else if (event.key === "Tab" && box.current) {
-              const focusable = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
-              const first = focusable[0];
-              const last = focusable.at(-1);
-              if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last?.focus();
-              } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first?.focus();
-              }
-            }
-          }}
         >
           <header className="dialog-header">
             <h2 className="dialog-title" id={heading}>

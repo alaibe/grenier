@@ -17,12 +17,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
 import { ago, exact } from "../format.ts";
-import { useSaveCommand } from "../shell/commands.tsx";
+import { PageCommands, useSaveCommand } from "../shell/commands.tsx";
 import { DetailBar, Reading, useItemTitle } from "../shell/regions.tsx";
 import { Button, IconButton, Primary } from "../ui/button.tsx";
 import { Dialog, useConfirm } from "../ui/dialog.tsx";
 import { Skeleton } from "../ui/empty.tsx";
-import { Field, Select } from "../ui/field.tsx";
+import { Field, Select, TitleInput } from "../ui/field.tsx";
 import { useAction, useLoad } from "../ui/load.ts";
 import { Menu } from "../ui/menu.tsx";
 import { Notice, Problem } from "../ui/notice.tsx";
@@ -82,6 +82,8 @@ export function PageEditor({
   const record = useLoad(load);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [base, setBase] = useState(0);
+  /** The record before a save and the draft it saved, until the reload after it comes back. */
+  const [savedFrom, setSavedFrom] = useState<{ record: RecordFull | null; draft: Draft } | null>(null);
   const [conflict, setConflict] = useState<StoredRecord | null>(null);
   const [history, setHistory] = useState(false);
   const [moving, setMoving] = useState(false);
@@ -89,6 +91,15 @@ export function PageEditor({
   const { ask, dialog } = useConfirm();
   const action = useAction();
   useItemTitle(record.data?.title ?? (id ? null : "New page"));
+
+  // After a save, the record it reloads gives the version the next save names, and the text unless more was typed.
+  useEffect(() => {
+    if (!savedFrom || !record.data || record.data === savedFrom.record) return;
+    const { top, folder, title, body, links, version } = record.data;
+    setBase(version);
+    setDraft((now) => (now === savedFrom.draft ? { top, folder, title, body, links } : now));
+    setSavedFrom(null);
+  }, [savedFrom, record.data]);
 
   useEffect(() => {
     if (draft) return;
@@ -110,7 +121,7 @@ export function PageEditor({
     void action.run(
       "save",
       async () => {
-        if (!draft) return undefined;
+        if (!draft || savedFrom) return undefined;
         try {
           if (!id) {
             const created = await api<Created>("/records", { body: { ...draft, type: "Doc" } });
@@ -123,8 +134,8 @@ export function PageEditor({
             body: { ...draft, baseVersion: version },
           });
           setConflict(null);
+          setSavedFrom({ record: record.data, draft });
           record.reload();
-          setDraft(null);
           changed();
           if (!saved.waiting) return "Saved and shared";
           return saved.team ? "Saved here: it goes to the team at the next sync" : "Saved on this machine";
@@ -147,7 +158,7 @@ export function PageEditor({
   if (record.error)
     return (
       <div className="p-6">
-        <Problem error={record.error} />
+        <Problem error={record.error} retry={record.reload} />
       </div>
     );
   if (!draft) {
@@ -209,7 +220,7 @@ export function PageEditor({
               items={[
                 { label: "Move to…", icon: FolderInput, run: () => setMoving(true) },
                 ...(record.data && !record.data.retiredAt
-                  ? [{ label: "Retire", icon: Archive, danger: true, run: retire }]
+                  ? [{ label: "Retire", icon: Archive, keys: "e", danger: true, run: retire }]
                   : []),
               ]}
             />
@@ -228,8 +239,7 @@ export function PageEditor({
         </DetailBar>
 
         <Reading>
-          <input
-            className="w-full bg-transparent font-mono text-xl leading-tight font-semibold tracking-tight outline-none placeholder:text-muted"
+          <TitleInput
             aria-label="Title"
             placeholder="Untitled"
             readOnly={!editable}
@@ -320,6 +330,26 @@ export function PageEditor({
           </Field>
         </Dialog>
       )}
+      <PageCommands
+        commands={[
+          ...(record.data
+            ? [
+                {
+                  id: "page.history",
+                  label: history ? "Hide the history" : "Show the history",
+                  icon: HistoryIcon,
+                  run: () => setHistory(!history),
+                },
+              ]
+            : []),
+          ...(editable
+            ? [{ id: "page.move", label: "Move the page…", icon: FolderInput, run: () => setMoving(true) }]
+            : []),
+          ...(editable && record.data && !record.data.retiredAt
+            ? [{ id: "page.retire", label: "Retire the page…", icon: Archive, keys: "e", run: retire }]
+            : []),
+        ]}
+      />
       {dialog}
     </div>
   );
@@ -397,8 +427,8 @@ function FileDiff({ id, path }: { id: string; path: string }) {
     () => api<FileVersions>(`/records/${encodeURIComponent(id)}/diff?path=${encodeURIComponent(path)}`),
     [id, path],
   );
-  const { data, error } = useLoad(load);
-  if (error) return <Problem error={error} />;
+  const { data, error, reload } = useLoad(load);
+  if (error) return <Problem error={error} retry={reload} />;
   if (!data) return <Skeleton rows={3} shape="text" />;
   if (data.now === null) return <p className="text-sm text-muted">The file is gone.</p>;
   if (data.before === null) return <p className="text-sm text-muted">The version it was written from is not here.</p>;
@@ -483,8 +513,8 @@ function Versions({
   load: () => Promise<HistoryEntry[]>;
   restore: (draft: Partial<Draft>) => void;
 }) {
-  const { data, error } = useLoad(load);
-  if (error) return <Problem error={error} />;
+  const { data, error, reload } = useLoad(load);
+  if (error) return <Problem error={error} retry={reload} />;
   if (!data) return <Skeleton rows={3} shape="text" />;
   if (data.length === 0) return <p className="px-4 py-3 text-muted">No earlier version.</p>;
   return (

@@ -64,6 +64,13 @@ describe("admins", () => {
     expect((await call("/api/members/bob", ADA, { method: "DELETE" })).status).toBe(200);
     expect((await call("/api/me", bob)).status).toBe(401);
   });
+
+  it("can invite a removed member back, in the role of the new invite", async () => {
+    await join("bob");
+    expect((await call("/api/members/bob", ADA, { method: "DELETE" })).status).toBe(200);
+    const back = await join("bob", "bob-air", "admin");
+    expect(await json(await call("/api/me", back))).toMatchObject({ name: "bob", role: "admin", device: "bob-air" });
+  });
 });
 
 describe("machines", () => {

@@ -60,8 +60,8 @@ export function Palette({ openPage, onClose }: { openPage: (id: string) => void;
   const [pages, setPages] = useState<PageRow[]>([]);
   const [selected, setSelected] = useState(0);
   const list = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
   const { registry } = useRegistryState();
-  useLayer("palette");
 
   useEffect(() => {
     api<{ pages: PageRow[] }>("/pages")
@@ -103,6 +103,22 @@ export function Palette({ openPage, onClose }: { openPage: (id: string) => void;
     if (!stay) onClose();
     found.entry.run();
   };
+  // Its keys work wherever focus went in it; anything else is typed into the field.
+  const keys: Record<string, () => void> = {
+    escape: onClose,
+    arrowdown: () => setSelected(Math.min(current + 1, entries.length - 1)),
+    arrowup: () => setSelected(Math.max(current - 1, 0)),
+    enter: () => run(entries[current]),
+    "mod+enter": () => run(entries[current], true),
+    tab: () => input.current?.focus(),
+    "shift+tab": () => input.current?.focus(),
+  };
+  useLayer("palette", [], (chord) => {
+    const take = keys[chord];
+    if (take) take();
+    else if (document.activeElement !== input.current) input.current?.focus();
+    return take !== undefined;
+  });
 
   useEffect(() => {
     list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -126,6 +142,7 @@ export function Palette({ openPage, onClose }: { openPage: (id: string) => void;
             &gt;
           </span>
           <input
+            ref={input}
             // biome-ignore lint/a11y/noAutofocus: the palette exists to be typed into
             autoFocus
             role="combobox"
@@ -138,16 +155,6 @@ export function Palette({ openPage, onClose }: { openPage: (id: string) => void;
             onChange={(event) => {
               setQuery(event.target.value);
               setSelected(0);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape" || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k"))
-                onClose();
-              else if (event.key === "ArrowDown") setSelected(Math.min(current + 1, entries.length - 1));
-              else if (event.key === "ArrowUp") setSelected(Math.max(current - 1, 0));
-              else if (event.key === "Enter") run(entries[current], event.metaKey || event.ctrlKey);
-              else return;
-              event.preventDefault();
-              event.stopPropagation();
             }}
           />
         </div>

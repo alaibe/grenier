@@ -112,6 +112,8 @@ export function secretIn(text: string): string | null {
 }
 
 export interface RecordShape {
+  /** Its top folder, once it has one: a routine and its tasks live in Team. */
+  top?: string;
   type: string;
   title: string;
   folder?: string;
@@ -144,6 +146,8 @@ interface MemberChange {
   body: string;
   fields: Record<string, unknown>;
   retiredAt?: number | null;
+  anchors: readonly unknown[];
+  links: readonly unknown[];
 }
 
 /** The fields of a routine's task the machine that runs it sets. */
@@ -162,18 +166,32 @@ export function memberMay(
   if (before?.type !== "Task" || after.type !== "Task" || !ranIt) return false;
   const kept = ["top", "title", "folder", "body", "retiredAt"] as const;
   if (kept.some((part) => (before[part] ?? null) !== (after[part] ?? null))) return false;
+  const lists = ["anchors", "links"] as const;
+  if (lists.some((part) => JSON.stringify(before[part]) !== JSON.stringify(after[part]))) return false;
   const names = new Set([...Object.keys(before.fields), ...Object.keys(after.fields)]);
   return [...names].every(
     (name) => RUN_FIELDS.has(name) || JSON.stringify(before.fields[name]) === JSON.stringify(after.fields[name]),
   );
 }
 
+export const MAX_TITLE = 300;
+
+/** A routine, or a task that names one: what the team's machines run. */
+function isRoutineWork(record: RecordShape): boolean {
+  const routine = record.fields.routine;
+  return (
+    record.type === "Routine" || (record.type === "Task" && routine !== undefined && routine !== null && routine !== "")
+  );
+}
+
 /** Why a record does not follow its type's rules, or null. Every write is checked. */
 export function recordProblem(record: RecordShape, type: TypeDef | undefined): string | null {
   if (!type) return `there is no type ${record.type}`;
+  if (record.top !== undefined && record.top !== "team" && isRoutineWork(record))
+    return "a routine and its tasks live in Team";
   const title = record.title.trim();
   if (title === "") return "a record needs a title";
-  if (title.length > 300) return "a title holds at most 300 characters";
+  if (title.length > MAX_TITLE) return `a title holds at most ${MAX_TITLE} characters`;
   const folder = folderProblem(record.folder ?? "");
   if (folder) return folder;
   if (!type.body && record.body.trim() !== "") return `a ${type.name} has no body`;

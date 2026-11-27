@@ -326,7 +326,13 @@ export function Mcp({ item, go, team, admin }: ViewProps) {
     <>
       {searchField}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Problem error={local.error ?? shared.error} />
+        <Problem
+          error={local.error ?? shared.error}
+          retry={() => {
+            local.reload();
+            shared.reload();
+          }}
+        />
         {local.error ? null : !local.data ? (
           <Skeleton rows={8} />
         ) : (

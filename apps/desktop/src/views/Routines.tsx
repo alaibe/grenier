@@ -297,7 +297,7 @@ function TeamRoutines({ item, go, admin }: ViewProps) {
     <>
       {searchField}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Problem error={routines.error} />
+        <Problem error={routines.error} retry={routines.reload} />
         {routines.error ? null : !routines.data ? (
           <Skeleton rows={8} />
         ) : (

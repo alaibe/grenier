@@ -323,6 +323,86 @@ describe("a machine that takes the team's routine runs", () => {
     expect(remote.records.find((record) => record.id === id)?.fields.status).toBe("done");
   });
 
+  it("refuses a second run while one goes on, gives its task back, and keeps the guard on the first", async () => {
+    const routine = await addRoutine(deps, {
+      title: "Tidy",
+      prompt: "Tidy up.",
+      fields: { mode: "read-only" },
+    });
+    const record = (await store.records.get(routine.id)) as FullRecord;
+    const runner = newRunner();
+    // Told and asked already, before the task exists: only the claim below asks for it.
+    await runner.tick(true);
+    const id = await task("Tidy the readme", routine.id);
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const guards: boolean[] = [];
+    answer = async (running) => {
+      const [run] = await store.runs.list({ routineId: routine.id });
+      const session = (await store.sessions.get(run?.sessionId as string)) as never;
+      guards.push(running.guard(session) !== null);
+      await released;
+      guards.push(running.guard(session) !== null);
+      return { code: 0, text: "Tidied." };
+    };
+    const claimed = runner.claim();
+    const manual = runner.run({ routine: record, trigger: "manual" });
+    await expect(runner.run({ routine: record, trigger: "manual" })).rejects.toThrow("a run is going on");
+    await claimed;
+    release();
+    expect((await manual).status).toBe("done");
+    expect(calls).toHaveLength(1);
+    expect(guards).toEqual([true, true]);
+    expect(logs.some((line) => line.includes("declined Tidy the readme (Tidy): a run is going on"))).toBe(true);
+    expect((await store.records.get(id))?.fields.status).toBe("to-do");
+    expect(await store.runs.list({ routineId: routine.id })).toHaveLength(1);
+  });
+
+  it("logs a tick that fails rather than letting it end the daemon", async () => {
+    const base = newRunner();
+    const runner = new Runner({
+      ...base.deps,
+      tell: async () => {
+        throw new Error("the team store is down");
+      },
+    });
+    await expect(runner.tick(true)).resolves.toBeUndefined();
+    expect(logs).toContain("grenier: could not check for routine work: the team store is down");
+  });
+
+  it("stops the run going on when the daemon stops, and waits for it to end", async () => {
+    const routine = await addRoutine(deps, {
+      title: "Long",
+      prompt: "Take your time.",
+      fields: { mode: "read-only" },
+    });
+    const record = (await store.records.get(routine.id)) as FullRecord;
+    const runner = newRunner();
+    await runner.tick(true);
+    let spawned = () => {};
+    const started = new Promise<void>((resolve) => {
+      spawned = resolve;
+    });
+    answer = async () => {
+      const signal = calls.at(-1)?.signal as AbortSignal;
+      spawned();
+      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      return { code: 130, text: "stopped" };
+    };
+    const run = runner.run({ routine: record, trigger: "manual" });
+    await started;
+    await runner.stop();
+    expect(runner.running).toBe(false);
+    expect((await store.runs.list({ routineId: routine.id }))[0]).toMatchObject({
+      status: "failed",
+      result: "stopped",
+    });
+    expect((await run).status).toBe("failed");
+    await expect(runner.run({ routine: record, trigger: "manual" })).rejects.toThrow("the daemon is stopping");
+  });
+
   it("lists a run on a machine with no work folder, as failed", async () => {
     const routine = await addRoutine(deps, {
       title: "Elsewhere",

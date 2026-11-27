@@ -113,6 +113,39 @@ describe("the command registry", () => {
   });
 });
 
+describe("a dialog's keys", () => {
+  it("go to the top layer wherever focus is, all but ⌘K, and to the screen once it closes", () => {
+    const registry = new Registry();
+    const pressed: string[] = [];
+    const closeDialog = registry.pushLayer({
+      kind: "dialog",
+      hints: [],
+      key: (chord) => {
+        pressed.push(`dialog ${chord}`);
+        return chord === "escape";
+      },
+    });
+    expect(registry.layerKey("escape")).toBe(true);
+    expect(registry.layerKey("j")).toBe(false);
+    expect(registry.layerKey("mod+k")).toBeNull();
+    const closePalette = registry.pushLayer({
+      kind: "palette",
+      hints: [],
+      key: (chord) => {
+        pressed.push(`palette ${chord}`);
+        return true;
+      },
+    });
+    expect(registry.layerKey("escape")).toBe(true);
+    closePalette();
+    closeDialog();
+    expect(registry.layerKey("escape")).toBeNull();
+    expect(pressed).toEqual(["dialog escape", "dialog j", "palette escape"]);
+    registry.pushLayer({ kind: "dialog", hints: [] });
+    expect(registry.layerKey("escape")).toBe(false);
+  });
+});
+
 describe("times in lists", () => {
   const now = new Date(2026, 10, 25, 12, 0).getTime();
   it("are short and relative, then a day, then a date", () => {

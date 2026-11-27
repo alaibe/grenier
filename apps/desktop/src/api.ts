@@ -86,3 +86,8 @@ export function usageEnabled(): Promise<boolean> {
 export function setUsageEnabled(enabled: boolean): Promise<void> {
   return isTauri() ? invoke<void>("usage_set_enabled", { enabled }) : Promise.reject(new ApiError(OUTSIDE_THE_APP));
 }
+
+/** The public issue form for a problem or an idea, in the person's browser, with only the version and the system filled in. */
+export function openFeedback(kind: "problem" | "feature"): Promise<void> {
+  return isTauri() ? invoke<void>("open_feedback", { kind }) : Promise.reject(new ApiError(OUTSIDE_THE_APP));
+}

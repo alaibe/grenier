@@ -1,7 +1,7 @@
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::path::BaseDirectory;
@@ -13,14 +13,28 @@ use tauri_plugin_shell::ShellExt;
 const DEFAULT_PORT: u16 = 7788;
 /// How long a start may take before the app says the daemon did not answer.
 const START_TIMEOUT: Duration = Duration::from_secs(15);
-/// How long a stop waits for the port to close.
+/// How long a stop waits for `grenier stop`, then for the port to close.
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(100);
 /// The daemon's last lines kept, to say why it did not start.
 const KEPT_LINES: usize = 20;
 
 /// The daemon this app started, if it had to: stopped when the app quits. One started by `grenier run` is left alone.
-pub struct Sidecar(pub Mutex<Option<CommandChild>>);
+#[derive(Default)]
+pub struct Sidecar {
+    child: Mutex<Option<CommandChild>>,
+    /// Held through a start, so calls made meanwhile wait for it; never by a stop, which must not wait for a start.
+    starting: Mutex<()>,
+}
+
+/// Which daemon a stop ends.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Stop {
+    /// Only the one this app started, as when the app quits.
+    Own,
+    /// Whichever answers, even one started from a terminal: an update replaces the files it runs from.
+    Any,
+}
 
 /// `GRENIER_HOME`, else ~/.grenier: the same place the CLI uses.
 pub fn grenier_home() -> Result<PathBuf, String> {
@@ -92,7 +106,7 @@ pub fn grenier(app: &AppHandle, args: &[&str]) -> Result<Command, String> {
 /// The daemon's port, after starting the bundled daemon when none answers; calls made meanwhile wait for that start.
 pub fn start_daemon(app: &AppHandle, home: &Path) -> Result<u16, String> {
     let state = app.state::<Sidecar>();
-    let mut sidecar = state.0.lock().map_err(|error| error.to_string())?;
+    let _starting = state.starting.lock().map_err(|error| error.to_string())?;
     let port = daemon_port(home);
     if answers(port) {
         return Ok(port);
@@ -100,7 +114,7 @@ pub fn start_daemon(app: &AppHandle, home: &Path) -> Result<u16, String> {
     let (mut events, child) = grenier(app, &["daemon"])?
         .spawn()
         .map_err(|error| format!("cannot start the Grenier daemon: {error}"))?;
-    *sidecar = Some(child);
+    *state.child.lock().map_err(|error| error.to_string())? = Some(child);
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
     let exited = Arc::new(AtomicBool::new(false));
     {
@@ -130,7 +144,12 @@ pub fn start_daemon(app: &AppHandle, home: &Path) -> Result<u16, String> {
         }
         let gave_up = started.elapsed() > START_TIMEOUT;
         if exited.load(Ordering::SeqCst) || gave_up {
-            *sidecar = None;
+            let child = state.child.lock().ok().and_then(|mut guard| guard.take());
+            if gave_up {
+                if let Some(child) = child {
+                    let _ = child.kill();
+                }
+            }
             let lines = said.lock().map_or_default(|lines| lines.join("\n"));
             let why = if lines.trim().is_empty() {
                 "it said nothing".to_string()
@@ -150,17 +169,21 @@ pub fn start_daemon(app: &AppHandle, home: &Path) -> Result<u16, String> {
     }
 }
 
-/// Stops the daemon this app started with `grenier stop`, and kills it only if that fails.
-pub fn stop_daemon(app: &AppHandle) {
-    let Some(child) = app.state::<Sidecar>().0.lock().ok().and_then(|mut guard| guard.take()) else {
-        return;
-    };
-    let stopped = grenier(app, &["stop"])
+/// Stops the daemon with `grenier stop`, killing the one this app started only if that fails, then waits for its port to close.
+pub fn stop_daemon(app: &AppHandle, which: Stop) {
+    let child = app
+        .state::<Sidecar>()
+        .child
+        .lock()
         .ok()
-        .and_then(|command| tauri::async_runtime::block_on(command.output()).ok())
-        .is_some_and(|output| output.status.success());
-    if !stopped {
-        let _ = child.kill();
+        .and_then(|mut guard| guard.take());
+    if child.is_none() && which == Stop::Own {
+        return;
+    }
+    if !run_stop(app) {
+        if let Some(child) = child {
+            let _ = child.kill();
+        }
     }
     let Ok(home) = grenier_home() else {
         return;
@@ -170,6 +193,27 @@ pub fn stop_daemon(app: &AppHandle) {
     while answers(port) && waited.elapsed() < STOP_TIMEOUT {
         std::thread::sleep(POLL);
     }
+}
+
+/// Whether `grenier stop` succeeded within `STOP_TIMEOUT`; one still running then is killed.
+fn run_stop(app: &AppHandle) -> bool {
+    let Ok((mut events, child)) =
+        grenier(app, &["stop"]).and_then(|command| command.spawn().map_err(|error| error.to_string()))
+    else {
+        return false;
+    };
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        while let Some(event) = events.blocking_recv() {
+            if let CommandEvent::Terminated(payload) = event {
+                let _ = sender.send(payload.code == Some(0));
+            }
+        }
+    });
+    receiver.recv_timeout(STOP_TIMEOUT).unwrap_or_else(|_| {
+        let _ = child.kill();
+        false
+    })
 }
 
 #[cfg(test)]

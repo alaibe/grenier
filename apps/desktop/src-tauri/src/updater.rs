@@ -88,7 +88,7 @@ fn check_and_install(app: &AppHandle, asked: bool) -> Result<(), String> {
     }
     let bytes = block_on(update.download(|_, _| {}, || {})).map_err(|error| error.to_string())?;
     // The daemon runs from the app's own files: the installer must not find it running, nor the new app reuse it.
-    crate::daemon::stop_daemon(app);
+    crate::daemon::stop_daemon(app, crate::daemon::Stop::Any);
     if let Err(error) = update.install(bytes) {
         if let Ok(home) = crate::daemon::grenier_home() {
             let _ = crate::daemon::start_daemon(app, &home);

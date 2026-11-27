@@ -3,6 +3,7 @@ import type { RecordRow } from "@grenier/core/api";
 import type { FullRecord } from "@grenier/store";
 import { cosine } from "./embeddings.ts";
 import { contentHashes, type Reader, type Repo, readable, type StoreDeps } from "./records.ts";
+import { embedMissing } from "./writes.ts";
 
 /** A full-text match on at least this many of the question's terms makes a record a candidate. */
 const SHARED_TERMS = 2;
@@ -134,6 +135,7 @@ export async function recall(
 
   const similarities = new Map<string, number>();
   if (deps.embedder) {
+    await embedMissing(deps, tops);
     const [query] = await deps.embedder.embed([input.query]);
     if (query) {
       const scored = (await deps.store.records.vectors(tops, deps.embedder.model))

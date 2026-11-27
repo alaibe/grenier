@@ -37,8 +37,10 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
   try {
     sqlite.pragma(`busy_timeout = ${BUSY_TIMEOUT}`);
     useWal(sqlite);
-    sqlite.pragma("foreign_keys = ON");
+    // Off while migrating, so a table's rebuild does not cascade into the tables that point at it.
+    sqlite.pragma("foreign_keys = OFF");
     migrate(sqlite, db, file, options.migrations ?? allMigrations);
+    sqlite.pragma("foreign_keys = ON");
   } catch (error) {
     sqlite.close();
     throw error;
@@ -270,6 +272,29 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
               )
               .all()
               .map((row) => ({ id: row.id, vector: fromBlob(row.vector) })),
+      unembedded: async (topIds, model, limit) =>
+        topIds.length === 0
+          ? []
+          : db
+              .select({ id: records.id, title: records.title, body: records.body })
+              .from(records)
+              .leftJoin(
+                recordEmbeddings,
+                and(eq(recordEmbeddings.recordId, records.id), eq(recordEmbeddings.model, model)),
+              )
+              .where(
+                and(inArray(records.top, [...topIds]), isNull(records.retiredAt), isNull(recordEmbeddings.recordId)),
+              )
+              .orderBy(asc(records.seq))
+              .limit(limit)
+              .all(),
+      embed: async (id, embedding) => {
+        const vector = toBlob(embedding.vector);
+        db.insert(recordEmbeddings)
+          .values({ recordId: id, model: embedding.model, vector })
+          .onConflictDoUpdate({ target: recordEmbeddings.recordId, set: { model: embedding.model, vector } })
+          .run();
+      },
       hit: async (id) => {
         db.update(records)
           .set({ hits: sql`${records.hits} + 1` })
@@ -447,6 +472,15 @@ function fromBlob(blob: Buffer): Float32Array {
   return new Float32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4);
 }
 
+/** After a migration: every row still points at one that exists. */
+function checkForeignKeys(sqlite: Database.Database, file: string): void {
+  const broken = sqlite.pragma("foreign_key_check") as { table: string }[];
+  if (broken.length > 0) {
+    const tables = [...new Set(broken.map((row) => row.table))].join(", ");
+    throw new StoreError(`${file}: after its migration, rows of ${tables} point at rows that do not exist`);
+  }
+}
+
 function migrate(sqlite: Database.Database, db: Db, file: string, migrations: readonly Migration[]): void {
   db.run(sql`CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
@@ -464,13 +498,16 @@ function migrate(sqlite: Database.Database, db: Db, file: string, migrations: re
           `${file} has schema version ${current}, newer than this build of grenier knows (${known}). Update grenier.`,
         );
       }
+      let ran = false;
       for (const migration of migrations) {
         if (migration.version <= current) continue;
         sqlite.exec(migration.sql);
         db.run(
           sql`INSERT INTO schema_migrations (version, name, applied_at) VALUES (${migration.version}, ${migration.name}, ${Date.now()})`,
         );
+        ran = true;
       }
+      if (ran) checkForeignKeys(sqlite, file);
     })
     .immediate();
 }

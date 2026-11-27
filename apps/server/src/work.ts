@@ -1,3 +1,4 @@
+import { builtinType, MAX_TITLE, recordProblem } from "@grenier/core/records";
 import { isRunning, nextDue, taskFor } from "@grenier/core/routines";
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, min, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -151,6 +152,7 @@ function offer(team: TeamData, device: Device): { task: StoredRecord; routine: S
     .where(
       and(
         eq(records.type, "Task"),
+        eq(records.top, "team"),
         isNull(records.retiredAt),
         isNull(records.sealed),
         eq(field("status"), "to-do"),
@@ -175,7 +177,7 @@ function offer(team: TeamData, device: Device): { task: StoredRecord; routine: S
   };
   for (const task of tasks) {
     const routine = team.get(String(task.fields.routine));
-    if (!routine || routine.retiredAt !== null || !isRunning(routine)) continue;
+    if (routine?.top !== "team" || routine.retiredAt !== null || !isRunning(routine)) continue;
     const can = (candidate: { memberId: string; agents: string[] }) => {
       if (!reads(candidate.memberId, task.top) || !reads(candidate.memberId, routine.top)) return false;
       const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : "claude";
@@ -213,6 +215,7 @@ export async function schedule(team: TeamData): Promise<void> {
     .where(
       and(
         eq(records.type, "Routine"),
+        eq(records.top, "team"),
         isNull(records.retiredAt),
         isNull(records.sealed),
         eq(field("state"), "running"),
@@ -250,7 +253,7 @@ export async function fileDue(team: TeamData): Promise<void> {
   const now = Date.now();
   for (const row of db.select().from(schedules).where(lte(schedules.nextAt, now)).all()) {
     const routine = team.get(row.routineId);
-    if (routine && routine.retiredAt === null && isRunning(routine)) {
+    if (routine?.top === "team" && routine.retiredAt === null && isRunning(routine)) {
       const waiting = db
         .select({ id: records.id })
         .from(records)
@@ -264,12 +267,7 @@ export async function fileDue(team: TeamData): Promise<void> {
           ),
         )
         .get();
-      if (!waiting)
-        file(
-          team,
-          routine,
-          `${routine.title}, ${new Date(row.nextAt).toISOString().slice(0, 16).replace("T", " ")} UTC`,
-        );
+      if (!waiting) file(team, routine, row.nextAt);
     }
     const next = nextDue(String(routine?.fields.schedule ?? ""), now);
     if (next === null) db.delete(schedules).where(eq(schedules.routineId, row.routineId)).run();
@@ -279,9 +277,14 @@ export async function fileDue(team: TeamData): Promise<void> {
   await schedule(team);
 }
 
-/** A routine's task, filed by the store itself when its schedule falls due. */
-function file(team: TeamData, routine: StoredRecord, title: string): void {
+/** A routine's task, filed by the store itself when its schedule falls due, named after the routine and the time. */
+function file(team: TeamData, routine: StoredRecord, at: number): void {
   const now = Date.now();
+  const when = `, ${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  const title = `${routine.title
+    .trim()
+    .slice(0, MAX_TITLE - when.length)
+    .trimEnd()}${when}`;
   const task: StoredRecord = {
     id: randomId(),
     folder: "",
@@ -296,5 +299,6 @@ function file(team: TeamData, routine: StoredRecord, title: string): void {
     sealed: null,
     ...taskFor(routine, title, ""),
   };
+  if (recordProblem(task, builtinType("Task"))) return;
   team.put(task, "schedule", "schedule");
 }

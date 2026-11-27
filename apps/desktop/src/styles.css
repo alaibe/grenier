@@ -95,7 +95,7 @@
     outline: none;
   }
 
-  /* A region's right edge: a 4px hit area that shows a 1px accent line on hover. */
+  /* A region's right edge: a 4px hit area that shows a 1px accent line on hover and on focus. */
   .resizer {
     position: absolute;
     inset: 0 calc(var(--layout-resize-handle) / -2) 0 auto;
@@ -103,12 +103,27 @@
     width: var(--layout-resize-handle);
     cursor: col-resize;
   }
-  .resizer:hover::after {
+  .resizer:is(:hover, :focus-visible)::after {
     content: "";
     position: absolute;
     inset: 0 1px 0 auto;
     width: 1px;
     background: var(--accent);
+  }
+
+  /* An item's name as its own field (TitleInput): the name's type, no box; focus keeps the system's ring. */
+  .title-input {
+    width: 100%;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--fg);
+    font: 600 var(--text-xl) / 1.25 var(--font-mono);
+    letter-spacing: -0.025em;
+  }
+  .title-input::placeholder {
+    color: var(--muted);
   }
 
   code {

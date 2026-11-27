@@ -39,6 +39,7 @@ export {
 export {
   changedFields,
   embedding,
+  embedMissing,
   type RememberInput,
   refusal,
   remember,

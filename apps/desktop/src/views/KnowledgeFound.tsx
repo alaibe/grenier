@@ -22,9 +22,9 @@ export function Found({
   open: (id: string) => void;
 }) {
   const load = useCallback(() => searchRecords<RecordRow>(words), [words]);
-  const { data, error } = useLoad(load);
+  const { data, error, reload } = useLoad(load);
   const [cursor, setCursor] = useState<string | null>(current ? pageId(current) : null);
-  if (error) return <Problem error={error} />;
+  if (error) return <Problem error={error} retry={reload} />;
   if (!data) return <Skeleton rows={4} />;
   const shown = new Map(pages.map((page) => [page.id, page]));
   const found = data.map((record) => shown.get(record.id)).filter((page): page is PageRow => page !== undefined);

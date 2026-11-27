@@ -78,7 +78,6 @@ export async function remember(
   const repoName = repo ? await ensureRepo(deps.store, repo) : null;
   const readableTops = readable(reader);
   const top = input.top ?? "me";
-  const _member = (await deps.store.state.get("team_role")) === "member";
   if (!(TOPS as readonly string[]).includes(top)) throw new StoreUseError(`there is no top folder ${top}`);
   if (reader && top !== "me" && !readableTops.includes(top))
     throw new StoreUseError(`this client may not write to ${top}`);
@@ -156,6 +155,23 @@ export async function embedding(
   if (!embedder) return undefined;
   const [vector] = await embedder.embed([`${record.title}\n${record.body}`.slice(0, 2000)]);
   return vector ? { model: embedder.model, vector } : undefined;
+}
+
+/** Gives a vector by the current model to every record of these top folders without one: one pulled while the model was not loaded, or made by a model since replaced. */
+export async function embedMissing(deps: StoreDeps, tops: readonly string[]): Promise<number> {
+  const { embedder } = deps;
+  if (!embedder) return 0;
+  let embedded = 0;
+  for (;;) {
+    const missing = await deps.store.records.unembedded(tops, embedder.model, 100);
+    if (missing.length === 0) return embedded;
+    for (const record of missing) {
+      const made = await embedding(embedder, record);
+      if (!made) return embedded;
+      await deps.store.records.embed(record.id, made);
+      embedded += 1;
+    }
+  }
 }
 
 export async function write(deps: StoreDeps, record: RecordInput, before?: FullRecord): Promise<void> {

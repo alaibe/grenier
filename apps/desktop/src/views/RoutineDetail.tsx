@@ -4,6 +4,7 @@ import { CirclePlay, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
 import { ago, exact } from "../format.ts";
+import { PageCommands } from "../shell/commands.tsx";
 import { DetailBar, ItemMeta, ItemName, Reading, useItemTitle } from "../shell/regions.tsx";
 import { stateTag } from "../states.ts";
 import { Button } from "../ui/button.tsx";
@@ -140,6 +141,17 @@ export function RoutineDetail({
         )}
         <TeamRuns routine={routine.id} />
       </Reading>
+      {/* Run, Pause and Resume are the list's commands, one for each routine. */}
+      <PageCommands
+        commands={
+          admin
+            ? [
+                { id: "routine.edit", label: "Edit the routine…", icon: Pencil, run: edit },
+                { id: "routine.remove", label: "Remove from the team…", icon: Trash2, run: remove },
+              ]
+            : []
+        }
+      />
     </article>
   );
 }
