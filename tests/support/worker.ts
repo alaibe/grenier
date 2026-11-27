@@ -26,37 +26,45 @@ export class TeamStore extends Store {
 export default worker;
 `;
 
-/** The team Worker in Miniflare (local workerd and its Durable Object); with `clock`, `ahead` moves its time on. */
-export async function startWorker(options: { listen?: boolean; clock?: boolean } = {}): Promise<{
+/**
+ * The team Worker in Miniflare (local workerd and its Durable Object); with `clock`, `ahead` moves its time on.
+ * With `persist`, its storage stays in that folder between starts; `script` runs another Worker in its place.
+ */
+export async function startWorker(
+  options: { listen?: boolean; clock?: boolean; persist?: string; script?: string } = {},
+): Promise<{
   mf: Miniflare;
   call: (path: string, token?: string, init?: { method?: string; body?: unknown; ahead?: number }) => Promise<Response>;
   /** Where it listens, with `listen`. */
   url: URL | null;
   fetch: typeof fetch;
 }> {
-  const bundle = await build({
-    ...(options.clock
-      ? { stdin: { contents: CLOCKED, resolveDir: SERVER.pathname, loader: "ts" as const } }
-      : { entryPoints: [new URL("src/index.ts", SERVER).pathname] }),
-    bundle: true,
-    write: false,
-    platform: "neutral",
-    format: "esm",
-    target: "es2023",
-    external: ["cloudflare:workers"],
-    conditions: ["workerd", "worker", "browser"],
-    mainFields: ["module", "main"],
-    loader: { ".css": "text" },
-    logLevel: "silent",
-  });
+  const bundle = await (options.script !== undefined
+    ? null
+    : build({
+        ...(options.clock
+          ? { stdin: { contents: CLOCKED, resolveDir: SERVER.pathname, loader: "ts" as const } }
+          : { entryPoints: [new URL("src/index.ts", SERVER).pathname] }),
+        bundle: true,
+        write: false,
+        platform: "neutral",
+        format: "esm",
+        target: "es2023",
+        external: ["cloudflare:workers"],
+        conditions: ["workerd", "worker", "browser"],
+        mainFields: ["module", "main"],
+        loader: { ".css": "text", ".sql": "text" },
+        logLevel: "silent",
+      }));
   const mf = new Miniflare(
     convertV4MiniflareOptions({
       modules: true,
-      script: bundle.outputFiles[0]?.text ?? "",
+      script: options.script ?? bundle?.outputFiles[0]?.text ?? "",
       compatibilityDate: "2026-11-01",
       durableObjects: { TEAM: { className: "TeamStore", useSQLite: true } },
       bindings: { SETUP_HASH: hash(SETUP_TOKEN) },
       ...(options.listen ? { host: "127.0.0.1", port: 0 } : {}),
+      ...(options.persist ? { resourcePersistencePath: options.persist } : {}),
     }),
   );
   const url = options.listen ? await mf.ready : null;

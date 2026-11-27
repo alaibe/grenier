@@ -6,15 +6,18 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "db:generate": "drizzle-kit generate"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261109.1",
+    "drizzle-kit": "0.31.11",
     "esbuild": "0.28.2"
   },
   "dependencies": {
     "@grenier/core": "workspace:*",
     "@lezer/markdown": "1.8.1",
+    "drizzle-orm": "0.45.4",
     "hono": "4.13.17",
     "zod": "4.6.7"
   }

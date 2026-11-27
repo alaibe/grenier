@@ -1,6 +1,8 @@
 import { ftsMatch, searchWords } from "@grenier/core";
 import { builtinType, MEMBER_WRITES, memberMay, recordProblem } from "@grenier/core/records";
 import { type ChangesAnswer, meTop, RECORD_PARTS } from "@grenier/core/team";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, isNull, sql } from "drizzle-orm";
+
 import { z } from "zod";
 import {
   type Applied,
@@ -9,11 +11,12 @@ import {
   type Device,
   type Member,
   problem,
-  type Row,
   type StoredRecord,
   type TeamApp,
   type TeamData,
 } from "./data.ts";
+import { recordsFts } from "./db/fts.ts";
+import { applied, claims, declines, history, records, runs } from "./db/schema.ts";
 import { viewOf } from "./markdown.ts";
 import { schedule } from "./work.ts";
 
@@ -21,92 +24,48 @@ import { schedule } from "./work.ts";
 const RECORD_FIELDS: readonly string[] = [...RECORD_PARTS, "sealed"];
 const MAX_BATCH = 500;
 
-export function recordFrom(row: Row): StoredRecord {
-  return {
-    id: row.id as string,
-    top: row.top as string,
-    type: row.type as string,
-    title: row.title as string,
-    folder: (row.folder as string | null) ?? "",
-    body: row.body as string,
-    fields: JSON.parse(row.fields as string),
-    author: row.author as string,
-    device: (row.device as string | null) ?? null,
-    sessionId: (row.session_id as string | null) ?? null,
-    createdAt: row.created_at as number,
-    updatedAt: row.updated_at as number,
-    retiredAt: (row.retired_at as number | null) ?? null,
-    version: row.version as number,
-    anchors: JSON.parse(row.anchors as string),
-    links: JSON.parse(row.links as string),
-    sealed: (row.sealed as string | null) ?? null,
-  };
+export function getRecord(team: Pick<TeamData, "db">, id: string): StoredRecord | undefined {
+  return team.db.select().from(records).where(eq(records.id, id)).get();
 }
 
-export function getRecord(team: Pick<TeamData, "one">, id: string): StoredRecord | undefined {
-  const row = team.one("SELECT * FROM records WHERE id = ?", id);
-  return row ? recordFrom(row) : undefined;
-}
-
-export function putRecord(team: Pick<TeamData, "sql">, record: StoredRecord, author: string, device: string): void {
-  team.sql("DELETE FROM records_fts WHERE id = ?", record.id);
-  team.sql(
-    `INSERT INTO records (id, top, type, title, folder, body, fields, author, device, session_id, created_at,
-      updated_at, retired_at, version, anchors, links, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET top = excluded.top, type = excluded.type,
-      title = excluded.title, folder = excluded.folder, body = excluded.body, fields = excluded.fields, author = excluded.author,
-      device = excluded.device, session_id = excluded.session_id, updated_at = excluded.updated_at,
-      retired_at = excluded.retired_at, version = excluded.version, anchors = excluded.anchors,
-      links = excluded.links, sealed = excluded.sealed`,
-    record.id,
-    record.top,
-    record.type,
-    record.title,
-    record.folder,
-    record.body,
-    JSON.stringify(record.fields),
-    record.author,
-    record.device,
-    record.sessionId,
-    record.createdAt,
-    record.updatedAt,
-    record.retiredAt,
-    record.version,
-    JSON.stringify(record.anchors),
-    JSON.stringify(record.links),
-    record.sealed,
-  );
+export function putRecord(team: Pick<TeamData, "db">, record: StoredRecord, author: string, device: string): void {
+  const { db } = team;
+  db.delete(recordsFts).where(eq(recordsFts.id, record.id)).run();
+  const { id: _id, createdAt: _createdAt, ...changed } = record;
+  db.insert(records).values(record).onConflictDoUpdate({ target: records.id, set: changed }).run();
   if (record.sealed === null && record.retiredAt === null) {
-    team.sql("INSERT INTO records_fts (id, title, body) VALUES (?, ?, ?)", record.id, record.title, record.body);
+    db.insert(recordsFts).values({ id: record.id, title: record.title, body: record.body }).run();
   }
   const { sealed: _sealed, ...snapshot } = record;
-  team.sql(
-    "INSERT OR IGNORE INTO history (record_id, version, author, device, ts, snapshot) VALUES (?, ?, ?, ?, ?, ?)",
-    record.id,
-    record.version,
-    author,
-    device,
-    record.updatedAt,
-    JSON.stringify(record.sealed === null ? snapshot : { sealed: true }),
-  );
+  db.insert(history)
+    .values({
+      recordId: record.id,
+      version: record.version,
+      author,
+      device,
+      ts: record.updatedAt,
+      snapshot: record.sealed === null ? snapshot : { sealed: true },
+    })
+    .onConflictDoNothing()
+    .run();
 }
 
 /** Whether a change touches a part someone else changed since its base version: the editor's save refuses then. */
 function collides(team: TeamData, change: Change, changed: string[]): boolean {
-  const since = team.sql(
-    "SELECT snapshot FROM history WHERE record_id = ? AND version > ? ORDER BY version",
-    change.recordId,
-    change.baseVersion,
-  );
-  const base = team.one(
-    "SELECT snapshot FROM history WHERE record_id = ? AND version = ?",
-    change.recordId,
-    change.baseVersion,
-  );
-  const before = base ? (JSON.parse(base.snapshot as string) as Record<string, unknown>) : {};
+  const since = team.db
+    .select({ snapshot: history.snapshot })
+    .from(history)
+    .where(and(eq(history.recordId, change.recordId), gt(history.version, change.baseVersion)))
+    .orderBy(asc(history.version))
+    .all();
+  const base = team.db
+    .select({ snapshot: history.snapshot })
+    .from(history)
+    .where(and(eq(history.recordId, change.recordId), eq(history.version, change.baseVersion)))
+    .get();
+  const before = base?.snapshot ?? {};
   const touched = new Set<string>();
-  for (const entry of since) {
-    const snapshot = JSON.parse(entry.snapshot as string) as Record<string, unknown>;
+  for (const { snapshot } of since) {
     for (const name of RECORD_FIELDS) {
       if (JSON.stringify(snapshot[name]) !== JSON.stringify(before[name])) touched.add(name);
     }
@@ -116,34 +75,36 @@ function collides(team: TeamData, change: Change, changed: string[]): boolean {
 
 /** The records a member reads that match the words, best first, else the latest; none sealed or retired. */
 export function searchRecords(
-  team: Pick<TeamData, "sql" | "topsOf">,
+  team: Pick<TeamData, "db" | "topsOf">,
   member: Pick<Member, "id">,
   input: { query: string; type: string; top: string; limit: number },
 ): StoredRecord[] {
-  const tops = team.topsOf(member);
   const words = searchWords(input.query.trim());
   // Filtered before the LIMIT, so a type or top folder with older records still gets them.
-  const where = [
-    `r.top IN (${tops.map(() => "?").join(", ")})`,
-    "r.retired_at IS NULL AND r.sealed IS NULL",
-    "(? = '' OR r.type = ?) AND (? = '' OR r.top = ?)",
-  ].join(" AND ");
-  const bindings = [...tops, input.type, input.type, input.top, input.top];
-  const rows = words.length
-    ? team.sql(
-        `SELECT r.* FROM records_fts f JOIN records r ON r.id = f.id WHERE records_fts MATCH ? AND ${where} ORDER BY bm25(records_fts) LIMIT ?`,
-        ftsMatch(words),
-        ...bindings,
-        input.limit,
-      )
-    : team.sql(`SELECT r.* FROM records r WHERE ${where} ORDER BY r.updated_at DESC LIMIT ?`, ...bindings, input.limit);
-  return rows.map(recordFrom);
+  const where = and(
+    inArray(records.top, team.topsOf(member)),
+    isNull(records.retiredAt),
+    isNull(records.sealed),
+    input.type === "" ? undefined : eq(records.type, input.type),
+    input.top === "" ? undefined : eq(records.top, input.top),
+  );
+  if (!words.length) {
+    return team.db.select().from(records).where(where).orderBy(desc(records.updatedAt)).limit(input.limit).all();
+  }
+  return team.db
+    .select(getTableColumns(records))
+    .from(recordsFts)
+    .innerJoin(records, eq(records.id, recordsFts.id))
+    .where(and(sql`${recordsFts} MATCH ${ftsMatch(words)}`, where))
+    .orderBy(sql`bm25(${recordsFts})`)
+    .limit(input.limit)
+    .all();
 }
 
 /** Applies one change, field by field over what the store has; the store's order decides between two writers. */
 function apply(team: TeamData, change: Change, member: Member, device: Device): Applied {
-  const done = team.one("SELECT version FROM applied WHERE change_id = ?", change.id);
-  if (done) return { version: done.version as number };
+  const done = team.db.select({ version: applied.version }).from(applied).where(eq(applied.changeId, change.id)).get();
+  if (done) return { version: done.version };
   const tops = team.topsOf(member);
   const current = getRecord(team, change.recordId);
   if (current && !tops.includes(current.top)) return { refused: "this record is in a top folder you do not read" };
@@ -188,7 +149,11 @@ function apply(team: TeamData, change: Change, member: Member, device: Device): 
   if (member.role !== "admin") {
     const ran =
       current?.type === "Task" &&
-      team.one("SELECT 1 AS ran FROM runs WHERE task_id = ? AND device_id = ?", current.id, device.id) !== undefined;
+      team.db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(and(eq(runs.taskId, current.id), eq(runs.deviceId, device.id)))
+        .get() !== undefined;
     if (!memberMay(current, next, mine, ran)) return { refused: MEMBER_WRITES };
   }
   if (!tops.includes(next.top)) return { refused: `there is no top folder ${next.top} you may write to` };
@@ -204,15 +169,18 @@ function apply(team: TeamData, change: Change, member: Member, device: Device): 
   next.updatedAt = now;
   next.version = team.nextVersion();
   putRecord(team, next, member.name, device.name);
-  team.sql("INSERT INTO applied (change_id, version, at) VALUES (?, ?, ?)", change.id, next.version, now);
+  team.db.insert(applied).values({ changeId: change.id, version: next.version, at: now }).run();
   // An admin changed the routine: every machine that declined its tasks may answer again.
   if (next.type === "Routine") {
-    team.sql(
-      "DELETE FROM declines WHERE task_id IN (SELECT id FROM records WHERE type = 'Task' AND json_extract(fields, '$.routine') = ?)",
-      next.id,
-    );
+    const tasks = team.db
+      .select({ id: records.id })
+      .from(records)
+      .where(and(eq(records.type, "Task"), eq(sql`json_extract(${records.fields}, '$.routine')`, next.id)));
+    team.db.delete(declines).where(inArray(declines.taskId, tasks)).run();
   }
-  if (next.type === "Task" && next.fields.status === "to-do") team.sql("DELETE FROM claims WHERE task_id = ?", next.id);
+  if (next.type === "Task" && next.fields.status === "to-do") {
+    team.db.delete(claims).where(eq(claims.taskId, next.id)).run();
+  }
   return { version: next.version };
 }
 
@@ -232,7 +200,7 @@ export function recordRoutes(app: TeamApp, team: TeamData): void {
         refused.push({ id: String(change?.id ?? ""), reason: "a change needs id, recordId, changed and record" });
         continue;
       }
-      const result = team.storage.transactionSync(() => apply(team, change, c.get("member"), c.get("device")));
+      const result = team.db.transaction(() => apply(team, change, c.get("member"), c.get("device")));
       if ("version" in result) applied.push({ id: change.id, recordId: change.recordId, version: result.version });
       else if ("refused" in result) refused.push({ id: change.id, reason: result.refused });
       else conflicts.push({ id: change.id, current: result.conflict });
@@ -248,10 +216,16 @@ export function recordRoutes(app: TeamApp, team: TeamData): void {
     const after = Number(c.req.query("after") ?? 0);
     const limit = Math.min(Number(c.req.query("limit") ?? MAX_BATCH), MAX_BATCH);
     const tops = team.topsOf(c.get("member"));
-    const rows = team.sql("SELECT * FROM records WHERE version > ? ORDER BY version LIMIT ?", after, limit);
-    const last = rows.at(-1)?.version as number | undefined;
+    const rows = team.db
+      .select()
+      .from(records)
+      .where(gt(records.version, after))
+      .orderBy(asc(records.version))
+      .limit(limit)
+      .all();
+    const last = rows.at(-1)?.version;
     return c.json({
-      records: rows.map(recordFrom).filter((record) => tops.includes(record.top)),
+      records: rows.filter((record) => tops.includes(record.top)),
       next: last ?? Math.max(after, 0),
       version: team.version(),
     });
@@ -268,12 +242,18 @@ export function recordRoutes(app: TeamApp, team: TeamData): void {
     const record = getRecord(team, c.req.param("id"));
     if (!record || !team.topsOf(c.get("member")).includes(record.top)) return problem(404, "no such record");
     return c.json({
-      history: team
-        .sql(
-          "SELECT version, author, device, ts, snapshot FROM history WHERE record_id = ? ORDER BY version",
-          record.id,
-        )
-        .map((row) => ({ ...row, snapshot: JSON.parse(row.snapshot as string) })),
+      history: team.db
+        .select({
+          version: history.version,
+          author: history.author,
+          device: history.device,
+          ts: history.ts,
+          snapshot: history.snapshot,
+        })
+        .from(history)
+        .where(eq(history.recordId, record.id))
+        .orderBy(asc(history.version))
+        .all(),
     });
   });
 

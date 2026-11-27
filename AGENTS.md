@@ -28,7 +28,7 @@ A team's shared memory for people and their AI agents: a pnpm workspace in TypeS
 - Tests run the same on every system: none is skipped, or expects something else, by platform.
 - Prices live only in `packages/log/prices.toml`.
 - `@grenier/core` and `@grenier/store` also run on Cloudflare Workers: Node-only code goes in `@grenier/core/node` or `@grenier/store/sqlite`.
-- A schema change: edit `packages/store/src/schema.ts`, run `pnpm db:generate`, list the new SQL file in `packages/store/src/migrations.ts`. A shipped migration never changes.
+- A schema change: edit `packages/store/src/schema.ts`, run `pnpm db:generate`, list the new SQL file in `packages/store/src/migrations.ts`; for the team store, edit `apps/server/src/db/schema.ts` and run `pnpm --filter @grenier/server db:generate`. A shipped migration never changes.
 - `src/usage/tracker.ts`, `src/usage/use-usage.ts`, `src-tauri/src/usage-vectors.json` and the core of `usage.rs` in `apps/desktop` are shared byte for byte with Kestrel and Statim: change all three apps together.
 - Delete what is obsolete outright: no compatibility layer, fallback or migration of old data, config or formats.
 - A comment is one line, and only where the code can't say why.

@@ -1,7 +1,9 @@
 import { randomHex } from "@grenier/core";
 import type { Change, StoredRecord } from "@grenier/core/team";
+import type { DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import type { Hono } from "hono";
 import type { z } from "zod";
+import type * as schema from "./db/schema.ts";
 
 export interface Member {
   id: string;
@@ -22,15 +24,14 @@ export interface Vars {
 
 export type { Change, StoredRecord };
 
-export type Row = Record<string, SqlStorageValue>;
+export type Db = DrizzleSqliteDODatabase<typeof schema>;
 
 export type Applied = { version: number } | { refused: string } | { conflict: StoredRecord };
 
 /** What the Durable Object lends the remote MCP server and the routines' work: it stays the owner of its storage. */
 export interface TeamData {
   storage: DurableObjectStorage;
-  sql(query: string, ...bindings: SqlStorageValue[]): Row[];
-  one(query: string, ...bindings: SqlStorageValue[]): Row | undefined;
+  db: Db;
   get(id: string): StoredRecord | undefined;
   /** Writes a record and its version in the history, as by this author on this device. */
   put(record: StoredRecord, author: string, device: string): void;
@@ -58,8 +59,8 @@ export async function bodyAs<T>(
 }
 
 /** A device's state as the team sees it: offline once it has said nothing for a while. */
-export const liveState = (row: Row) =>
-  (row.state_at as number | null) && (row.state_at as number) > Date.now() - SEEN ? row.state : "offline";
+export const liveState = (device: { state: string; stateAt: number | null }) =>
+  device.stateAt && device.stateAt > Date.now() - SEEN ? device.state : "offline";
 
 export function problem(status: number, message: string): Response {
   return Response.json({ error: message }, { status });

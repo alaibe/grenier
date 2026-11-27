@@ -10,6 +10,7 @@
       "**",
       "!**/*.md",
       "!packages/store/migrations/meta",
+      "!apps/server/drizzle",
       "!tests/fixtures",
       "!apps/desktop/src-tauri",
       "!apps/desktop/resources",
@@ -111,7 +112,7 @@
                   },
                   {
                     "group": ["drizzle-orm", "drizzle-orm/**"],
-                    "message": "Only packages/store uses Drizzle. Go through the store interface."
+                    "message": "Only packages/store and the team store (apps/server) use Drizzle. Go through the store interface."
                   }
                 ]
               }
@@ -121,7 +122,7 @@
       }
     },
     {
-      "includes": ["packages/store/src/**"],
+      "includes": ["packages/store/src/**", "apps/server/**"],
       "linter": {
         "rules": {
           "style": {

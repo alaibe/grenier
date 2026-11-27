@@ -2,13 +2,18 @@ import { DurableObject } from "cloudflare:workers";
 import { bearer } from "@grenier/core";
 import { sha256 } from "@grenier/core/policy";
 import { meTop } from "@grenier/core/team";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/durable-sqlite";
+import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { Hono } from "hono";
-import { type Device, type Member, problem, type Row, type TeamApp, type TeamData, type Vars } from "./data.ts";
+import migrations from "../drizzle/migrations.js";
+import { type Device, type Member, problem, type TeamApp, type TeamData, type Vars } from "./data.ts";
+import * as schema from "./db/schema.ts";
+import { counter, devices, members } from "./db/schema.ts";
 import { type MachineState, machineRoutes, setState } from "./machines.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { entryRoutes, memberRoutes } from "./members.ts";
 import { getRecord, putRecord, recordRoutes } from "./records.ts";
-import { SCHEMA_STEPS } from "./schema.ts";
 import { fileDue, workRoutes } from "./work.ts";
 
 export interface Env {
@@ -22,8 +27,7 @@ export class TeamStore extends DurableObject<Env> {
   #app: TeamApp;
   #data: TeamData = {
     storage: this.ctx.storage,
-    sql: (query, ...bindings) => this.#sql(query, ...bindings),
-    one: (query, ...bindings) => this.#sql(query, ...bindings)[0],
+    db: drizzle(this.ctx.storage, { schema }),
     get: (id) => getRecord(this.#data, id),
     put: (record, author, device) => putRecord(this.#data, record, author, device),
     version: () => this.#version(),
@@ -36,18 +40,14 @@ export class TeamStore extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.#migrate();
+    void ctx.blockConcurrencyWhile(async () => {
+      // A store from before drizzle's migrations starts empty: the team pushes its pages again.
+      if (this.#data.db.get(sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'`)) {
+        await ctx.storage.deleteAll();
+      }
+      await migrate(this.#data.db, migrations);
+    });
     this.#app = this.#routes();
-  }
-
-  #sql(query: string, ...bindings: SqlStorageValue[]): Row[] {
-    return this.ctx.storage.sql.exec(query, ...bindings).toArray() as Row[];
-  }
-
-  #migrate(): void {
-    this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-    const schema = Number(this.#data.one("SELECT value FROM meta WHERE key = 'schema'")?.value ?? 0);
-    for (const step of SCHEMA_STEPS.slice(schema)) this.ctx.storage.sql.exec(step);
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -89,7 +89,11 @@ export class TeamStore extends DurableObject<Env> {
   override async webSocketClose(socket: WebSocket): Promise<void> {
     const [deviceId] = this.ctx.getTags(socket);
     if (deviceId && this.ctx.getWebSockets(deviceId).length === 0) {
-      this.#sql("UPDATE devices SET state = 'offline', state_at = ? WHERE id = ?", Date.now(), deviceId);
+      this.#data.db
+        .update(devices)
+        .set({ state: "offline", stateAt: Date.now() })
+        .where(eq(devices.id, deviceId))
+        .run();
     }
   }
 
@@ -117,27 +121,39 @@ export class TeamStore extends DurableObject<Env> {
   async #authenticate(request: Request): Promise<{ member: Member; device: Device } | null> {
     const token = bearer(request.headers.get("authorization"));
     if (!token) return null;
-    const row = this.#data.one(
-      `SELECT d.id, d.name, d.member_id, m.name AS member_name, m.role FROM devices d JOIN members m ON m.id = d.member_id
-       WHERE d.token_hash = ? AND d.revoked_at IS NULL AND m.removed_at IS NULL`,
-      await sha256(token),
-    );
+    const tokenHash = await sha256(token);
+    const { db } = this.#data;
+    const row = db
+      .select({
+        id: devices.id,
+        name: devices.name,
+        memberId: devices.memberId,
+        memberName: members.name,
+        role: members.role,
+      })
+      .from(devices)
+      .innerJoin(members, eq(members.id, devices.memberId))
+      .where(and(eq(devices.tokenHash, tokenHash), isNull(devices.revokedAt), isNull(members.removedAt)))
+      .get();
     if (!row) return null;
-    this.#sql("UPDATE devices SET last_seen = ? WHERE id = ?", Date.now(), row.id as string);
+    db.update(devices).set({ lastSeen: Date.now() }).where(eq(devices.id, row.id)).run();
     return {
-      member: { id: row.member_id as string, name: row.member_name as string, role: row.role as Member["role"] },
-      device: { id: row.id as string, name: row.name as string, memberId: row.member_id as string },
+      member: { id: row.memberId, name: row.memberName, role: row.role },
+      device: { id: row.id, name: row.name, memberId: row.memberId },
     };
   }
 
   #version(): number {
-    return Number(this.#data.one("SELECT value FROM meta WHERE key = 'version'")?.value ?? 0);
+    return this.#data.db.select({ version: counter.version }).from(counter).get()?.version ?? 0;
   }
 
   #nextVersion(): number {
-    const next = this.#version() + 1;
-    this.#sql("UPDATE meta SET value = ? WHERE key = 'version'", String(next));
-    return next;
+    return this.#data.db
+      .insert(counter)
+      .values({ id: 1, version: 1 })
+      .onConflictDoUpdate({ target: counter.id, set: { version: sql`${counter.version} + 1` } })
+      .returning({ version: counter.version })
+      .get().version;
   }
 
   /** Files the task of each scheduled routine that is due, unless the last one it filed is still waiting. */

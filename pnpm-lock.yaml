@@ -181,6 +181,9 @@ importers:
       '@lezer/markdown':
         specifier: 1.8.1
         version: 1.8.1
+      drizzle-orm:
+        specifier: 0.45.4
+        version: 0.45.4(@cloudflare/workers-types@5.20261109.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)
       hono:
         specifier: 4.13.17
         version: 4.13.17
@@ -191,6 +194,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: 5.20261109.1
         version: 5.20261109.1
+      drizzle-kit:
+        specifier: 0.31.11
+        version: 0.31.11
       esbuild:
         specifier: 0.28.2
         version: 0.28.2

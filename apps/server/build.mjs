@@ -11,6 +11,6 @@ await build({
   external: ["cloudflare:workers"],
   conditions: ["workerd", "worker", "browser"],
   mainFields: ["module", "main"],
-  loader: { ".css": "text" },
+  loader: { ".css": "text", ".sql": "text" },
   logLevel: "warning",
 });

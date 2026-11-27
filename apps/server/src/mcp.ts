@@ -1,7 +1,10 @@
 import { untrusted } from "@grenier/core/policy";
 import { topName } from "@grenier/core/team";
+import { getTableColumns, isNull, sql } from "drizzle-orm";
+
 import { type Member, problem, type StoredRecord, type TeamApp, type TeamData } from "./data.ts";
-import { recordFrom, searchRecords } from "./records.ts";
+import { records } from "./db/schema.ts";
+import { searchRecords } from "./records.ts";
 
 /** The remote MCP server, as JSON-RPC over POST: one message or a batch. */
 export function mcpRoutes(app: TeamApp, team: TeamData): void {
@@ -78,12 +81,12 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
         if (one && tops.includes(one.top)) {
           const linked = [
             ...one.links.filter((link) => link.kind === "record").map((link) => team.get(link.ref)),
-            ...team
-              .sql(
-                "SELECT r.* FROM records r, json_each(r.links) l WHERE json_extract(l.value, '$.ref') = ? AND r.retired_at IS NULL",
-                one.id,
-              )
-              .map(recordFrom),
+            ...team.db
+              .select(getTableColumns(records))
+              .from(records)
+              .innerJoin(sql`json_each(${records.links}) l`, sql`json_extract(l.value, '$.ref') = ${one.id}`)
+              .where(isNull(records.retiredAt))
+              .all(),
           ].filter((record): record is StoredRecord => record !== undefined && tops.includes(record.top));
           return reply(text(untrusted({ records: [shown(one)], linked: linked.map(shown) }, topName)));
         }
