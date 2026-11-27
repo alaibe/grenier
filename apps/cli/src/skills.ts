@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, rmSync,
 import { join, relative } from "node:path";
 import type { LocalSkill, LocalSkillFull } from "@grenier/core/api";
 import { writeAtomically } from "@grenier/core/node";
+import { manifestField } from "@grenier/core/skill-manifest";
 import type { Store } from "@grenier/store";
 import { type Agent, agentNamed, CLAUDE_CODE, presentAgents, readJson, type Where } from "./agents/index.ts";
 import { isDir, Refusal } from "./io.ts";
@@ -11,7 +12,6 @@ import {
   MAX_SKILL_FILES,
   SKILL_NAME,
   type SkillFiles,
-  skillField,
   TOO_BIG,
   writeSkill,
 } from "./skill-files.ts";
@@ -26,8 +26,8 @@ function described(
   const manifest = join(folder, "SKILL.md");
   if (!existsSync(manifest)) return null;
   const text = readFileSync(manifest, "utf8");
-  const name = skillField(text, "name") ?? id.split(/[:/]/).pop() ?? id;
-  return { id, agent: agent.label, name, description: skillField(text, "description") ?? "", kind, path };
+  const name = manifestField(text, "name") ?? id.split(/[:/]/).pop() ?? id;
+  return { id, agent: agent.label, name, description: manifestField(text, "description") ?? "", kind, path };
 }
 
 /** The skills in a folder that holds one folder per skill. */

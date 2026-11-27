@@ -122,6 +122,15 @@ describe("a Codex routine's run", () => {
     expect(upstream.requests).toHaveLength(1);
   });
 
+  it("cuts a CRLF stream before apply_patch too, every call asked", async () => {
+    const crlf = new TextEncoder().encode(new TextDecoder().decode(TOOL_CALLS).replaceAll("\n", "\r\n"));
+    const { asked, cut } = codexRun("read-only", () => sse(crlf));
+    const text = await (await send()).text();
+    expect(asked).toEqual(["exec_command", "mcp__grenier__get", "apply_patch"]);
+    expect(cut).toEqual(["apply_patch"]);
+    expect(text).not.toContain("*** Begin Patch");
+  });
+
   it("passes a run that may act through byte for byte, asking once for each call", async () => {
     const { asked, cut } = codexRun("on", () => sse(TOOL_CALLS));
     expect(new Uint8Array(await (await send()).arrayBuffer())).toEqual(TOOL_CALLS);

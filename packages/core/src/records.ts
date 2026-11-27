@@ -95,7 +95,7 @@ export function builtinType(name: string): TypeDef | undefined {
   return BUILTIN_TYPES.find((type) => type.name === name);
 }
 
-/** Text that looks like a key, a token or a private key, which no record may hold. */
+/** Text that looks like a key, a token or a private key, which no record may hold: the formats secret scanners such as gitleaks know. */
 const SECRETS: readonly RegExp[] = [
   /\bsk-ant-[A-Za-z0-9_-]{20,}/,
   /\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}/,
@@ -106,6 +106,13 @@ const SECRETS: readonly RegExp[] = [
   /\bg[ctd]_[A-Za-z0-9_-]{40,}/,
   /\blin_api_[A-Za-z0-9]{30,}/,
   /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/,
+  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}/,
+  /\bAIza[0-9A-Za-z_-]{35}\b/,
+  /\bnpm_[A-Za-z0-9]{36}\b/,
+  /\bglpat-[A-Za-z0-9_-]{20,}/,
+  /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]{20,}/,
+  /\bhf_[A-Za-z0-9]{34,}\b/,
+  /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/,
 ];
 
 export function secretIn(text: string): string | null {

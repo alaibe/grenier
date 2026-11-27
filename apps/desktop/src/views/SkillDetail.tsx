@@ -1,11 +1,11 @@
 import type { LocalSkillFull, RecordFull, SharedNow, SharedState } from "@grenier/core/api";
+import { frontField, joinManifest, splitManifest, withDescription } from "@grenier/core/skill-manifest";
 import { FileText, Share2, Trash2 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { MarkdownEditor } from "../editor/markdown-editor.tsx";
 import { useSaveCommand } from "../shell/commands.tsx";
 import { DetailBar, ItemName, Reading, useItemTitle } from "../shell/regions.tsx";
-import { descriptionOf, joinManifest, splitManifest, withDescription } from "../skill-manifest.ts";
 import { installTag } from "../states.ts";
 import { Button, Primary } from "../ui/button.tsx";
 import { useConfirm } from "../ui/dialog.tsx";
@@ -54,7 +54,7 @@ function SkillPage({
   useEffect(() => setDraft(splitManifest(manifest)), [manifest]);
   const written = joinManifest(draft.front, draft.body);
   const dirty = written !== manifest;
-  const description = descriptionOf(draft.front);
+  const description = frontField(draft.front, "description") ?? "";
   useItemTitle(name);
 
   useSaveCommand("skill.save", "Save the skill", editable, () => dirty && save(written));
@@ -73,7 +73,7 @@ function SkillPage({
       </DetailBar>
       <Reading>
         <ItemName>{name}</ItemName>
-        {editable && description !== null ? (
+        {editable ? (
           <div className="mt-3">
             <Input
               aria-label="When to use it"

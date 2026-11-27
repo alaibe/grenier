@@ -1,16 +1,10 @@
 import { posix } from "node:path";
 import { secretIn } from "@grenier/core";
 import type { FoundServer, FoundSkill } from "@grenier/core/api";
+import { manifestField } from "@grenier/core/skill-manifest";
 import { Refusal } from "./io.ts";
 import { KEY_NAME, templateNames } from "./server-config.ts";
-import {
-  MAX_SKILL_BYTES,
-  MAX_SKILL_FILES,
-  type SkillFiles,
-  skillField,
-  skillFromFiles,
-  TOO_BIG,
-} from "./skill-files.ts";
+import { MAX_SKILL_BYTES, MAX_SKILL_FILES, type SkillFiles, skillFromFiles, TOO_BIG } from "./skill-files.ts";
 
 const SEARCH = "https://skills.sh/api/search";
 const GITHUB = "https://api.github.com/repos";
@@ -80,7 +74,7 @@ export async function fetchSkill(source: string, name: string, fetchImpl: typeof
     .sort((a, b) => Number(posix.basename(b) === name) - Number(posix.basename(a) === name));
   for (const folder of folders.slice(0, MAX_MANIFESTS)) {
     const prefix = folder === "." ? "" : `${folder}/`;
-    if (skillField(await raw(`${prefix}SKILL.md`), "name") !== name && posix.basename(folder) !== name) continue;
+    if (manifestField(await raw(`${prefix}SKILL.md`), "name") !== name && posix.basename(folder) !== name) continue;
     const inside = visible.filter((entry) => entry.path.startsWith(prefix));
     const bytes = inside.reduce((total, entry) => total + (entry.size ?? 0), 0);
     if (inside.length > MAX_SKILL_FILES || bytes > MAX_SKILL_BYTES) {

@@ -118,14 +118,16 @@ function guardedEvents(guard: RunGuard, provider: Provider) {
   let pending = "";
   return (chunk: Uint8Array | null): { out: Uint8Array | null; stop: boolean } => {
     pending += chunk ? decoder.decode(chunk, { stream: true }) : decoder.decode();
-    const end = chunk ? pending.lastIndexOf("\n\n") : pending.length;
-    if (end < 0) return { out: null, stop: false };
-    const complete = pending.slice(0, chunk ? end + 2 : end);
-    pending = pending.slice(complete.length);
+    // Events end with a blank line, in any of the line endings the spec allows; the bytes pass on as they came.
+    const events = pending.split(/(?<=\r\n\r\n|\n\n|\r\r)/);
+    const last = events.at(-1) ?? "";
+    const whole = chunk && !/(\r\n\r\n|\n\n|\r\r)$/.test(last) ? events.slice(0, -1) : events;
+    if (whole.length === 0) return { out: null, stop: false };
+    pending = whole.length === events.length ? "" : last;
     let passed = "";
-    for (const event of complete.split(/(?<=\n\n)/)) {
-      const data = /^data: ?(.*)$/m.exec(event)?.[1];
-      const tool = data === undefined ? null : toolIn(data);
+    for (const event of whole) {
+      const lines = [...event.matchAll(/^data: ?(.*?)\r?$/gm)].map((line) => line[1] as string);
+      const tool = lines.length === 0 ? null : toolIn(lines.join("\n"));
       if (tool !== null && !guard.allows(tool)) {
         guard.cut(tool);
         return { out: encoder.encode(passed + cutEvent(provider, tool)), stop: true };

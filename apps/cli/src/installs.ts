@@ -2,12 +2,13 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { builtinType, recordProblem, sharedHash } from "@grenier/core";
 import type { SharedNow, SharedState } from "@grenier/core/api";
+import { manifestField } from "@grenier/core/skill-manifest";
 import { newRecord, type StoreDeps, write } from "@grenier/index";
 import { type Approval, type FullRecord, type Store, toInput } from "@grenier/store";
 import { presentAgents, type Where } from "./agents/index.ts";
 import { Refusal } from "./io.ts";
 import { keysIn, serverEntry } from "./server-config.ts";
-import { type SkillFiles, skillField, writeSkill } from "./skill-files.ts";
+import { type SkillFiles, writeSkill } from "./skill-files.ts";
 
 export type Shared = "Skill" | "McpServer";
 
@@ -120,8 +121,10 @@ export async function sharedList(store: Store): Promise<SharedState[]> {
         title: record.title,
         description:
           type === "Skill"
-            ? (skillField(String((record.fields.files as Record<string, string>)?.["SKILL.md"] ?? ""), "description") ??
-              "")
+            ? (manifestField(
+                String((record.fields.files as Record<string, string>)?.["SKILL.md"] ?? ""),
+                "description",
+              ) ?? "")
             : (record.body.split("\n")[0] ?? ""),
         author: record.author,
         state: !approval ? "available" : approval.hash === hash ? "installed" : "update",

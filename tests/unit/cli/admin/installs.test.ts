@@ -93,7 +93,7 @@ describe("adding to the team from the app", () => {
     });
     const [skill] = await store.records.list({ tops: ["team"], type: "Skill" });
     expect(skill?.fields.files).toEqual({
-      "SKILL.md": '---\nname: release-notes\ndescription: "Writes notes."\n---\nRead the log.\n',
+      "SKILL.md": "---\nname: release-notes\ndescription: Writes notes.\n---\nRead the log.\n",
     });
   });
 

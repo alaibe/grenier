@@ -15,7 +15,8 @@
     "build": "node build.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "13.0.3"
+    "better-sqlite3": "13.0.3",
+    "smol-toml": "1.9.1"
   },
   "devDependencies": {
     "@grenier/core": "workspace:*",

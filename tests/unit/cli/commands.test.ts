@@ -197,14 +197,3 @@ describe("the CLI does what the app does", () => {
     expect(shownDiff("a\nb\nc", "a\nB\nc")).toBe("  a\n+ B\n- b\n  c");
   });
 });
-
-describe("a SKILL.md's fields", () => {
-  it("reads a description on one line, quoted, or folded under the key", async () => {
-    const { skillField } = await import("../../../apps/cli/src/skill-files.ts");
-    expect(skillField('---\nname: a\ndescription: "One: line."\n---\n', "description")).toBe("One: line.");
-    expect(skillField("---\ndescription: >\n  Folded over\n  two lines.\nname: a\n---\n", "description")).toBe(
-      "Folded over two lines.",
-    );
-    expect(skillField("---\ndescription: |\n  Kept\n  apart.\n---\n", "description")).toBe("Kept\napart.");
-  });
-});

@@ -1,5 +1,6 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, posix } from "node:path";
+import { manifestField, newManifest } from "@grenier/core/skill-manifest";
 import { Refusal } from "./io.ts";
 
 /** What a skill's folder is named: lowercase letters, digits and dashes, as Claude Code names skills. */
@@ -17,29 +18,6 @@ export interface SkillFiles {
   files: Record<string, string>;
 }
 
-/** A field of SKILL.md's front matter, as `name` or `description`, plain or in YAML's quotes. */
-export function skillField(manifest: string, key: string): string | undefined {
-  const front = /^---\n([\s\S]*?)\n---/.exec(manifest)?.[1] ?? "";
-  const value = new RegExp(`^${key}:\\s*(.+)$`, "m").exec(front)?.[1]?.trim();
-  // A block scalar, `>` or `|`: the indented lines under the key, folded into one for `>`.
-  if (value && /^[>|][-+]?$/.test(value)) {
-    const lines = new RegExp(`^${key}:.*\\n((?:[ \\t]+.*(?:\\n|$))+)`, "m").exec(front)?.[1] ?? "";
-    const kept = lines.split("\n").map((line) => line.trim());
-    return (value.startsWith(">") ? kept.join(" ") : kept.join("\n")).trim();
-  }
-  if (value && value.length > 1 && value.startsWith('"') && value.endsWith('"')) {
-    try {
-      return JSON.parse(value) as string;
-    } catch {
-      return value.slice(1, -1);
-    }
-  }
-  if (value && value.length > 1 && value.startsWith("'") && value.endsWith("'")) {
-    return value.slice(1, -1).replaceAll("''", "'");
-  }
-  return value;
-}
-
 /** A skill as a record holds it, SKILL.md and the text files beside it, within a shared skill's limits. */
 export function skillFromFiles(files: Record<string, string>, folderName: string): SkillFiles {
   const manifest = files["SKILL.md"];
@@ -50,8 +28,8 @@ export function skillFromFiles(files: Record<string, string>, folderName: string
     bytes += Buffer.byteLength(text);
   }
   if (bytes > MAX_SKILL_BYTES || Object.keys(files).length > MAX_SKILL_FILES) throw new Refusal(TOO_BIG);
-  const name = skillField(manifest, "name") ?? (folderName || "skill");
-  return { name, description: skillField(manifest, "description") ?? "", files };
+  const name = manifestField(manifest, "name") ?? (folderName || "skill");
+  return { name, description: manifestField(manifest, "description") ?? "", files };
 }
 
 /** A path a skill's file may take inside its folder: relative, without `..`, and `/` its only separator. */
@@ -81,9 +59,7 @@ export function manifestOf(input: { name: string; description: string; instructi
   if (!input.description.trim() || !input.instructions.trim()) {
     throw new Refusal("a skill needs a description and its instructions");
   }
-  // A JSON string is a YAML double-quoted scalar: a ": " or a quote in it stays text.
-  const description = JSON.stringify(input.description.trim().replace(/\s+/g, " "));
-  return `---\nname: ${input.name}\ndescription: ${description}\n---\n${input.instructions.trim()}\n`;
+  return newManifest(input);
 }
 
 /** A new skill from the app's form or the CLI: its name, when to use it, and its instructions. */
