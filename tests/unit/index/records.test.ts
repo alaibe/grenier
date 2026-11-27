@@ -53,7 +53,6 @@ describe("remember and recall", () => {
 
   it("says unchecked for a record that came from an outside item", async () => {
     await remember(deps, PERSON, null, {
-      kind: "fact",
       title: "The release freeze starts on Friday",
       body: "As LIN-42 says.",
       items: [{ ref: "linear:acme/LIN-42", version: "2026-11-20T10:00:00Z" }],
@@ -63,10 +62,7 @@ describe("remember and recall", () => {
     expect(found.status).toBe("unchecked");
   });
 
-  it("refuses an answer without files, a file outside the repository, a missing one, and a copy of the code", async () => {
-    await expect(remember(deps, null, repo.repo, { kind: "answer", title: "Q?", body: "A." })).rejects.toThrow(
-      "list the files",
-    );
+  it("refuses a file outside the repository, a missing one, and a copy of the code", async () => {
     await expect(answer("Q?", "A.", ["../elsewhere.ts"])).rejects.toThrow("outside the repository");
     await expect(answer("Q?", "A.", ["src/gone.ts"])).rejects.toThrow("no such file");
     const lines = Array.from({ length: 12 }, (_, index) => `const value${index} = ${index};`);
@@ -78,14 +74,13 @@ describe("remember and recall", () => {
   it("refuses a record holding something like a key, or breaking its type's rules", async () => {
     await expect(
       remember(deps, PERSON, null, {
-        kind: "fact",
         title: "Token",
         body: "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB",
       }),
     ).rejects.toThrow("looks like a key");
-    await expect(
-      remember(deps, PERSON, null, { type: "Decision", title: "Use SQLite", fields: { owner: "ada" } }),
-    ).rejects.toThrow("needs date");
+    await expect(remember(deps, PERSON, null, { type: "Task", title: "Ship it", top: "team" })).rejects.toThrow(
+      "needs status",
+    );
     await expect(remember(deps, PERSON, null, { type: "Nothing", title: "x" })).rejects.toThrow("no type Nothing");
   });
 
@@ -93,7 +88,6 @@ describe("remember and recall", () => {
     const other = new TestRepo({ "src/router.ts": "export const other = 1;\n" });
     await other.ready();
     await remember(deps, null, other.repo, {
-      kind: "answer",
       title: "How does routing work here?",
       body: "Elsewhere.",
       files: ["src/router.ts"],
@@ -107,24 +101,24 @@ describe("remember and recall", () => {
 
 describe("query, retire and the outbox", () => {
   it("returns one record with what it links to and what links to it", async () => {
-    const project = await remember(deps, PERSON, null, { type: "Project", title: "Checkout", top: "team" });
-    const meeting = await remember(deps, PERSON, null, {
-      type: "Meeting",
+    const plan = await remember(deps, PERSON, null, { title: "Checkout", top: "team" });
+    const task = await remember(deps, PERSON, null, {
+      type: "Task",
       title: "Checkout kickoff",
-      fields: { date: "2026-11-20" },
-      links: [{ kind: "record", ref: project.id }],
+      fields: { status: "to-do" },
+      links: [{ kind: "record", ref: plan.id }],
       top: "team",
     });
-    const result = await query(deps, PERSON, { id: project.id });
-    expect(result.records.map((record) => record.id)).toEqual([project.id]);
-    expect(result.linked?.map((record) => record.id)).toEqual([meeting.id]);
-    expect((await query(deps, PERSON, { type: "Meeting" })).records.map((record) => record.title)).toEqual([
+    const result = await query(deps, PERSON, { id: plan.id });
+    expect(result.records.map((record) => record.id)).toEqual([plan.id]);
+    expect(result.linked?.map((record) => record.id)).toEqual([task.id]);
+    expect((await query(deps, PERSON, { type: "Task" })).records.map((record) => record.title)).toEqual([
       "Checkout kickoff",
     ]);
   });
 
   it("queues every change for the team store, with the fields it touched, and retires without deleting", async () => {
-    const kept = await remember(deps, PERSON, null, { kind: "fact", title: "Ship on Fridays", top: "team" });
+    const kept = await remember(deps, PERSON, null, { title: "Ship on Fridays", top: "team" });
     expect(await retire(deps, kept.id)).toBe(true);
     expect(await retire(deps, kept.id)).toBe(false);
     const changes = (await store.outbox.list()).map((entry) => (entry.change as { changed: string[] }).changed);

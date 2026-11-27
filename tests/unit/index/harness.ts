@@ -32,4 +32,4 @@ export async function embedWith(embedder: Embedder): Promise<void> {
 }
 
 export const answer = (title: string, body: string, files: string[]) =>
-  remember(deps, null, repo.repo, { type: "Memory", kind: "answer", title, body, files });
+  remember(deps, null, repo.repo, { type: "Doc", title, body, files });

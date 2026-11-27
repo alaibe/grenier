@@ -1,5 +1,5 @@
 import { ftsMatch, searchWords } from "@grenier/core";
-import { builtinType, customType, MEMBER_WRITES, memberMay, recordProblem } from "@grenier/core/records";
+import { builtinType, MEMBER_WRITES, memberMay, recordProblem } from "@grenier/core/records";
 import { meTop, RECORD_PARTS } from "@grenier/core/team";
 import {
   type Applied,
@@ -114,24 +114,6 @@ function collides(team: TeamData, change: Change, changed: string[]): boolean {
   return changed.some((name) => touched.has(name));
 }
 
-/** The type a record says it is: built in, or one an admin defined. */
-function typeNamed(team: TeamData, name: string) {
-  const defined = team.one(
-    "SELECT title, body, fields FROM records WHERE type = 'Type' AND title = ? AND retired_at IS NULL",
-    name,
-  );
-  return (
-    builtinType(name) ??
-    (defined
-      ? customType({
-          title: defined.title as string,
-          body: defined.body as string,
-          fields: JSON.parse(defined.fields as string),
-        })
-      : undefined)
-  );
-}
-
 /** Applies one change, field by field over what the store has; the store's order decides between two writers. */
 function apply(team: TeamData, change: Change, member: Member, device: Device): Applied {
   const done = team.one("SELECT version FROM applied WHERE change_id = ?", change.id);
@@ -151,7 +133,7 @@ function apply(team: TeamData, change: Change, member: Member, device: Device): 
     ...(current ?? {
       id: change.recordId,
       top: "team",
-      type: "Memory",
+      type: "Doc",
       kind: null,
       title: "",
       folder: "",
@@ -196,7 +178,7 @@ function apply(team: TeamData, change: Change, member: Member, device: Device): 
   if (next.sealed !== null && !next.top.startsWith("me:")) return { refused: "only a record in me is sealed" };
   if (next.sealed !== null && next.folder !== "") return { refused: "a sealed record keeps its folder sealed" };
   if (next.sealed === null) {
-    const why = recordProblem(next, typeNamed(team, next.type));
+    const why = recordProblem(next, builtinType(next.type));
     if (why) return { refused: why };
   }
   next.author = member.name;

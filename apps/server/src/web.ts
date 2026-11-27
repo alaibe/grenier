@@ -273,7 +273,7 @@ async function store() {
   hints = [[["J", "K"], "move"], [["/"], "search"], [["G"], "go to"]];
   bar("Signed in as " + me.name);
   const q = el("input", { class: "input", type: "search", placeholder: "Search the store", "aria-label": "Search" });
-  const type = el("select", { class: "input", "aria-label": "Type" }, el("option", { value: "", text: "Every type" }), ...["Project", "Task", "Meeting", "Decision", "Doc", "Person", "Memory", "Skill", "McpServer", "Routine"].map((t) => el("option", { value: t, text: t })));
+  const type = el("select", { class: "input", "aria-label": "Type" }, el("option", { value: "", text: "Every type" }), ...["Doc", "Task", "Skill", "McpServer", "Routine"].map((t) => el("option", { value: t, text: t })));
   const rows = el("div", { class: "list", role: "listbox", "aria-label": "Records", tabindex: "0" });
   let records = [];
   let selected = -1;

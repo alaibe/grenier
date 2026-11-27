@@ -1,4 +1,4 @@
-import { MAX_SHARED_TEXT, sha256, unshareable } from "./policy.ts";
+import { sha256 } from "./policy.ts";
 
 export interface FieldDef {
   name: string;
@@ -15,32 +15,18 @@ export interface TypeDef {
   /** What it is for, as the editor and agents read it. */
   description: string;
   fields: readonly FieldDef[];
-  /** A Markdown body is part of it: a doc, a meeting's transcript, a memory's text. */
+  /** A Markdown body is part of it: a page's text, a routine's prompt. */
   body: boolean;
   maxBody: number;
-  /** The body may quote at most a short snippet of code, as a memory about code may. */
-  limitCode?: boolean;
 }
 
-const MEMORY_KINDS = ["answer", "summary", "convention", "fact"] as const;
 const TASK_STATUSES = ["to-do", "doing", "done"] as const;
 export const ROUTINE_MODES = ["read-only", "shadow", "limited", "on"] as const;
 
 const LONG = 200_000;
 
-/** The types every team has. Admins add more as records of type Type. */
+/** The record types: pages, and what the team shares and runs. */
 const BUILTIN_TYPES: readonly TypeDef[] = [
-  {
-    name: "Project",
-    description: "A piece of work with an owner, linking its repos, tasks, meetings, decisions and docs.",
-    fields: [
-      { name: "owner", kind: "person" },
-      { name: "status", kind: "select", options: ["planned", "active", "done"] },
-      { name: "repos", kind: "list" },
-    ],
-    body: true,
-    maxBody: LONG,
-  },
   {
     name: "Task",
     description: "Something to do. A task that names a routine is one of its scheduled runs: an idle machine takes it.",
@@ -55,55 +41,11 @@ const BUILTIN_TYPES: readonly TypeDef[] = [
     maxBody: LONG,
   },
   {
-    name: "Meeting",
-    description: "A meeting and its transcript or notes, linked to its project and the people in it.",
-    fields: [
-      { name: "date", kind: "date", required: true },
-      { name: "people", kind: "list" },
-    ],
-    body: true,
-    maxBody: LONG,
-  },
-  {
-    name: "Decision",
-    description: "A decision, who owns it, when and why.",
-    fields: [
-      { name: "owner", kind: "person", required: true },
-      { name: "date", kind: "date", required: true },
-      { name: "reason", kind: "text", required: true },
-    ],
-    body: true,
-    maxBody: LONG,
-  },
-  {
     name: "Doc",
     description: "A document: a spec, a guide, a plan, how to set up and run a repo.",
     fields: [],
     body: true,
     maxBody: LONG,
-  },
-  {
-    name: "Person",
-    description: "Someone the team works with: a teammate, a customer, a contact.",
-    fields: [
-      { name: "email", kind: "text" },
-      { name: "role", kind: "text" },
-      { name: "manager", kind: "person" },
-    ],
-    body: true,
-    maxBody: 20_000,
-  },
-  {
-    name: "Memory",
-    description:
-      "One thing worth knowing: an answer about code, a summary of a file, a convention, a fact. Short, with what it came from.",
-    fields: [
-      { name: "kind", kind: "select", options: MEMORY_KINDS, required: true },
-      { name: "path", kind: "text" },
-    ],
-    body: true,
-    maxBody: MAX_SHARED_TEXT,
-    limitCode: true,
   },
   {
     name: "Skill",
@@ -147,23 +89,10 @@ const BUILTIN_TYPES: readonly TypeDef[] = [
     body: false,
     maxBody: 0,
   },
-  {
-    name: "Type",
-    description: "A record type an admin added, with its fields.",
-    fields: [{ name: "fields", kind: "json", required: true }],
-    body: true,
-    maxBody: 20_000,
-  },
 ];
 
 export function builtinType(name: string): TypeDef | undefined {
   return BUILTIN_TYPES.find((type) => type.name === name);
-}
-
-/** A type an admin defined, from its record of type Type. */
-export function customType(record: { title: string; body: string; fields: Record<string, unknown> }): TypeDef {
-  const fields = Array.isArray(record.fields.fields) ? (record.fields.fields as FieldDef[]) : [];
-  return { name: record.title, description: record.body, fields, body: true, maxBody: LONG };
 }
 
 /** Text that looks like a key, a token or a private key, which no record may hold. */
@@ -227,8 +156,8 @@ export const MEMBER_WRITES =
   "only an admin writes there: a member writes in me, and their agents' answers in a repository's folder";
 
 /**
- * Whether a member who is not an admin may make this change: anything in their own `me` (`mine`), a page or memory in
- * a repository's folder (what their agents work out about its code), and the run fields of a task their machine ran.
+ * Whether a member who is not an admin may make this change: anything in their own `me` (`mine`), a page in a
+ * repository's folder (what their agents work out about its code), and the run fields of a task their machine ran.
  */
 export function memberMay(
   before: MemberChange | undefined,
@@ -237,8 +166,7 @@ export function memberMay(
   ranIt: boolean,
 ): boolean {
   if (after.top === mine && (!before || before.top === mine)) return true;
-  const answer = (record: { top: string; type: string }) =>
-    (record.type === "Doc" || record.type === "Memory") && record.top.startsWith("repo:");
+  const answer = (record: { top: string; type: string }) => record.type === "Doc" && record.top.startsWith("repo:");
   if (answer(after) && (!before || answer(before))) return true;
   if (before?.type !== "Task" || after.type !== "Task" || !ranIt) return false;
   const kept = ["top", "title", "folder", "body", "retiredAt"] as const;
@@ -261,10 +189,6 @@ export function recordProblem(record: RecordShape, type: TypeDef | undefined): s
   if (record.body.length > type.maxBody) return `a ${type.name}'s body holds at most ${type.maxBody} characters`;
   const secret = secretIn(`${title}\n${record.folder ?? ""}\n${record.body}\n${JSON.stringify(record.fields)}`);
   if (secret) return secret;
-  if (type.limitCode && record.body.trim() !== "") {
-    const problem = unshareable(record.body);
-    if (problem) return problem;
-  }
   for (const field of type.fields) {
     const value = record.fields[field.name];
     const empty = value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
@@ -281,7 +205,6 @@ export function recordProblem(record: RecordShape, type: TypeDef | undefined): s
     }
     if (field.kind === "list" && !Array.isArray(value)) return `${field.name} takes a list`;
   }
-  if (type.name === "Memory" && record.kind !== record.fields.kind) return "a memory's kind is its kind field";
   return null;
 }
 

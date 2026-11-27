@@ -12,15 +12,12 @@ export {
   canonicalJson,
   copiedLines,
   MAX_CODE_LINES,
-  MAX_SHARED_TEXT,
   redact,
   sha256,
-  unshareable,
   untrusted,
 } from "./policy.ts";
 export {
   builtinType,
-  customType,
   type FieldDef,
   folderProblem,
   joinCode,

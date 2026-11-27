@@ -1,4 +1,5 @@
 import {
+  builtinType,
   copiedLines,
   MAX_CODE_LINES,
   MEMBER_WRITES,
@@ -18,7 +19,6 @@ import {
   readable,
   type StoreDeps,
   StoreUseError,
-  typeOf,
 } from "./records.ts";
 
 export interface RememberInput {
@@ -54,9 +54,9 @@ export async function remember(
   input: RememberInput,
 ): Promise<{ id: string; top: string }> {
   const now = (deps.now ?? Date.now)();
-  const type = input.type ?? "Memory";
-  const kind = type === "Memory" ? (input.kind ?? (input.fields?.kind as string | undefined) ?? "fact") : null;
-  const fields: Record<string, unknown> = { ...(input.fields ?? {}), ...(kind ? { kind } : {}) };
+  const type = input.type ?? "Doc";
+  const kind = input.kind ?? null;
+  const fields: Record<string, unknown> = { ...(input.fields ?? {}) };
   const body = (input.body ?? "").trim();
   const title = input.title.trim();
 
@@ -70,15 +70,11 @@ export async function remember(
     await checkCopies(deps, repo, `${title}\n${body}`, paths);
     for (const path of paths)
       anchors.push({ kind: "git", repoId: repo.id, ref: path, version: hashes.get(path) as string });
-    if (kind === "summary" && !fields.path) fields.path = paths[0];
   }
   for (const item of input.items ?? []) {
     if (!/^[a-z][\w-]*:\S+$/.test(item.ref))
       throw new StoreUseError(`an item's ref is tool:key, as linear:acme/LIN-123, not ${item.ref}`);
     anchors.push({ kind: "item", repoId: null, ref: item.ref, version: String(item.version) });
-  }
-  if (type === "Memory" && kind === "answer" && anchors.length === 0) {
-    throw new StoreUseError("list the files (or items) the answer was worked out from");
   }
 
   if (repo) await ensureRepoTop(deps.store, repo);
@@ -93,7 +89,7 @@ export async function remember(
   if (reader && top !== "me" && !readableTops.includes(top))
     throw new StoreUseError(`this client may not write to ${top}`);
 
-  const typeDef = await typeOf(deps.store, type, readableTops);
+  const typeDef = builtinType(type);
   let existing = input.id ? await deps.store.records.get(input.id) : undefined;
   if (input.id && (!existing || (reader && existing.top !== "me" && !readableTops.includes(existing.top))))
     throw new StoreUseError(`there is no record ${input.id}`);
@@ -158,8 +154,7 @@ export async function refusal(store: Store, record: RecordInput, before?: FullRe
   if ((await store.state.get("team_role")) === "member" && !memberMay(before, record, "me", true)) {
     return MEMBER_WRITES;
   }
-  const tops = (await store.tops.list()).map((top) => top.id);
-  return recordProblem(record, await typeOf(store, record.type, tops));
+  return recordProblem(record, builtinType(record.type));
 }
 
 /** The vector a record is found by, when embeddings are on. */

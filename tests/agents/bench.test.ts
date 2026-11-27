@@ -98,7 +98,7 @@ function next(request: Request): [Block, number] {
         type: "tool_use",
         id: `toolu_record_${toolResults.length}`,
         name: RECORD,
-        input: { kind: "answer", title: QUESTION, body: ANSWER, files: ["app.ts"] },
+        input: { title: QUESTION, body: ANSWER, files: ["app.ts"] },
       },
       20_000,
     ];

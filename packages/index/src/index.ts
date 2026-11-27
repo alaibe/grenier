@@ -23,7 +23,6 @@ export {
   resolveFolderPath,
   type StoreDeps,
   StoreUseError,
-  typeOf,
 } from "./records.ts";
 export {
   rekeyed,

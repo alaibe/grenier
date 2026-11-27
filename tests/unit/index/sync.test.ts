@@ -83,13 +83,11 @@ describe("sync between machines", () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
     await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
     await remember(adaDeps, PERSON, null, {
-      kind: "convention",
       title: "Squash merges only",
       folder: "Engineering/Git",
       top: "team",
     });
     await remember(adaDeps, PERSON, null, {
-      kind: "fact",
       title: "My dentist is on Tuesday",
       folder: "Health/Appointments",
       top: "me",
@@ -121,9 +119,9 @@ describe("sync between machines", () => {
   it("shares a me record moved to the team in the clear", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
     await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-    const kept = await remember(adaDeps, PERSON, null, { kind: "fact", title: "Standup moves to ten", top: "me" });
+    const kept = await remember(adaDeps, PERSON, null, { title: "Standup moves to ten", top: "me" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
-    await remember(adaDeps, PERSON, null, { id: kept.id, kind: "fact", title: "Standup moves to ten", top: "team" });
+    await remember(adaDeps, PERSON, null, { id: kept.id, title: "Standup moves to ten", top: "team" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
 
     const bobDeps = await device(bobStore, "bob", await meTop(bob));
@@ -134,7 +132,7 @@ describe("sync between machines", () => {
 
   it("leaves a me record on the machine without the key, and says so", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Private", top: "me" });
+    await remember(adaDeps, PERSON, null, { title: "Private", top: "me" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
     await device(desktop, "ada", await meTop(adaDesktop));
     const result = await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: newVaultKey() });
@@ -144,12 +142,12 @@ describe("sync between machines", () => {
 
   it("remembers the Me pages it cannot open across rounds, and opens them once the other machine's key is used here", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Written on the laptop", top: "me" });
+    await remember(adaDeps, PERSON, null, { title: "Written on the laptop", top: "me" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
 
     const joinedWith = newVaultKey();
     const deskDeps = await device(desktop, "ada", await meTop(adaDesktop));
-    await remember(deskDeps, PERSON, null, { kind: "fact", title: "Written on the desktop", top: "me" });
+    await remember(deskDeps, PERSON, null, { title: "Written on the desktop", top: "me" });
     await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: joinedWith });
     expect(await unopenedCount(desktop)).toBe(1);
     await syncOnce({ store: desktop, team: adaDesktop, embedder: null, personalKey: joinedWith });
@@ -173,7 +171,7 @@ describe("sync between machines", () => {
       ...ada,
       fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch,
     };
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Written on a train", top: "team" });
+    await remember(adaDeps, PERSON, null, { title: "Written on a train", top: "team" });
     await expect(syncOnce({ store: laptop, team: offline, embedder: null, personalKey: KEY })).rejects.toThrow(
       "offline",
     );
@@ -186,7 +184,7 @@ describe("sync between machines", () => {
   it("waits for a team store older than this Grenier to be deployed again, and sends nothing to it", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
     await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Squash merges only", top: "team" });
+    await remember(adaDeps, PERSON, null, { title: "Squash merges only", top: "team" });
     const older: TeamClient = {
       ...ada,
       fetch: (async (input: string | URL | Request, init?: RequestInit) => {
@@ -210,7 +208,7 @@ describe("sync between machines", () => {
       recordId: "m1",
       change: {
         changed: ["title", "body"],
-        record: { id: "m1", type: "Memory", title: "My dentist", body: "Tuesday" },
+        record: { id: "m1", type: "Doc", title: "My dentist", body: "Tuesday" },
       },
       baseVersion: 0,
       createdAt: 1,
@@ -227,8 +225,8 @@ describe("sync between machines", () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
     await laptop.tops.put({ id: "top:gone", name: "gone", kind: "team", repoId: null, root: null });
     await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Nowhere", top: "top:gone" });
-    await remember(adaDeps, PERSON, null, { kind: "fact", title: "Somewhere", top: "team" });
+    await remember(adaDeps, PERSON, null, { title: "Nowhere", top: "top:gone" });
+    await remember(adaDeps, PERSON, null, { title: "Somewhere", top: "team" });
     const result = await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
     expect(result.pushed).toBe(1);
     expect(result.refused[0]?.reason).toContain("no top folder top:gone");

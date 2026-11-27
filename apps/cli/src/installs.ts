@@ -1,8 +1,8 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { recordProblem, sharedHash } from "@grenier/core";
+import { builtinType, recordProblem, sharedHash } from "@grenier/core";
 import type { SharedNow, SharedState } from "@grenier/core/api";
-import { newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
+import { newRecord, type StoreDeps, write } from "@grenier/index";
 import { type Approval, type FullRecord, type Store, toInput } from "@grenier/store";
 import { presentAgents, type Where } from "./agents/index.ts";
 import { Refusal } from "./io.ts";
@@ -174,7 +174,7 @@ export async function share(
     (record) => slug(record.title) === slug(input.title),
   );
   const fields = { ...(existing?.fields ?? {}), ...input.fields };
-  const why = recordProblem({ ...input, fields }, await typeOf(deps.store, input.type, tops));
+  const why = recordProblem({ ...input, fields }, builtinType(input.type));
   if (why) throw new Refusal(`the team store would refuse it: ${why}`);
   const parts = { title: input.title, body: input.body, fields };
   const next = existing

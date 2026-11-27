@@ -36,7 +36,7 @@ import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./request.ts";
 
 /** Records Skills, Routines and Settings manage, which Knowledge's tree leaves out. */
-const MANAGED_ELSEWHERE = new Set(["Skill", "McpServer", "Routine", "Task", "Type"]);
+const MANAGED_ELSEWHERE = new Set(["Skill", "McpServer", "Routine", "Task"]);
 
 async function shown(deps: StoreDeps, record: FullRecord, tops: readonly string[]): Promise<RecordFull> {
   const { status, changed } = await check(deps, record);
@@ -227,14 +227,13 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const record = newRecord(storeDeps.me, {
       top,
       type: typeof body.type === "string" ? body.type : "Doc",
-      kind: typeof body.kind === "string" ? body.kind : body.type === "Memory" ? "fact" : null,
+      kind: null,
       title: String(body.title ?? "").trim(),
       folder: typeof body.folder === "string" ? body.folder : "",
       body: String(body.body ?? ""),
       fields: body.fields && typeof body.fields === "object" ? body.fields : {},
       links: Array.isArray(body.links) ? body.links : [],
     });
-    if (record.type === "Memory" && !record.fields.kind) record.fields = { ...record.fields, kind: record.kind };
     const result = await save(record, undefined, 0);
     return c.json({ ...result, id: record.id }, 201);
   });
@@ -254,7 +253,6 @@ export function recordRoutes(deps: AdminDeps): Hono {
       ...(typeof body.top === "string" ? { top: body.top } : {}),
       updatedAt: Date.now(),
     };
-    if (record.type === "Memory") record.kind = String(record.fields.kind ?? record.kind ?? "fact");
     const result = await save(record, before, typeof body.baseVersion === "number" ? body.baseVersion : before.version);
     return "conflict" in result ? c.json(result, 409) : c.json(result);
   });

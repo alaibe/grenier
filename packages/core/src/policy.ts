@@ -20,21 +20,7 @@ export async function sha256(text: string): Promise<string> {
   return hex(new Uint8Array(digest));
 }
 
-export const MAX_SHARED_TEXT = 4000;
 export const MAX_CODE_LINES = 10;
-
-/** Null when an answer or summary is fine to share, else why: it may quote a short snippet, never a file. */
-export function unshareable(text: string): string | null {
-  if (text.trim() === "") return "the text is empty";
-  if (text.length > MAX_SHARED_TEXT) return `it holds at most ${MAX_SHARED_TEXT} characters`;
-  const blocks = text.split("```").filter((_, index) => index % 2 === 1);
-  for (const block of blocks) {
-    if (block.trim().split("\n").length > MAX_CODE_LINES + 1) {
-      return `it may quote at most ${MAX_CODE_LINES} lines of code at a time`;
-    }
-  }
-  return null;
-}
 
 /** The longest run of trimmed, non-blank lines copied in order: catches code quoted without fences. */
 export function copiedLines(text: string, source: string): number {

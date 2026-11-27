@@ -1,6 +1,6 @@
 import { repoTop, searchWords, topName, untrusted } from "@grenier/core";
 import type { RecordRow } from "@grenier/core/api";
-import type { FullRecord, Store } from "@grenier/store";
+import type { FullRecord } from "@grenier/store";
 import { cosine } from "./embeddings.ts";
 import { contentHashes, type Reader, type Repo, readable, type StoreDeps } from "./records.ts";
 
@@ -108,7 +108,6 @@ export async function recall(
   let tops = (await readable(deps.store, reader)).map((top) => top.id);
   if (input.top) tops = tops.filter((top) => top === input.top);
   const here = input.repo ? repoTop(input.repo.id) : null;
-  const linkedRepos = here ? await projectRepos(deps.store, tops, input.repo?.id as string) : new Set<string>();
 
   const words = terms(input.query);
   const candidates = new Map<string, number>();
@@ -146,8 +145,7 @@ export async function recall(
     }
   }
 
-  const nearness = (top: string) =>
-    top === here ? 3 : linkedRepos.has(top) ? 2 : top === "team" ? 1 : top === "me" ? 0.5 : 0;
+  const nearness = (top: string) => (top === here ? 3 : top === "team" ? 1 : top === "me" ? 0.5 : 0);
   const ranked: { id: string; score: number }[] = [];
   for (const [id, score] of candidates) {
     const record = await load(id);
@@ -164,16 +162,6 @@ export async function recall(
   const best = results[0];
   if (best?.status === "hit" && input.count !== false) await deps.store.records.hit(best.id);
   return { status: best?.status ?? "miss", results };
-}
-
-/** The top folders of the other repositories of the projects that link this one. */
-async function projectRepos(store: Store, tops: readonly string[], repoId: string): Promise<Set<string>> {
-  const projects = await store.records.list({ tops, type: "Project", linkedTo: { kind: "repo", ref: repoId } });
-  const repos = new Set<string>();
-  for (const project of projects) {
-    for (const link of project.links) if (link.kind === "repo" && link.ref !== repoId) repos.add(repoTop(link.ref));
-  }
-  return repos;
 }
 
 export interface QueryResult {

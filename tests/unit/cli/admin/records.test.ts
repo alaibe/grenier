@@ -48,9 +48,9 @@ describe("the editor's records", () => {
     const made = await call("/records", {
       method: "POST",
       body: JSON.stringify({
-        type: "Decision",
+        type: "Task",
         title: "Use SQLite",
-        fields: { owner: "ada", date: "2026-11-20", reason: "One file." },
+        fields: { status: "to-do" },
       }),
     });
     expect(made.status).toBe(201);
@@ -59,11 +59,11 @@ describe("the editor's records", () => {
     expect(((await (await call("/overview")).json()) as { waiting: number }).waiting).toBe(0);
     const refused = await call("/records", {
       method: "POST",
-      body: JSON.stringify({ type: "Decision", title: "No date" }),
+      body: JSON.stringify({ type: "Task", title: "No status" }),
     });
     expect(refused.status).toBe(400);
 
-    const listed = (await (await call("/records?type=Decision")).json()) as { records: { id: string }[] };
+    const listed = (await (await call("/records?type=Task")).json()) as { records: { id: string }[] };
     expect(listed.records.map((record) => record.id)).toEqual([id]);
     const found = (await (await call("/records?q=sqlite")).json()) as { records: { id: string }[] };
     expect(found.records.map((record) => record.id)).toEqual([id]);
@@ -77,7 +77,7 @@ describe("the editor's records", () => {
     };
     expect(shown).toMatchObject({ body: "Because one file.", status: "hit", linkedFrom: [] });
     expect((await call(`/records/${id}`, { method: "DELETE" })).status).toBe(200);
-    expect(((await (await call("/records?type=Decision")).json()) as { records: unknown[] }).records).toEqual([]);
+    expect(((await (await call("/records?type=Task")).json()) as { records: unknown[] }).records).toEqual([]);
     expect((await store.outbox.list()).length).toBe(3);
     team = { url: "https://team.test", token: "gt_x" };
     expect(((await (await call("/overview")).json()) as { waiting: number }).waiting).toBe(1);
@@ -221,7 +221,6 @@ describe("the change to a file a record was written from", () => {
       await repo.ready();
       const deps = await storeDeps(store);
       const kept = await remember(deps, { id: "c", name: "claude", scopes: ["*"] }, repo.repo, {
-        kind: "answer",
         title: "Where are requests routed?",
         body: "route() in router.ts.",
         files: ["router.ts"],

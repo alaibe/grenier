@@ -1,5 +1,5 @@
-import { recordProblem } from "@grenier/core";
-import { check, newRecord, type StoreDeps, typeOf, write } from "@grenier/index";
+import { builtinType, recordProblem } from "@grenier/core";
+import { check, newRecord, type StoreDeps, write } from "@grenier/index";
 import type { FullRecord } from "@grenier/store";
 
 const normal = (title: string) =>
@@ -48,7 +48,7 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
     } else {
       seen.set(key, record);
     }
-    const problem = recordProblem(record, await typeOf(deps.store, record.type, tops));
+    const problem = recordProblem(record, builtinType(record.type));
     if (problem) found.push({ target: record, change: {}, reason: `It breaks its type's rules: ${problem}.` });
     if (record.type === "Task" && record.fields.status !== "done" && typeof record.fields.routine === "string") {
       const routine = await deps.store.records.get(record.fields.routine);

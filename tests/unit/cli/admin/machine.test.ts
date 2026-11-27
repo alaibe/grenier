@@ -51,7 +51,7 @@ describe("the personal key for the Me folder", () => {
     expect(rounds).toBe(0);
 
     const deps = await storeDeps(store);
-    const mine = await remember(deps, null, null, { kind: "fact", title: "Dentist on Tuesday", top: "me" });
+    const mine = await remember(deps, null, null, { title: "Dentist on Tuesday", top: "me" });
     await store.outbox.remove((await store.outbox.list()).map((entry) => entry.id));
     await store.state.set("team_cursor", "42");
     await store.state.set("team_unopened", JSON.stringify(["sealed-elsewhere"]));

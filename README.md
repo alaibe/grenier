@@ -1,8 +1,8 @@
 # Grenier
 
-One store for what a team and its AI agents learn: answers about the code, conventions, decisions, meetings, tasks and
-docs, as typed records linked to each other and to the code they came from. Agents read and write it over MCP; people
-use the desktop app. Every machine keeps a full copy and works offline, and the shared store runs in your team's own
+One store for what a team and its AI agents know that the code doesn't say: who each person is, the conventions shared
+across projects, the decisions, the runbooks, and what agents worked out about the code, as Markdown pages checked
+against the files they came from. Agents read and write it over MCP; people use the desktop app. Every machine keeps a full copy and works offline, and the shared store runs in your team's own
 Cloudflare account. Free and open source (MIT), for macOS, Linux and Windows.
 
 [Guide](https://grenier.laibe.cc/guide) · [Download](https://grenier.laibe.cc/download) ·

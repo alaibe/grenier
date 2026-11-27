@@ -157,7 +157,7 @@ describe("the schema", () => {
 
   function addRecord(db: BetterSQLite3Database<typeof schema>, id: string, title: string): void {
     db.insert(schema.records)
-      .values({ id, top: "team", type: "Memory", title, body: "a body", author: "ada", createdAt: 0, updatedAt: 0 })
+      .values({ id, top: "team", type: "Doc", title, body: "a body", author: "ada", createdAt: 0, updatedAt: 0 })
       .run();
   }
 

@@ -118,7 +118,7 @@ export function PageEditor({
   const kindOf = (top: string) => tops.find((entry) => entry.id === top)?.kind;
   // A member writes in Me, and their agents' answers where they are; the team store refuses the rest.
   const from = record.data?.top ?? draft?.top ?? "";
-  const answer = record.data?.type === "Memory" && kindOf(from) === "repo";
+  const answer = record.data?.type === "Doc" && kindOf(from) === "repo";
   const writes = (top: string) => !member || kindOf(top) === "me" || (answer && top === from);
   const editable = writes(from);
 

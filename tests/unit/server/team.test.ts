@@ -93,11 +93,10 @@ describe("changes", () => {
   const record = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
     top: "team",
-    type: "Memory",
-    kind: "fact",
+    type: "Doc",
     title: "Deploys on Friday",
     body: "Only before noon.",
-    fields: { kind: "fact" },
+    fields: {},
     anchors: [],
     links: [],
     ...extra,
@@ -155,9 +154,7 @@ describe("changes", () => {
     });
     const conflict = await push(ADA, { id: "r1", body: "Mine." }, 1, true);
     expect(conflict.conflicts[0]?.current).toMatchObject({ body: "Before noon, never on a holiday." });
-    expect(
-      (await push(ADA, { id: "r1", fields: { kind: "convention" }, kind: "convention" }, 1, true)).applied,
-    ).toHaveLength(1);
+    expect((await push(ADA, { id: "r1", fields: {} }, 1, true)).applied).toHaveLength(1);
   });
 
   it("refuses a new record that names no top folder", async () => {
@@ -169,11 +166,11 @@ describe("changes", () => {
     const refused = await push(ADA, {
       id: "d1",
       top: "team",
-      type: "Decision",
+      type: "Task",
       title: "Use SQLite",
-      fields: { owner: "ada" },
+      fields: {},
     });
-    expect(refused.refused[0]?.reason).toContain("needs date");
+    expect(refused.refused[0]?.reason).toContain("needs status");
     const secret = await push(ADA, record("k1", { body: "AKIAABCDEFGHIJKLMNOP" }));
     expect(secret.refused[0]?.reason).toContain("looks like a key");
     const sealed = await push(ADA, record("k2", { title: "AKIAABCDEFGHIJKLMNOP", sealed: "c2VhbGVk" }));
@@ -225,11 +222,10 @@ describe("what members write", () => {
   const record = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
     top: "team",
-    type: "Memory",
-    kind: "fact",
+    type: "Doc",
     title: "Deploys on Friday",
     body: "Only before noon.",
-    fields: { kind: "fact" },
+    fields: {},
     ...extra,
   });
 
@@ -249,11 +245,11 @@ describe("what members write", () => {
     );
     expect(
       await refused(
-        record("decision", {
+        record("task", {
           top: REPO,
-          type: "Decision",
+          type: "Task",
           kind: null,
-          fields: { owner: "bob", date: "2026-11-26", reason: "Faster." },
+          fields: { status: "to-do" },
         }),
       ),
     ).toContain("only an admin writes there");

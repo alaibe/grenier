@@ -1,14 +1,4 @@
-import {
-  builtinType,
-  customType,
-  folderName,
-  folderProblem,
-  randomHex,
-  repoTop,
-  sha256,
-  type TypeDef,
-  topName,
-} from "@grenier/core";
+import { folderName, folderProblem, randomHex, repoTop, sha256, topName } from "@grenier/core";
 import type { RecordInput, Store, Top } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
 
@@ -120,14 +110,6 @@ export async function ensureRepoTop(store: Store, repo: Repo): Promise<string> {
   const root = repo.home ?? repo.root;
   await store.tops.put({ id, name: existing?.name ?? name, kind: "repo", repoId: repo.id, root });
   return id;
-}
-
-/** The type a record follows: a built-in one, or one an admin defined in a record of type Type. */
-export async function typeOf(store: Store, name: string, tops: readonly string[]): Promise<TypeDef | undefined> {
-  const builtin = builtinType(name);
-  if (builtin) return builtin;
-  const defined = (await store.records.list({ tops, type: "Type" })).find((record) => record.title === name);
-  return defined ? customType(defined) : undefined;
 }
 
 /** The blob hash of each file, or for a directory a hash over its tracked files' paths and blobs. */

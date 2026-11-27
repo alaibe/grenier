@@ -78,12 +78,12 @@ describe("records", () => {
   const record = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
     top: "team",
-    type: "Memory",
-    kind: "fact",
+    type: "Doc",
+    kind: null,
     title: "Deploys on Friday",
     folder: "",
     body: "Only before noon.",
-    fields: { kind: "fact" },
+    fields: {},
     author: "ada",
     device: "ada-mbp",
     sessionId: null,
@@ -109,11 +109,11 @@ describe("records", () => {
 
   it("lists by top, type and link, newest first, without the retired ones unless asked", async () => {
     await store.records.put(record("r1", { updatedAt: 1 }));
-    await store.records.put(record("r2", { updatedAt: 2, type: "Doc", kind: null, links: [] }));
+    await store.records.put(record("r2", { updatedAt: 2, type: "Task", kind: null, links: [] }));
     await store.records.put(record("r3", { updatedAt: 3, retiredAt: 3 }));
     expect((await store.records.list({ tops: ["team"] })).map((r) => r.id)).toEqual(["r2", "r1"]);
     expect((await store.records.list({ tops: ["team"], retired: true })).map((r) => r.id)).toEqual(["r3", "r2", "r1"]);
-    expect((await store.records.list({ tops: ["team"], type: "Doc" })).map((r) => r.id)).toEqual(["r2"]);
+    expect((await store.records.list({ tops: ["team"], type: "Task" })).map((r) => r.id)).toEqual(["r2"]);
     expect(
       (await store.records.list({ tops: ["team"], linkedTo: { kind: "record", ref: "p1" } })).map((r) => r.id),
     ).toEqual(["r1"]);
@@ -129,13 +129,13 @@ describe("records", () => {
 
   it("keeps a vector until the text changes, and counts reuses", async () => {
     await store.records.put(record("r1"), { model: "m", vector: Float32Array.from([1, 0]) });
-    await store.records.put(record("r1", { fields: { kind: "fact", extra: 1 } }));
+    await store.records.put(record("r1", { fields: { extra: 1 } }));
     expect(await store.records.vectors(["team"], "m")).toHaveLength(1);
     await store.records.put(record("r1", { body: "Changed." }));
     expect(await store.records.vectors(["team"], "m")).toEqual([]);
     await store.records.hit("r1");
     expect((await store.records.get("r1"))?.hits).toBe(1);
-    expect(await store.records.stats()).toEqual([{ top: "team", type: "Memory", records: 1, hits: 1 }]);
+    expect(await store.records.stats()).toEqual([{ top: "team", type: "Doc", records: 1, hits: 1 }]);
   });
 });
 

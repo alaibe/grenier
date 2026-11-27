@@ -6,11 +6,10 @@ describe("the remote MCP server", () => {
     await push(ADA, {
       id: "r1",
       top: "team",
-      type: "Memory",
-      kind: "fact",
+      type: "Doc",
       title: "Deploys on Friday",
       body: "Only before noon.",
-      fields: { kind: "fact" },
+      fields: {},
     });
     const rpc = (body: unknown, token: string | null = ADA) => call("/mcp", token ?? undefined, { body });
     expect((await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, null)).status).toBe(401);
@@ -34,11 +33,10 @@ describe("the remote MCP server", () => {
     await push(ADA, {
       id: "r1",
       top: "team",
-      type: "Memory",
-      kind: "fact",
+      type: "Doc",
       title: "On call: +33 6 12 34 56 78",
       body: "Deploys go through Ada, on +33 6 12 34 56 78.",
-      fields: { kind: "fact" },
+      fields: {},
     });
     interface Shown {
       title: string;
@@ -57,7 +55,7 @@ describe("the remote MCP server", () => {
       ).result;
     const recalled = await tool(bob, "get", { query: "deploys" });
     const queried = await tool(bob, "get", { id: "r1" });
-    const listed = await tool(bob, "get", { type: "Memory" });
+    const listed = await tool(bob, "get", { type: "Doc" });
     for (const [answer, shown] of [
       [recalled, recalled.structuredContent.results?.[0]],
       [queried, queried.structuredContent.records?.[0]],
