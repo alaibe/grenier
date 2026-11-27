@@ -149,7 +149,10 @@ export async function deployTeamStore(
       if (error instanceof TeamError && error.status < 500) {
         throw new Refusal(`deployed at ${url}, but it refused to set up: ${error.detail}`);
       }
-      if (attempt >= 15) throw new Refusal(`deployed at ${url}, but it does not answer yet: try again in a minute`);
+      if (attempt >= 15) {
+        const said = error instanceof TeamError ? ` (it answered ${error.status}: ${error.detail})` : "";
+        throw new Refusal(`deployed at ${url}, but it does not answer yet${said}: try again in a minute`);
+      }
       await sleep(2000);
     }
   }
