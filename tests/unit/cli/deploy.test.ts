@@ -131,7 +131,7 @@ describe("creating the team store from the app", () => {
     expect(await store.state.get("team_role")).toBe("none");
   });
 
-  it("says what the new store refused when it sets up, at once, rather than waiting for it", async () => {
+  it("waits out the version before, then says what the store last answered", async () => {
     const cloudflare = fakeCloudflare();
     let asked = 0;
     const deps = {
@@ -148,9 +148,9 @@ describe("creating the team store from the app", () => {
       }) as typeof fetch,
     };
     await expect(deployTeamStore(deps, { token: TOKEN, name: "grenier-team", member: "ada" })).rejects.toThrow(
-      "it refused to set up: a name takes letters, digits and . _ -",
+      "it answered 400: a name takes letters, digits and . _ -",
     );
-    expect(asked).toBe(1);
+    expect(asked).toBe(15);
   });
 
   it("says what Cloudflare refused, never the token", async () => {
