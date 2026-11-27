@@ -23,6 +23,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+const version = () =>
+  inspect((db) => (db.prepare("SELECT max(version) AS v FROM schema_migrations").get() as { v: number }).v);
+
 function inspect<T>(read: (db: Database.Database) => T): T {
   const db = new Database(file, { readonly: true });
   try {
@@ -43,7 +46,7 @@ function tableNames(): string[] {
 describe("openSqliteStore", () => {
   it("creates a new database at the latest schema version", async () => {
     const store = openSqliteStore(file);
-    expect(await store.schemaVersion()).toBe(LATEST);
+    expect(version()).toBe(LATEST);
     await store.close();
 
     expect(tableNames()).toEqual(
@@ -74,7 +77,7 @@ describe("openSqliteStore", () => {
   it("applies each migration once across reopenings", async () => {
     await openSqliteStore(file).close();
     const store = openSqliteStore(file);
-    expect(await store.schemaVersion()).toBe(LATEST);
+    expect(version()).toBe(LATEST);
     await store.close();
     expect(inspect((db) => db.prepare("SELECT count(*) AS n FROM schema_migrations").get())).toEqual({
       n: migrations.length,
@@ -87,7 +90,7 @@ describe("openSqliteStore", () => {
     await openSqliteStore(file, { migrations: [first] }).close();
 
     const store = openSqliteStore(file, { migrations: [first, second] });
-    expect(await store.schemaVersion()).toBe(2);
+    expect(version()).toBe(2);
     await store.close();
     expect(tableNames()).toEqual(["a", "b", "schema_migrations"]);
   });
@@ -113,7 +116,7 @@ describe("openSqliteStore", () => {
     old.close();
 
     const store = openSqliteStore(file);
-    expect(await store.schemaVersion()).toBe(LATEST);
+    expect(version()).toBe(LATEST);
     for (const [id, top, folder] of [
       ["m1", "me", "Health"],
       ["t1", "team", "Ops"],
@@ -121,7 +124,7 @@ describe("openSqliteStore", () => {
       expect(await store.records.get(id as string)).toMatchObject({ top, folder });
     }
     expect(await store.records.get("r1")).toBeUndefined();
-    expect(await store.repos.list()).toEqual([{ id: "abc", name: "app", root: "/work/app" }]);
+    expect(await store.repos.get("abc")).toEqual({ id: "abc", name: "app", root: "/work/app" });
     const [waiting] = await store.outbox.list();
     expect(waiting?.change).toEqual({ changed: ["top", "title"], record: { id: "m1", top: "me", title: "Dentist" } });
     await store.close();

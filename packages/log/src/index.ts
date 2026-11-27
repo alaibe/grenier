@@ -6,7 +6,6 @@ export {
   localDate,
   money,
   mostSpentFirst,
-  parseSince,
   projectOf,
   type ReportRow,
   startOfToday,

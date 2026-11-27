@@ -1,6 +1,6 @@
 import { TEAM_PROTOCOL } from "@grenier/core";
 import type { Overview, PausedSession, SessionRow } from "@grenier/core/api";
-import { buildReport, mostSpentFirst, type Prices, parseSince, projectOf } from "@grenier/log";
+import { buildReport, mostSpentFirst, type Prices, projectOf } from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { Hono } from "hono";
 import { keptDeployToken } from "../deploy.ts";
@@ -27,7 +27,7 @@ export function overviewRoutes(deps: AdminDeps): Hono {
   const app = new Hono();
 
   app.get("/overview", async (c) => {
-    const since = parseSince("7d", Date.now());
+    const since = Date.now() - 7 * 86_400_000;
     const rows = await store.usage.list({ since });
     const team = deps.team();
     return c.json({

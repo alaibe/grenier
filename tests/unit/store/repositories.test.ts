@@ -161,7 +161,6 @@ describe("tops, the outbox, history and approvals", () => {
       hash: "h",
       approvedAt: 1,
       settings: {},
-      installedPath: null,
       previousHash: null,
     };
     await store.approvals.put(approval);

@@ -71,6 +71,13 @@
       "when": 1795781299501,
       "tag": "0009_me_and_team",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795782680670,
+      "tag": "0010_no_installed_path",
+      "breakpoints": true
     }
   ]
 }

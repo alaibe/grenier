@@ -2,7 +2,7 @@ import { sha256 } from "./policy.ts";
 
 export interface FieldDef {
   name: string;
-  kind: "text" | "number" | "date" | "person" | "record" | "select" | "list" | "json";
+  kind: "text" | "person" | "record" | "select" | "list" | "json";
   required?: boolean;
   /** For a select: the values it takes. */
   options?: readonly string[];
@@ -191,10 +191,6 @@ export function recordProblem(record: RecordShape, type: TypeDef | undefined): s
     }
     if (field.kind === "select" && field.options && !field.options.includes(String(value))) {
       return `${field.name} takes ${field.options.join(", ")}, not ${String(value)}`;
-    }
-    if (field.kind === "number" && typeof value !== "number") return `${field.name} takes a number`;
-    if (field.kind === "date" && (typeof value !== "string" || Number.isNaN(Date.parse(value)))) {
-      return `${field.name} takes a date, as 2026-11-22`;
     }
     if (field.kind === "list" && !Array.isArray(value)) return `${field.name} takes a list`;
   }

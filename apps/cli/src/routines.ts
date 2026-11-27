@@ -13,8 +13,8 @@ export async function routineApproval(store: Store, routine: FullRecord): Promis
   const approval = await store.approvals.get(routine.id, "routine");
   if (!approval) return null;
   return {
-    mode: (approval.settings.mode as RoutineMode) ?? "read-only",
-    limit: Number(approval.settings.limit ?? DEFAULT_ACTION_LIMIT),
+    mode: approval.settings.mode as RoutineMode,
+    limit: Number(approval.settings.limit),
     current: approval.hash === (await routineHash(routine)),
   };
 }
@@ -56,7 +56,6 @@ export async function approve(
     hash: await routineHash(routine),
     approvedAt: Date.now(),
     settings: { mode, limit },
-    installedPath: null,
     previousHash: before?.hash ?? null,
   });
 }

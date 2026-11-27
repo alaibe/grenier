@@ -80,9 +80,7 @@ function view(client: McpClient, scope: Scope, where: string | null, name: strin
  * the team's.
  */
 export async function localServers(store: Store, where: Where): Promise<LocalServer[]> {
-  const team = new Set(
-    (await store.approvals.list()).filter((a) => a.kind === "mcp").map((a) => String(a.settings.name ?? "")),
-  );
+  const team = new Set((await store.approvals.list("mcp")).map((approval) => String(approval.settings.name)));
   const out: LocalServer[] = [];
   for (const client of CLIENTS) {
     let servers: Record<string, Entry>;

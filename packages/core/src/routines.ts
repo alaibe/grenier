@@ -45,7 +45,7 @@ export function mayCall(agent: string, mode: RoutineMode, tool: string): boolean
 }
 
 /** Whether a tool call counts as an action, against `limited`'s daily allowance; Codex reads with its shell too. */
-export function isAction(tool: string, agent = "claude"): boolean {
+export function isAction(tool: string, agent: string): boolean {
   return !reads(agent, tool);
 }
 

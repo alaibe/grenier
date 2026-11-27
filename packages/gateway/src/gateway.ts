@@ -8,9 +8,9 @@ import { createProxy, errorResponse, type ProxyOptions, UNTAGGED } from "./proxy
 export interface GatewayOptions extends ProxyOptions {
   /** The port the daemon listens on, to accept only requests addressed to this machine. */
   port: number;
-  mcp?: Omit<McpDeps, "store">;
+  mcp: Omit<McpDeps, "store">;
   /** The daemon's admin API, served under /admin behind the same Host check. */
-  admin?: Hono;
+  admin: Hono;
 }
 
 /** MCP at /mcp, the admin API given under /admin, the proxy under /s/<session>/…, and untagged proxying elsewhere. */
@@ -27,7 +27,6 @@ export function createGateway(options: GatewayOptions): Hono {
   });
 
   app.all("/mcp", async (c) => {
-    if (!options.mcp) return errorResponse(404, "not_found_error", "MCP is not served here.");
     const token = bearer(c.req.header("authorization"));
     if (!(await readerFor(options.store, token))) {
       return errorResponse(
@@ -54,11 +53,7 @@ export function createGateway(options: GatewayOptions): Hono {
       ? proxy(raw, session, path.slice("/openai".length), "openai")
       : proxy(raw, session, path);
 
-  if (options.admin) {
-    app.route("/admin", options.admin);
-  } else {
-    app.all("/admin/*", () => errorResponse(404, "not_found_error", "The admin API is not served here."));
-  }
+  app.route("/admin", options.admin);
 
   app.all("/s/:session/*", (c) => {
     const session = c.req.param("session");

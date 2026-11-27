@@ -107,14 +107,14 @@ export const anchors = sqliteTable(
   (table) => [primaryKey({ columns: [table.recordId, table.kind, table.ref] })],
 );
 
-/** What a record points at: another record, a person, a repository, a path, an issue. Never makes it stale. */
+/** What a record points at: another record, or a repository. Never makes it stale. */
 export const links = sqliteTable(
   "links",
   {
     recordId: text("record_id")
       .notNull()
       .references(() => records.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["record", "person", "repo", "path", "issue"] }).notNull(),
+    kind: text("kind", { enum: ["record", "repo"] }).notNull(),
     ref: text("ref").notNull(),
   },
   (table) => [
@@ -166,8 +166,7 @@ export const approvals = sqliteTable(
     approvedAt: integer("approved_at").notNull(),
     /** For a routine on this machine: its mode, its extra tools and daily action limit. */
     settings: text("settings", { mode: "json" }).$type<Record<string, unknown>>().notNull().default({}),
-    /** Where it was installed and the hash installed before, to go back. */
-    installedPath: text("installed_path"),
+    /** The hash installed before, to go back. */
     previousHash: text("previous_hash"),
   },
   (table) => [primaryKey({ columns: [table.recordId, table.kind] })],

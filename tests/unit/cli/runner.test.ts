@@ -229,7 +229,7 @@ describe("a machine that takes the team's routine runs", () => {
     const runner = newRunner();
     // Told and asked already: the tick after the run has nothing to send while the test ends.
     await runner.tick(true);
-    await runner.run({ routine: record, trigger: "manual", mode: "read-only" });
+    await runner.run({ routine: record, trigger: "manual", mode: "read-only", limit: 10 });
     expect(calls[0]?.command).toBe("codex");
     expect(calls[0]?.args.slice(0, 3)).toEqual(["exec", "--sandbox", "read-only"]);
     expect(seen).toEqual({
@@ -263,6 +263,7 @@ describe("a machine that takes the team's routine runs", () => {
       routine: (await store.records.get(routine.id)) as FullRecord,
       trigger: "manual",
       mode: "limited",
+      limit: 2,
     });
     expect(seen).toEqual([...Array(12).fill(true), true, true, false]);
     expect((await store.runs.list({ routineId: routine.id }))[0]?.actions).toBe(2);
@@ -293,7 +294,7 @@ describe("a machine that takes the team's routine runs", () => {
 
     seen.length = 0;
     const record = (await store.records.get(routine.id)) as FullRecord;
-    await runner.run({ routine: record, trigger: "manual", mode: "limited" });
+    await runner.run({ routine: record, trigger: "manual", mode: "limited", limit: 2 });
     expect(seen).toEqual([false, false, false]);
   });
 
@@ -328,7 +329,7 @@ describe("a machine that takes the team's routine runs", () => {
     await runner.tick(true);
     config.machine.workdir = "";
     try {
-      await runner.run({ routine: record, trigger: "manual", mode: "read-only" });
+      await runner.run({ routine: record, trigger: "manual", mode: "read-only", limit: 10 });
     } finally {
       config.machine.workdir = tmpdir();
     }

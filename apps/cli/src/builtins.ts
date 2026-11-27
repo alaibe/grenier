@@ -1,5 +1,5 @@
 import { newRecord, type StoreDeps, write } from "@grenier/index";
-import { buildReport, money, mostSpentFirst, type Prices, parseSince } from "@grenier/log";
+import { buildReport, money, mostSpentFirst, type Prices } from "@grenier/log";
 import { librarian } from "./librarian.ts";
 
 /** What a built-in run without an agent gets: the store, and the prices for what it reports. */
@@ -24,7 +24,7 @@ export interface Builtin {
 
 /** The week's API cost per project and session, what the cache saved, and paused loops: a page in Me. */
 async function costDigest({ deps, prices, now }: BuiltinContext): Promise<string> {
-  const rows = await deps.store.usage.list({ since: parseSince("7d", now) });
+  const rows = await deps.store.usage.list({ since: now - 7 * 86_400_000 });
   const projects = mostSpentFirst(buildReport(rows, "repo", prices));
   const total = projects.reduce((sum, row) => sum + row.cost, 0);
   const saved = projects.reduce((sum, row) => sum + row.saved, 0);

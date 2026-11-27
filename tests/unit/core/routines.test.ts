@@ -40,9 +40,9 @@ describe("what a routine's run may call", () => {
     expect(readsByName("mcp__github__get_pull_request")).toBe(true);
     expect(readsByName("mcp__github__merge_pull_request")).toBe(false);
     expect(readsByName("Read")).toBe(false);
-    expect(isAction("Read")).toBe(false);
-    expect(isAction("mcp__grenier__set")).toBe(false);
-    expect(isAction("Edit")).toBe(true);
+    expect(isAction("Read", "claude")).toBe(false);
+    expect(isAction("mcp__grenier__set", "claude")).toBe(false);
+    expect(isAction("Edit", "claude")).toBe(true);
     expect(isAction("exec_command", "codex")).toBe(false);
     expect(isAction("apply_patch", "codex")).toBe(true);
     expect(isAction("mcp__linear__update_issue", "codex")).toBe(true);

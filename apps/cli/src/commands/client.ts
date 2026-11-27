@@ -168,12 +168,12 @@ export function textFrom(source: string): string {
  * A text to write: from `--<flag> <file>` or `-` for stdin, else edited in $VISUAL or $EDITOR from what it is now. An
  * editor left without a change gives back null.
  */
-export function edited(io: Io, given: unknown, current: string, flag: string, suffix = ".md"): string | null {
+export function edited(io: Io, given: unknown, current: string, flag: string): string | null {
   if (typeof given === "string") return textFrom(given);
   const editor = io.env.VISUAL || io.env.EDITOR;
   if (!editor) throw new UsageError(`give --${flag} <file>, or - for stdin, or set $EDITOR`);
   const dir = mkdtempSync(join(tmpdir(), "grenier-edit-"));
-  const file = join(dir, `edit${suffix}`);
+  const file = join(dir, "edit.md");
   try {
     writeFileSync(file, current, { mode: 0o600 });
     const done = spawnSync(`${editor} "${file}"`, { shell: true, stdio: "inherit", env: io.env });

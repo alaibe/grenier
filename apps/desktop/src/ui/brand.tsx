@@ -1,7 +1,7 @@
 /** Grenier's icon (src-tauri/icons/icon.svg), flat: no gradient, glow or frame, for small sizes. */
-export function Mark({ size = 20 }: { size?: number }) {
+export function Mark() {
   return (
-    <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden="true">
+    <svg width={20} height={20} viewBox="0 0 512 512" aria-hidden="true">
       <rect width="512" height="512" rx="115" fill="#04050d" />
       <g fill="none" stroke="#fec000" strokeWidth="40" strokeLinecap="round" strokeLinejoin="round">
         <path d="M108 294 L256 166 L404 294" />

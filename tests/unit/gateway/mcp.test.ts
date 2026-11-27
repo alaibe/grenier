@@ -7,6 +7,7 @@ import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ADA, TestRepo } from "../../support/repo.ts";
 
@@ -169,6 +170,7 @@ describe("MCP over HTTP in the daemon", () => {
       prices: loadPrices(),
       port: 7788,
       mcp: { files: gitFiles, embedder: async () => null, resolveRepo, me: async () => ADA, version: "test" },
+      admin: new Hono(),
     });
   }
 

@@ -61,9 +61,7 @@ function pluginFolders(home: string): [string, string][] {
  * Claude Code the ones synced from claude.ai and the plugins'. Grenier's installs of the team's are the team's list.
  */
 export async function localSkills(store: Store, where: Where): Promise<LocalSkill[]> {
-  const team = new Set(
-    (await store.approvals.list()).filter((approval) => approval.kind === "skill").map((a) => String(a.settings.name)),
-  );
+  const team = new Set((await store.approvals.list("skill")).map((approval) => String(approval.settings.name)));
   const out: LocalSkill[] = [];
   for (const agent of presentAgents(where)) {
     const dir = agent.skillsDir(where);

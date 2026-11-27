@@ -66,7 +66,7 @@ export interface Anchor {
 }
 
 export interface Link {
-  kind: "record" | "person" | "repo" | "path" | "issue";
+  kind: "record" | "repo";
   ref: string;
 }
 

@@ -3,12 +3,14 @@ import { join } from "node:path";
 import { type Config, defaultConfig } from "@grenier/core";
 import { ensureDirectories, resolvePaths } from "@grenier/core/node";
 import { createGateway } from "@grenier/gateway";
+import { gitFiles } from "@grenier/git";
 import { loadPrices } from "@grenier/log";
 import type { Store } from "@grenier/store";
 import { openSqliteStore } from "@grenier/store/sqlite";
+import { Hono } from "hono";
 import { type AdminDeps, createAdmin } from "../../apps/cli/src/admin/admin.ts";
 import type { Runner } from "../../apps/cli/src/runner.ts";
-import { storeDeps } from "./repo.ts";
+import { ADA, storeDeps } from "./repo.ts";
 
 export const PORT = 7788;
 export const BASE = `http://127.0.0.1:${PORT}`;
@@ -65,6 +67,14 @@ export function testGateway(
     notify: (title, message) => notifications.push(`${title}: ${message}`),
     pollInterval: 5,
     startedAt: 0,
+    mcp: {
+      files: gitFiles,
+      embedder: async () => null,
+      resolveRepo: async () => null,
+      me: async () => ADA,
+      version: "test",
+    },
+    admin: new Hono(),
     ...extra,
   });
   return {
@@ -131,7 +141,21 @@ export function testAdmin(store: Store, home: string, deps: Partial<AdminDeps> =
     where: { home, platform: "darwin", env: { GRENIER_HOME: paths.home }, self: ["/usr/local/bin/node", "grenier.js"] },
     ...deps,
   });
-  const app = createGateway({ store, config, prices: loadPrices(), fetch: upstream.fetch, port: PORT, admin });
+  const app = createGateway({
+    store,
+    config,
+    prices: loadPrices(),
+    fetch: upstream.fetch,
+    port: PORT,
+    admin,
+    mcp: {
+      files: gitFiles,
+      embedder: async () => null,
+      resolveRepo: async () => null,
+      me: async () => ADA,
+      version: "test",
+    },
+  });
   const call: TestAdmin["call"] = async (path, init = {}) => {
     const { origin, ...rest } = init;
     return app.request(`${BASE}/admin${path}`, {

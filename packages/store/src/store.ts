@@ -18,7 +18,6 @@ import type {
 } from "./schema.ts";
 
 export interface Store {
-  schemaVersion(): Promise<number>;
   close(): Promise<void>;
   sessions: SessionStore;
   usage: UsageStore;
@@ -92,7 +91,6 @@ export interface RepoStore {
   /** Adds the repository, or updates where it lives. */
   put(repo: KnownRepo): Promise<void>;
   get(id: string): Promise<KnownRepo | undefined>;
-  list(): Promise<KnownRepo[]>;
 }
 
 export interface FullRecord extends RecordRow {

@@ -63,7 +63,6 @@ export async function install(
     hash,
     approvedAt: Date.now(),
     settings: { ...(before?.settings ?? {}), name },
-    installedPath: null,
     previousHash: before && before.hash !== hash ? before.hash : (before?.previousHash ?? null),
   };
   await store.approvals.put(approval);
@@ -74,7 +73,7 @@ export async function install(
 export async function uninstall(store: Store, where: Where, recordId: string, type: Shared): Promise<boolean> {
   const approval = await store.approvals.get(recordId, KIND[type]);
   if (!approval) return false;
-  const name = String(approval.settings.name ?? "");
+  const name = String(approval.settings.name);
   for (const agent of presentAgents(where)) {
     if (approval.kind === "skill") rmSync(join(agent.skillsDir(where), name), { recursive: true, force: true });
     else if (agent.servers(where)[name]) {

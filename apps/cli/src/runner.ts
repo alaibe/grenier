@@ -10,7 +10,7 @@ import { type FullRecord, type RecordInput, type Session, type Store, toInput } 
 import { agentNamed } from "./agents/index.ts";
 import { builtinOf } from "./builtins.ts";
 import { availability, type Probes, systemProbes } from "./machine.ts";
-import { DEFAULT_ACTION_LIMIT, routineApproval } from "./routines.ts";
+import { routineApproval } from "./routines.ts";
 import { newSessionId, repoResolver, sessionProxy } from "./runtime.ts";
 
 export interface AgentResult {
@@ -201,6 +201,7 @@ export class Runner {
       task,
       trigger: "schedule",
       mode: approval.mode,
+      limit: approval.limit,
     });
   }
 
@@ -245,9 +246,11 @@ export class Runner {
     prompt?: string;
     trigger: "schedule" | "manual";
     mode: RoutineMode;
+    /** `limited`'s actions a day, from the approval. */
+    limit: number;
   }): Promise<RunOutcome> {
     if (this.#current) throw new Error("a run is going on this machine already");
-    const { routine, task, mode } = input;
+    const { routine, task, mode, limit } = input;
     const store = this.deps.store;
     const config = this.deps.config();
     const agent = typeof routine.fields.agent === "string" ? routine.fields.agent : config.machine.agent;
@@ -301,7 +304,7 @@ export class Runner {
       routineId: routine.id,
       agent,
       mode,
-      limit: (await routineApproval(store, routine))?.limit ?? DEFAULT_ACTION_LIMIT,
+      limit,
       usedToday,
       actions: 0,
       cut: null,

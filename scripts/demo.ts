@@ -341,7 +341,6 @@ await store.approvals.put({
   ),
   approvedAt: now,
   settings: { mode: "read-only", limit: 10 },
-  installedPath: null,
   previousHash: null,
 });
 await store.approvals.put({
@@ -350,7 +349,6 @@ await store.approvals.put({
   hash: await sharedHash((await store.records.get(skill)) as NonNullable<Awaited<ReturnType<Store["records"]["get"]>>>),
   approvedAt: now,
   settings: { auto: true, name: "release-notes" },
-  installedPath: join(userHome, ".claude", "skills", "grenier-release-notes"),
   previousHash: null,
 });
 

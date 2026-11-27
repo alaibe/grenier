@@ -83,7 +83,9 @@ export function routineRoutes(deps: AdminDeps): Hono {
     if (runner.running) return c.json({ error: "a run is going on this machine already" }, 409);
     const task = (await bodyOf(c)).task;
     const prompt = typeof task === "string" && task.trim() ? task.trim() : "Run now, as your prompt says.";
-    runner.run({ routine: found, prompt, trigger: "manual", mode: approval.mode }).catch(() => undefined);
+    runner
+      .run({ routine: found, prompt, trigger: "manual", mode: approval.mode, limit: approval.limit })
+      .catch(() => undefined);
     return c.json({ started: true }, 202);
   });
 

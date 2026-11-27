@@ -110,7 +110,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     );
 
   return {
-    schemaVersion: async () => schemaVersion(db),
     close: async () => {
       sqlite.close();
     },
@@ -195,7 +194,6 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
           .run();
       },
       get: async (id) => db.select().from(repos).where(eq(repos.id, id)).get(),
-      list: async () => db.select().from(repos).orderBy(asc(repos.name)).all(),
     },
 
     records: {

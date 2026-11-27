@@ -51,7 +51,8 @@ export function lineDiff(before: string, now: string): DiffLine[] | null {
 }
 
 /** The changed lines with `context` kept lines around each run of changes; null stands for the lines left out. */
-export function hunks(lines: readonly DiffLine[], context = 3): (DiffLine | null)[] {
+export function hunks(lines: readonly DiffLine[]): (DiffLine | null)[] {
+  const context = 3;
   const keep = lines.map(() => false);
   lines.forEach((line, n) => {
     if (line.kind === "same") return;

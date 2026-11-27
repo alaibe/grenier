@@ -80,7 +80,6 @@ describe("the person's MCP servers", () => {
       hash: "h",
       approvedAt: 1,
       settings: { name: "linear" },
-      installedPath: join(home, ".claude.json"),
       previousHash: null,
     });
     const servers = await localServers(store, where);

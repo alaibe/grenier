@@ -190,8 +190,7 @@ describe("sync between machines", () => {
       fetch: (async (input: string | URL | Request, init?: RequestInit) => {
         const response = await workerFetch(input, init);
         if (!String(input).endsWith("/api/me")) return response;
-        const { protocol: _protocol, ...me } = (await response.json()) as Record<string, unknown>;
-        return Response.json(me);
+        return Response.json({ ...((await response.json()) as Record<string, unknown>), protocol: 1 });
       }) as typeof fetch,
     };
     await expect(syncOnce({ store: laptop, team: older, embedder: null, personalKey: KEY })).rejects.toThrow(

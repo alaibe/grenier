@@ -139,9 +139,9 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const result: SyncResult = { pushed: 0, refused: [], pulled: 0, unopened: 0 };
 
   // An older store would drop what it does not know, or hand out what this Grenier no longer has.
-  const me = await teamApi<{ me: string; name: string; role: string; protocol?: number }>(team, "/api/me");
-  await store.state.set("team_protocol", String(me.protocol ?? 1));
-  if ((me.protocol ?? 1) < TEAM_PROTOCOL) {
+  const me = await teamApi<{ me: string; name: string; role: string; protocol: number }>(team, "/api/me");
+  await store.state.set("team_protocol", String(me.protocol));
+  if (me.protocol < TEAM_PROTOCOL) {
     throw new TeamError(
       "the team store is older than this Grenier: update it on the app's Team screen, and sync waits until then",
       426,
@@ -239,7 +239,8 @@ export async function unopenedCount(store: Store): Promise<number> {
 }
 
 /** After the personal key changed: Me goes out again sealed with it, and the pull starts over for the pages skipped. */
-export async function rekeyed(store: Store, now = Date.now()): Promise<void> {
+export async function rekeyed(store: Store): Promise<void> {
+  const now = Date.now();
   const waiting = new Set((await store.outbox.list()).map((entry) => entry.recordId));
   for (const record of await store.records.list({ tops: ["me"], retired: true, limit: 1_000_000 })) {
     if (waiting.has(record.id)) continue;

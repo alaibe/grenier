@@ -1,4 +1,4 @@
-import { buildReport, formatToday, loadPrices, parseSince, projectOf } from "@grenier/log";
+import { buildReport, formatToday, loadPrices, projectOf } from "@grenier/log";
 import type { UsageWithSession } from "@grenier/store";
 import { describe, expect, it } from "vitest";
 
@@ -92,17 +92,6 @@ describe("formatToday", () => {
       "(not started with grenier run): $0.25 spent, $0.00 cached",
     ]);
     expect(formatToday([])).toBe("Nothing spent yet");
-  });
-});
-
-describe("parseSince", () => {
-  const now = new Date(2026, 10, 16, 12).getTime();
-
-  it("reads durations and dates", () => {
-    expect(parseSince("7d", now)).toBe(now - 7 * 86_400_000);
-    expect(parseSince("12h", now)).toBe(now - 12 * 3_600_000);
-    expect(parseSince("30m", now)).toBe(now - 30 * 60_000);
-    expect(parseSince("2026-11-01", now)).toBe(new Date(2026, 10, 1).getTime());
   });
 });
 

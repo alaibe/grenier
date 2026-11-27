@@ -72,20 +72,6 @@ export function startOfToday(now: number): number {
   return date.getTime();
 }
 
-/** Reads `7d`, `12h`, `30m` or a date (`2026-11-01`) as a start time. Throws on anything else. */
-export function parseSince(value: string, now: number): number {
-  const relative = /^(\d+)([dhm])$/.exec(value);
-  if (relative) {
-    const unit = { d: 86_400_000, h: 3_600_000, m: 60_000 }[relative[2] as "d" | "h" | "m"];
-    return now - Number(relative[1]) * unit;
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number) as [number, number, number];
-    return new Date(year, month - 1, day).getTime();
-  }
-  throw new Error(`--since takes a duration such as 7d, 12h or 30m, or a date such as 2026-11-01, not "${value}"`);
-}
-
 /** Dollars with cents, or with the two digits that matter below ten cents, as the app writes them. */
 export const money = (amount: number) =>
   amount === 0 || Math.abs(amount) >= 0.1 ? `$${amount.toFixed(2)}` : `$${Number(amount.toPrecision(2))}`;
