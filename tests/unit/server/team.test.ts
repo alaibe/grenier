@@ -161,6 +161,16 @@ describe("changes", () => {
     expect((await push(ADA, nowhere)).refused[0]?.reason).toContain("names its top folder");
   });
 
+  it("retires a record its type's rules no longer fit, but takes nothing else with it", async () => {
+    await push(ADA, record("old", { type: "Task", fields: { status: "to-do" } }));
+    // As a type's rules tighten, an existing record may no longer fit them.
+    expect((await push(ADA, { id: "old", fields: {} }, 1)).refused[0]?.reason).toContain("needs status");
+    expect(
+      (await push(ADA, { id: "old", retiredAt: 5, body: "AKIAABCDEFGHIJKLMNOP" }, 1)).refused[0]?.reason,
+    ).toContain("looks like a key");
+    expect((await push(ADA, { id: "old", retiredAt: 5 }, 1)).applied).toHaveLength(1);
+  });
+
   it("refuses a record that breaks its type's rules or holds a key", async () => {
     const refused = await push(ADA, {
       id: "d1",

@@ -159,7 +159,9 @@ function apply(team: TeamData, change: Change, member: Member, device: Device): 
   if (!tops.includes(next.top)) return { refused: `there is no top folder ${next.top} you may write to` };
   if (next.sealed !== null && !next.top.startsWith("me:")) return { refused: "only a record in me is sealed" };
   if (next.sealed !== null && next.folder !== "") return { refused: "a sealed record keeps its folder sealed" };
-  if (next.sealed === null) {
+  // Retiring alone takes a record out whatever its shape: one its type's rules no longer fit must still go.
+  const retiring = current?.retiredAt === null && changed.length === 1 && changed[0] === "retiredAt";
+  if (next.sealed === null && !retiring) {
     const why = recordProblem(next, builtinType(next.type));
     if (why) return { refused: why };
   }

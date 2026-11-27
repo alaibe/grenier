@@ -142,6 +142,9 @@ export async function refusal(store: Store, record: RecordInput, before?: FullRe
   if ((await store.state.get("team_role")) === "member" && !memberMay(before, record, "me", true)) {
     return MEMBER_WRITES;
   }
+  // Retiring alone takes a record out whatever its shape: one its type's rules no longer fit must still go.
+  const changed = changedFields(before, record);
+  if (before?.retiredAt === null && changed.length === 1 && changed[0] === "retiredAt") return null;
   return recordProblem(record, builtinType(record.type));
 }
 
