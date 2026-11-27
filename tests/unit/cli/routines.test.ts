@@ -11,7 +11,7 @@ let deps: StoreDeps;
 beforeEach(async () => {
   store = openSqliteStore(":memory:");
   deps = await storeDeps(store);
-  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.state.set("team_member", "ada");
 });
 
 afterEach(async () => {

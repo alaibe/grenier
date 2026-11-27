@@ -115,15 +115,7 @@ const anthony = await joinTeam("anthony", "anthony-mbp", "admin");
 await teamApi(marie, "/api/invites", { body: { name: "noor" } });
 
 const store: Store = openSqliteStore(paths.db);
-await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-await store.tops.put({
-  id: `repo:${repoIdentity}`,
-  name: "checkout",
-  kind: "repo",
-  repoId: repoIdentity,
-  root: repo,
-});
+await store.repos.put({ id: repoIdentity, name: "checkout", root: repo });
 const me = await teamApi<{ me: string }>(marie, "/api/me");
 await store.state.set("team_member", "marie");
 await store.state.set("team_me_top", me.me);
@@ -219,24 +211,21 @@ await record({
   body: "## What happened\n\n## Why\n\n## What we change",
 });
 const retryAnswer = await record({
-  top: `repo:${repoIdentity}`,
   type: "Doc",
   title: "Where are failed payments retried?",
-  folder: "Payments",
+  folder: "checkout/Payments",
   author: "sam",
   device: "sam-thinkpad",
-  fields: { kind: "answer" },
   body: "In `src/payments/retry.ts`: `retry()` pushes the payment back on the queue with the next attempt number.",
   anchors: await anchored(["src/payments/retry.ts"]),
   links: [{ kind: "repo", ref: repoIdentity }, link(decision)],
 });
 const routing = await record({
-  top: `repo:${repoIdentity}`,
   type: "Doc",
   title: "How are requests routed?",
+  folder: "checkout",
   author: "lea",
   device: "lea-pc",
-  fields: { kind: "answer" },
   body: "`route()` in `src/router.ts` returns the first route that matches the path.",
   anchors: await anchored(["src/router.ts"]),
   links: [{ kind: "repo", ref: repoIdentity }],
@@ -245,14 +234,12 @@ const cents = await record({
   type: "Doc",
   title: "Money is always in cents",
   folder: "Conventions",
-  fields: { kind: "convention" },
   body: "Amounts are integers in cents everywhere; `cents()` in src/money.ts converts at the edges.",
 });
 await record({
   top: "me",
   type: "Doc",
   title: "Review Léa's Apple Pay PR before Friday",
-  fields: { kind: "fact" },
 });
 const skill = await record({
   type: "Skill",

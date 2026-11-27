@@ -88,4 +88,10 @@ export const SCHEMA_STEPS: readonly string[] = [
   ALTER TABLE records DROP COLUMN kind;
   UPDATE meta SET value = '9' WHERE key = 'schema';
 `,
+  `
+  DELETE FROM history WHERE record_id IN (SELECT id FROM records WHERE top LIKE 'repo:%');
+  DELETE FROM records WHERE top LIKE 'repo:%';
+  DROP TABLE tops;
+  UPDATE meta SET value = '10' WHERE key = 'schema';
+`,
 ];

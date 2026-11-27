@@ -20,8 +20,7 @@ let embedder: TableEmbedder | null;
 
 beforeEach(async () => {
   store = openSqliteStore(":memory:");
-  await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.state.set("team_member", "ada");
   dir = mkdtempSync(join(tmpdir(), "grenier-admin-"));
   team = null;
   synced = 0;
@@ -152,15 +151,8 @@ describe("the editor's records", () => {
     });
   });
 
-  it("embeds a page saved straight to the team store, and names a repository's folder as sync does", async () => {
+  it("embeds a page saved straight to the team store", async () => {
     embedder = new TableEmbedder({ Runbook: [1, 0, 0] });
-    await store.tops.put({
-      id: "repo:abc123456789",
-      name: "billing",
-      kind: "repo",
-      repoId: "abc123456789",
-      root: null,
-    });
     await store.state.set("team_protocol", String(TEAM_PROTOCOL));
     const sent: { changes: { record: Record<string, unknown> }[] }[] = [];
     team = {
@@ -174,12 +166,18 @@ describe("the editor's records", () => {
     const made = (await (
       await call("/records", {
         method: "POST",
-        body: JSON.stringify({ type: "Doc", title: "Runbook", body: "Deploy on Friday.", top: "repo:abc123456789" }),
+        body: JSON.stringify({
+          type: "Doc",
+          title: "Runbook",
+          body: "Deploy on Friday.",
+          top: "team",
+          folder: "billing/Runbooks",
+        }),
       })
     ).json()) as { id: string };
-    expect(sent[0]?.changes[0]?.record.topName).toBe("billing");
+    expect(sent[0]?.changes[0]?.record).toMatchObject({ top: "team", folder: "billing/Runbooks" });
     await call(`/records/${made.id}`, { method: "PUT", body: JSON.stringify({ body: "Deploy on Monday." }) });
-    expect((await store.records.vectors(["repo:abc123456789"], "table")).map((row) => row.id)).toEqual([made.id]);
+    expect((await store.records.vectors(["team"], "table")).map((row) => row.id)).toEqual([made.id]);
   });
 
   it("shows a Me page's history from this machine, since the team store holds it sealed", async () => {

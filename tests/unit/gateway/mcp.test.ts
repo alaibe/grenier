@@ -17,8 +17,7 @@ beforeEach(async () => {
   repo = new TestRepo({ "proxy.ts": "export const proxy = 1;\n" });
   await repo.ready();
   store = openSqliteStore(":memory:");
-  await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.state.set("team_member", "ada");
 });
 
 afterEach(async () => {
@@ -65,21 +64,19 @@ describe("the MCP server", () => {
     expect(tools.find((tool) => tool.name === "set")?.description).toContain("Save, short");
   });
 
-  it("follows the protocol's folders: a repository's Runbooks before its first page, and Me/About", async () => {
+  it("follows the protocol's folders: Team's runbooks before their first page, and Me/About", async () => {
     const client = await connect();
     const name = repo.dir.split("/").at(-1) as string;
-    expect(structured(await client.callTool({ name: "get", arguments: { folder: `${name}/Runbooks` } }))).toMatchObject(
-      {
-        records: [],
-      },
-    );
-    const rule = structured(
+    expect(
+      structured(await client.callTool({ name: "get", arguments: { folder: `Team/${name}/Runbooks` } })),
+    ).toMatchObject({ records: [] });
+    const draft = structured(
       await client.callTool({
         name: "set",
-        arguments: { title: "Release", body: "Tag it; the nightly ships it.", folder: `${name}/Runbooks` },
+        arguments: { title: "Release", body: "Tag it; the nightly ships it.", folder: `Me/${name}` },
       }),
     );
-    expect(rule).toMatchObject({ top: `repo:${repo.repo.id}` });
+    expect(draft).toMatchObject({ top: "me" });
     const about = structured(
       await client.callTool({
         name: "set",
@@ -104,7 +101,7 @@ describe("the MCP server", () => {
         arguments: { title: question, body: "In proxy.ts.", files: ["proxy.ts"] },
       }),
     );
-    expect(kept).toMatchObject({ top: `repo:${repo.repo.id}` });
+    expect(kept).toMatchObject({ top: "me" });
     const got = structured(await client.callTool({ name: "get", arguments: { query: question } }));
     expect(got).toMatchObject({ status: "hit", results: [{ title: question, changed: [] }] });
     expect(structured(await client.callTool({ name: "get", arguments: { id: kept.id } }))).toMatchObject({
@@ -123,7 +120,7 @@ describe("the MCP server", () => {
     );
     expect(kept).toMatchObject({ top: "me" });
     const toTeam = await client.callTool({ name: "set", arguments: { title: "x", folder: "Team" } });
-    expect((toTeam as { content: { text: string }[] }).content[0]?.text).toContain("Me or a repository's folder");
+    expect((toTeam as { content: { text: string }[] }).content[0]?.text).toContain("set keeps a page in Me");
     const {
       seq: _seq,
       hits: _hits,
@@ -134,25 +131,21 @@ describe("the MCP server", () => {
     expect((change as { content: { text: string }[] }).content[0]?.text).toContain("the team's");
   });
 
-  it("keeps a run's answer about the code in its repository's folder, and a member's run's other records nowhere", async () => {
+  it("keeps a run's pages where its approval says, and refuses a member's run a page for the team", async () => {
     const about = (title: string) => ({ title, body: "In proxy.ts.", files: ["proxy.ts"] });
     const kept = async (client: Awaited<ReturnType<typeof connect>>, args: Record<string, unknown>) =>
       structured(await client.callTool({ name: "set", arguments: args }))?.top;
     const run = await connect({ runTop: "team" });
-    expect(await kept(run, about("Where is the proxy?"))).toBe(`repo:${repo.repo.id}`);
+    expect(await kept(run, about("Where is the proxy?"))).toBe("team");
     expect(await kept(run, { title: "The proxy listens on 7788" })).toBe("team");
     const collector = await connect({ runTop: "me" });
     expect(await kept(collector, about("Who calls the proxy?"))).toBe("me");
 
     await store.state.set("team_role", "member");
     const member = await connect({ runTop: "team" });
-    expect(await kept(member, about("What does the proxy do?"))).toBe(`repo:${repo.repo.id}`);
-    const fact = await member.callTool({
-      name: "set",
-      arguments: { title: "It restarts at night" },
-    });
-    expect(fact.isError).toBe(true);
-    expect((fact as { content: { text: string }[] }).content[0]?.text).toContain("run on a member's machine");
+    const refused = await member.callTool({ name: "set", arguments: about("What does the proxy do?") });
+    expect(refused.isError).toBe(true);
+    expect((refused as { content: { text: string }[] }).content[0]?.text).toContain("only an admin writes in Team");
   });
 
   it("returns the store's refusals as tool errors, not crashes", async () => {

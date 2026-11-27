@@ -106,7 +106,7 @@ describe("the CLI does what the app does", () => {
       folder: "Runbooks",
       body: "Tag, test, push.",
     });
-    expect((await grenier("folder", "list")).out).toContain("me");
+    expect((await grenier("folder", "list")).out).toContain("Me");
     expect((await grenier("page", "rm", id)).out).toBe("Deleted");
     expect((await grenier("page", "list")).out).not.toContain("Release steps");
   });

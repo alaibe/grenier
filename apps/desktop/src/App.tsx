@@ -112,7 +112,8 @@ function Shell() {
   usePrefs();
   const reloadOverview = overview.reload;
   // A daemon that went away is started again by the next call: keep calling until it answers.
-  usePolling(reloadOverview, overview.error ? 3000 : null);
+  // Until the daemon answers, or while the team store is outdated: the daemon's next sync clears it.
+  usePolling(reloadOverview, overview.error ? 3000 : overview.data?.outdated ? 10_000 : null);
   const { run: runSync } = useAction(reloadOverview);
   const update = useStoreUpdate(reloadOverview);
   const syncNow = useCallback(

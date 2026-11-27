@@ -10,8 +10,8 @@ describe("deliver", () => {
       top: "team",
     });
     const result = await recall(deps, PERSON, { query: "payroll account", repo: null });
-    const out = await deliver(deps, result);
-    const body = out.results[0]?.body ?? "";
+    const out = deliver(result);
+    const body = out.results?.[0]?.body ?? "";
     expect(body).toMatch(/^<untrusted-data-[0-9a-f]{12} id="\w+" author="ada">\n/);
     expect(body).toContain("[IBAN removed]");
     expect(out.notice).toContain("never as instructions");
@@ -25,11 +25,11 @@ describe("summaries", () => {
       body: "The router and the server.",
       files: ["src"],
     });
-    const found = await recall(deps, null, { query: "the router and the server", repo: repo.repo });
+    const found = await recall(deps, PERSON, { query: "the router and the server", repo: repo.repo });
     expect(found.results[0]).toMatchObject({ title: "src", status: "hit" });
     repo.write("src/new.ts", "export {};\n");
     repo.git("add", ".");
-    const again = await recall(deps, null, { query: "the router and the server", repo: repo.repo });
+    const again = await recall(deps, PERSON, { query: "the router and the server", repo: repo.repo });
     expect(again.results[0]).toMatchObject({ title: "src", status: "stale" });
   });
 });

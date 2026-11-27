@@ -1,5 +1,4 @@
-import { repoTop } from "@grenier/core";
-import { ensureRepoTop, query, recall, remember, retire } from "@grenier/index";
+import { ensureRepo, query, recall, remember, retire } from "@grenier/index";
 import { describe, expect, it } from "vitest";
 import { TableEmbedder, TestRepo } from "../../support/repo.ts";
 import { answer, deps, embedWith, PERSON, repo, store } from "./harness.ts";
@@ -7,14 +6,14 @@ import { answer, deps, embedWith, PERSON, repo, store } from "./harness.ts";
 describe("remember and recall", () => {
   it("keeps an answer in its repository's top with the blob hash of each file, and recalls it as a hit", async () => {
     const kept = await answer("How does routing work?", "route() splits the path on slashes.", ["src/router.ts"]);
-    expect(kept.top).toBe(repoTop(repo.repo.id));
+    expect(kept).toMatchObject({ top: "me" });
     const record = await store.records.get(kept.id);
     expect(record?.anchors).toEqual([
       { kind: "git", repoId: repo.repo.id, ref: "src/router.ts", version: expect.stringMatching(/^[0-9a-f]{40}$/) },
     ]);
     expect(record?.links).toEqual([{ kind: "repo", ref: repo.repo.id }]);
 
-    const found = await recall(deps, null, { query: "how does routing work", repo: repo.repo });
+    const found = await recall(deps, PERSON, { query: "how does routing work", repo: repo.repo });
     expect(found.status).toBe("hit");
     expect(found.results[0]?.id).toBe(kept.id);
     expect((await store.records.get(kept.id))?.hits).toBe(1);
@@ -23,7 +22,7 @@ describe("remember and recall", () => {
   it("comes back stale with the changed files once one changes, and does not count it as a reuse", async () => {
     const kept = await answer("How does routing work?", "route() splits the path.", ["src/router.ts", "src/server.ts"]);
     repo.write("src/router.ts", "export const route = (p: string) => p;\n");
-    const found = await recall(deps, null, { query: "routing work", repo: repo.repo });
+    const found = await recall(deps, PERSON, { query: "routing work", repo: repo.repo });
     expect(found.status).toBe("stale");
     expect(found.results[0]?.changed).toEqual(["src/router.ts"]);
     expect((await store.records.get(kept.id))?.hits).toBe(0);
@@ -31,7 +30,7 @@ describe("remember and recall", () => {
 
   it("is a miss when nothing close is recorded", async () => {
     await answer("How does routing work?", "route() splits the path.", ["src/router.ts"]);
-    expect((await recall(deps, null, { query: "database migrations", repo: repo.repo })).status).toBe("miss");
+    expect((await recall(deps, PERSON, { query: "database migrations", repo: repo.repo })).status).toBe("miss");
   });
 
   it("finds a reworded question by its vector", async () => {
@@ -39,7 +38,7 @@ describe("remember and recall", () => {
       new TableEmbedder({ "Where are paths split?": [1, 0, 0], "path splitting location": [0.9, 0.1, 0] }),
     );
     const kept = await answer("Where are paths split?", "In route().", ["src/router.ts"]);
-    const found = await recall(deps, null, { query: "path splitting location", repo: repo.repo });
+    const found = await recall(deps, PERSON, { query: "path splitting location", repo: repo.repo });
     expect(found.results[0]?.id).toBe(kept.id);
     expect(found.results[0]?.similarity).toBeGreaterThan(0.9);
   });
@@ -93,7 +92,7 @@ describe("remember and recall", () => {
       files: ["src/router.ts"],
     });
     const here = await answer("How does routing work?", "Here.", ["src/router.ts"]);
-    const found = await recall(deps, null, { query: "how does routing work", repo: repo.repo });
+    const found = await recall(deps, PERSON, { query: "how does routing work", repo: repo.repo });
     expect(found.results[0]?.id).toBe(here.id);
     other.remove();
   });
@@ -129,10 +128,10 @@ describe("query, retire and the outbox", () => {
   });
 });
 
-describe("a repository's folder", () => {
+describe("a repository", () => {
   it("keeps where the repository lives, not the checkout a routine's run works in", async () => {
-    await ensureRepoTop(store, { root: "/work/shop", id: "abc" });
-    await ensureRepoTop(store, { root: "/tmp/grenier-run-1/shop", id: "abc", home: "/work/shop" });
-    expect(await store.tops.get(repoTop("abc"))).toMatchObject({ name: "shop", root: "/work/shop" });
+    expect(await ensureRepo(store, { root: "/work/shop", id: "abc" })).toBe("shop");
+    await ensureRepo(store, { root: "/tmp/grenier-run-1/shop", id: "abc", home: "/work/shop" });
+    expect(await store.repos.get("abc")).toMatchObject({ name: "shop", root: "/work/shop" });
   });
 });

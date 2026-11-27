@@ -82,7 +82,7 @@ describe("Claude Code and Codex, each its own strategy", () => {
 
   it("installs a team skill and server into every agent here, and takes them off both", async () => {
     both();
-    await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await store.state.set("team_member", "ada");
     const skill = await share(deps, {
       type: "Skill",
       title: "notes",

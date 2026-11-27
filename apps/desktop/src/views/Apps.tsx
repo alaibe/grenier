@@ -33,7 +33,7 @@ export function Apps() {
     <Section
       heading
       title="Apps on this computer"
-      description="Claude Code, Cursor and other apps here read Grenier over MCP, each with its own key. Each reads its repository's folder, plus the top folders it is given. Only you see this list."
+      description="Claude Code, Cursor and other apps here read Grenier over MCP, each with its own key. Each reads Me, Team or both, as it is given. Only you see this list."
       actions={
         <Button size="sm" onClick={() => setMaking(true)}>
           Another app…

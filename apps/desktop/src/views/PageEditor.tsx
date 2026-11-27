@@ -9,7 +9,6 @@ import type {
   RecordFull,
   Saved,
   TeamRecord,
-  Top,
 } from "@grenier/core/api";
 import { hunks, lineDiff } from "@grenier/core/diff";
 import { topName } from "@grenier/core/team";
@@ -63,16 +62,14 @@ export interface FolderPath {
 const pathKey = (path: { top: string; folder: string }) => `${path.top}\u0000${path.folder}`;
 
 /** A folder path as the editor shows it, "Team / Decisions / 2026": a top folder's name, then the folders in it. */
-export function folderPath(tops: Top[], top: string, folder: string): string {
-  const named = tops.find((entry) => entry.id === top);
-  return [named ? topName(named) : top, ...(folder ? folder.split("/") : [])].join(" / ");
+export function folderPath(top: string, folder: string): string {
+  return [topName(top), ...(folder ? folder.split("/") : [])].join(" / ");
 }
 
 /** A record at reading width: its folder, title and text, then where it was written from, its links and history. */
 export function PageEditor({
   target,
   folderPaths,
-  tops,
   member,
   open,
   changed,
@@ -80,7 +77,6 @@ export function PageEditor({
 }: {
   target: Target;
   folderPaths: FolderPath[];
-  tops: Top[];
   member: boolean;
   open: (id: string) => void;
   /** After a save or a move: the tree reloads. */
@@ -115,11 +111,9 @@ export function PageEditor({
     }
   }, [draft, record.data, id, target]);
 
-  const kindOf = (top: string) => tops.find((entry) => entry.id === top)?.kind;
-  // A member writes in Me, and their agents' answers where they are; the team store refuses the rest.
+  // A member writes in Me; the team store refuses the rest.
   const from = record.data?.top ?? draft?.top ?? "";
-  const answer = record.data?.type === "Doc" && kindOf(from) === "repo";
-  const writes = (top: string) => !member || kindOf(top) === "me" || (answer && top === from);
+  const writes = (top: string) => !member || top === "me";
   const editable = writes(from);
 
   const save = (version = base) =>
@@ -178,7 +172,7 @@ export function PageEditor({
   const allowed = folderPaths.filter((path) => writes(path.top));
   const choices = allowed.some((path) => pathKey(path) === pathKey(here))
     ? allowed
-    : [...allowed, { ...here, label: folderPath(tops, draft.top, draft.folder) }];
+    : [...allowed, { ...here, label: folderPath(draft.top, draft.folder) }];
   const suggestion = record.data?.type === "Suggestion";
 
   const dirty =
@@ -207,7 +201,7 @@ export function PageEditor({
   return (
     <div className="flex h-full min-h-0">
       <article className="flex min-w-0 flex-1 flex-col overflow-y-auto" data-verb="save">
-        <DetailBar crumb={folderPath(tops, draft.top, draft.folder)} title="Where it is">
+        <DetailBar crumb={folderPath(draft.top, draft.folder)} title="Where it is">
           {editable && (
             <span className="text-xs text-muted">{dirty ? (id ? "Edited" : "Not saved yet") : "Saved"}</span>
           )}

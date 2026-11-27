@@ -6,12 +6,12 @@ import {
   memberMay,
   RECORD_PARTS,
   recordProblem,
-  repoTop,
+  TOPS,
 } from "@grenier/core";
 import { type FullRecord, type Link, type RecordInput, type Store, toInput } from "@grenier/store";
 import {
   contentHashes,
-  ensureRepoTop,
+  ensureRepo,
   inRepo,
   newId,
   type Reader,
@@ -40,7 +40,7 @@ export interface RememberInput {
   sessionId?: string;
 }
 
-/** A page worked out from the repository's files, and only from them: kept in that repository's folder. */
+/** A page worked out from the repository's files, and only from them: kept under that repository's name. */
 function aboutCode(record: { anchors: readonly { kind: FullRecord["anchors"][number]["kind"] }[] }): boolean {
   return record.anchors.length > 0 && record.anchors.every((anchor) => anchor.kind === "git");
 }
@@ -75,15 +75,11 @@ export async function remember(
     anchors.push({ kind: "item", repoId: null, ref: item.ref, version: String(item.version) });
   }
 
-  if (repo) await ensureRepoTop(deps.store, repo);
-  const readableTops = (await readable(deps.store, reader)).map((top) => top.id);
-  let top = input.top;
+  const repoName = repo ? await ensureRepo(deps.store, repo) : null;
+  const readableTops = readable(reader);
+  const top = input.top ?? "me";
   const member = (await deps.store.state.get("team_role")) === "member";
-  if (!top) {
-    if (repo && anchors.some((anchor) => anchor.kind === "git")) top = repoTop(repo.id);
-    else top = "me";
-  }
-  if (top !== "me" && !(await deps.store.tops.get(top))) throw new StoreUseError(`there is no top folder ${top}`);
+  if (!(TOPS as readonly string[]).includes(top)) throw new StoreUseError(`there is no top folder ${top}`);
   if (reader && top !== "me" && !readableTops.includes(top))
     throw new StoreUseError(`this client may not write to ${top}`);
 
@@ -92,13 +88,16 @@ export async function remember(
   if (input.id && (!existing || (reader && existing.top !== "me" && !readableTops.includes(existing.top))))
     throw new StoreUseError(`there is no record ${input.id}`);
   // A page about the code with the same title replaces the one before: it is the same question, answered again.
-  if (!existing && aboutCode({ anchors })) {
+  if (!existing && repo && aboutCode({ anchors })) {
     existing = (await deps.store.records.list({ tops: [top], type })).find(
-      (record) => record.title.trim().toLowerCase() === title.toLowerCase(),
+      (record) =>
+        record.title.trim().toLowerCase() === title.toLowerCase() &&
+        record.anchors.some((anchor) => anchor.repoId === repo.id),
     );
   }
 
-  const folder = input.folder ?? existing?.folder ?? "";
+  // A page about a repository's code goes under its name, as Me/grenier.
+  const folder = input.folder ?? existing?.folder ?? (repoName && aboutCode({ anchors }) ? repoName : "");
   const problem = recordProblem({ type, title, folder, body, fields }, typeDef);
   if (problem) throw new StoreUseError(`the record is refused: ${problem}`);
 

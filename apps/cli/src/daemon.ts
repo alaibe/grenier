@@ -18,7 +18,7 @@ import { environment, type Io, Refusal } from "./io.ts";
 import { TeamLink } from "./link.ts";
 import { desktopNotifier } from "./notify.ts";
 import { Runner } from "./runner.ts";
-import { embedderLoader, ensureBaseTops, identity, repoResolver, storeDeps } from "./runtime.ts";
+import { embedderLoader, identity, repoResolver, storeDeps } from "./runtime.ts";
 import { teamClient } from "./team.ts";
 
 /** The desktop app's key to the admin API: made once, readable by this user only. */
@@ -109,7 +109,6 @@ export async function runDaemon(io: Io): Promise<number> {
   if (current.state === "running") throw new Refusal(`the daemon is already running (pid ${current.pid})`);
 
   const store = openSqliteStore(paths.db);
-  await ensureBaseTops(store);
   const where = whereOf(io);
   const port = config.proxy.port;
   const prices = loadPrices(config.prices);

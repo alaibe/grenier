@@ -1,4 +1,4 @@
-import { hasPrompt, nextDue, ROUTINE_MODES, type RoutineMode, routineHash } from "@grenier/core";
+import { hasPrompt, nextDue, ROUTINE_MODES, type RoutineMode, routineHash, TOPS } from "@grenier/core";
 import type { RoutineView } from "@grenier/core/api";
 import { newRecord, type StoreDeps, write } from "@grenier/index";
 import { type FullRecord, type Store, toInput } from "@grenier/store";
@@ -21,7 +21,7 @@ export async function routineApproval(store: Store, routine: FullRecord): Promis
 
 /** The team's routines as the app lists them; one that names no agent runs this machine's. */
 export async function routineViews(store: Store, machineAgent: string): Promise<RoutineView[]> {
-  const tops = (await store.tops.list()).map((top) => top.id);
+  const tops = [...TOPS];
   const out: RoutineView[] = [];
   for (const routine of await store.records.list({ tops, type: "Routine" })) {
     out.push({
@@ -65,7 +65,7 @@ export async function approve(
 export async function addBuiltin(deps: StoreDeps, id: string): Promise<{ id: string; added: boolean }> {
   const builtin = BUILTINS[id];
   if (!builtin) throw new Refusal(`Grenier ships no routine ${id}`);
-  const tops = (await deps.store.tops.list()).map((top) => top.id);
+  const tops = [...TOPS];
   const existing = (await deps.store.records.list({ tops, type: "Routine" })).find(
     (record) => record.fields.builtin === id,
   );
@@ -128,7 +128,7 @@ export async function addRoutine(
     folder?: string;
   },
 ): Promise<{ id: string }> {
-  const tops = (await deps.store.tops.list()).map((top) => top.id);
+  const tops = [...TOPS];
   const taken = (await deps.store.records.list({ tops, type: "Routine" })).some(
     (record) => record.title.toLowerCase() === input.title.toLowerCase(),
   );

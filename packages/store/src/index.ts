@@ -5,6 +5,7 @@ export type {
   Client,
   Event,
   HistoryEntry,
+  KnownRepo,
   Link,
   NewEvent,
   NewSession,
@@ -14,7 +15,6 @@ export type {
   Run,
   Session,
   ToolUse,
-  Top,
   Usage,
 } from "./schema.ts";
 export * as schema from "./schema.ts";
@@ -28,12 +28,12 @@ export type {
   RecordFilter,
   RecordInput,
   RecordStore,
+  RepoStore,
   RunStore,
   SessionStore,
   StateStore,
   Store,
   ToolUseStore,
-  TopStore,
   UsageStore,
   UsageWithSession,
 } from "./store.ts";

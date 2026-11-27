@@ -48,19 +48,11 @@ export function ensurePersonalKey(paths: GrenierPaths): string {
   return key;
 }
 
-/** The `me` top folder, which every machine has, team or not. */
-export async function ensureBaseTops(store: Store): Promise<void> {
-  if (!(await store.tops.get("me"))) {
-    await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-  }
-}
-
 export async function storeDeps(
   store: Store,
   config: Config,
   embedder: () => Promise<Embedder | null>,
 ): Promise<StoreDeps> {
-  await ensureBaseTops(store);
   return { store, files: gitFiles, embedder: await embedder(), me: await identity(store, config) };
 }
 

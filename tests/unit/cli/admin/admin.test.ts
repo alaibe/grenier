@@ -13,8 +13,7 @@ let admin: TestAdmin;
 
 beforeEach(async () => {
   store = openSqliteStore(":memory:");
-  await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.state.set("team_member", "ada");
   dir = mkdtempSync(join(tmpdir(), "grenier-admin-"));
   admin = testAdmin(store, dir);
 });

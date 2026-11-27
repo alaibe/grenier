@@ -30,7 +30,7 @@ describe("the team store's schema steps", () => {
       value: String(SCHEMA_STEPS.length),
     });
     expect(db.prepare("SELECT id, top, folder FROM records").all()).toEqual([{ id: "r1", top: "team", folder: "" }]);
-    expect(db.prepare("SELECT id FROM tops").all()).toEqual([{ id: "team" }]);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'tops'").all()).toEqual([]);
     expect(columns(db, "runs")).toEqual([
       "id",
       "routine_id",

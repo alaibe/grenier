@@ -18,7 +18,7 @@ beforeEach(async () => {
   });
   await repo.ready();
   deps = await storeDeps(store);
-  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.state.set("team_member", "ada");
 });
 
 afterEach(async () => {

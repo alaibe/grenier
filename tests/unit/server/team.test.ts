@@ -5,7 +5,6 @@ import { ADA, call, join, json, mf, pull, push } from "./harness.ts";
 import { openPage } from "./page.ts";
 
 /** A repository's folder: members' agents write their answers there. */
-const REPO = "repo:0123456789abcdef";
 
 describe("setting up and joining", () => {
   it("sets up the first admin once, with the deploy's token only", async () => {
@@ -141,8 +140,8 @@ describe("changes", () => {
   });
 
   it("merges two people's changes field by field, and refuses the editor's save over someone's edit", async () => {
-    const bob = await join("bob");
-    await push(ADA, record("r1", { top: REPO }));
+    const bob = await join("bob", "bob-mbp", "admin");
+    await push(ADA, record("r1"));
     await push(bob, { id: "r1", body: "Before noon, never on a holiday." }, 1);
     await push(ADA, { id: "r1", title: "Deploys on Fridays" }, 1);
     await push(bob, { id: "r1", folder: "Releases" }, 1);
@@ -205,8 +204,8 @@ describe("changes", () => {
   });
 
   it("keeps every version, with who made it", async () => {
-    const bob = await join("bob");
-    await push(ADA, record("r1", { top: REPO }));
+    const bob = await join("bob", "bob-mbp", "admin");
+    await push(ADA, record("r1"));
     await push(bob, { id: "r1", body: "Changed." }, 1);
     const { history } = await json<{ history: { version: number; author: string; device: string }[] }>(
       await call("/api/records/r1/history", ADA),
@@ -229,30 +228,17 @@ describe("what members write", () => {
     ...extra,
   });
 
-  it("keeps a member to their me, their agents' pages in a repository's folder, and the requests they run", async () => {
+  it("keeps a member to their Me and the requests they run", async () => {
     const bob = await join("bob");
     const refused = async (change: Record<string, unknown>, base = 0) =>
       (await push(bob, change, base)).refused[0]?.reason;
-    expect(await refused(record("t1"))).toContain("only an admin writes there");
+    expect(await refused(record("t1"))).toContain("only an admin writes in Team");
     expect(await refused({ id: "s1", top: "team", type: "Skill", title: "notes", fields: { files: {} } })).toContain(
-      "only an admin writes there",
+      "only an admin writes in Team",
     );
     expect((await push(bob, record("mine", { top: "me" }))).applied).toHaveLength(1);
-    expect((await push(bob, record("answer", { top: REPO }))).applied).toHaveLength(1);
-    expect(await refused({ id: "answer", top: "team" }, 1)).toContain("only an admin writes there");
-    expect((await push(bob, record("doc", { top: REPO, type: "Doc", kind: null, fields: {} }))).applied).toHaveLength(
-      1,
-    );
-    expect(
-      await refused(
-        record("task", {
-          top: REPO,
-          type: "Task",
-          kind: null,
-          fields: { status: "to-do" },
-        }),
-      ),
-    ).toContain("only an admin writes there");
+    expect(await refused({ id: "mine", top: "team" }, 1)).toContain("only an admin writes in Team");
+    expect(await refused(record("repo", { top: "repo:0123456789abcdef" }))).toContain("only an admin writes in Team");
 
     await push(ADA, {
       id: "r",
@@ -270,12 +256,12 @@ describe("what members write", () => {
       fields: { status: "to-do", routine: "r" },
     });
     const running = { id: "task", fields: { status: "doing", routine: "r", machine: "bob-mbp" } };
-    expect(await refused(running, 2)).toContain("only an admin writes there");
+    expect(await refused(running, 2)).toContain("only an admin writes in Team");
     await call("/api/machines/me", bob, { method: "PUT", body: { state: "available", room: 1, agents: ["claude"] } });
     await call("/api/work/claim", bob, { method: "POST" });
     await call("/api/runs", bob, { body: { id: "run1", routineId: "r", taskId: "task", status: "running" } });
     expect((await push(bob, running, 2)).applied).toHaveLength(1);
-    expect(await refused({ id: "task", title: "Something else" }, 3)).toContain("only an admin writes there");
+    expect(await refused({ id: "task", title: "Something else" }, 3)).toContain("only an admin writes in Team");
   });
 
   it("takes a task's run only from the machine that holds the task, and its updates only from that machine", async () => {
@@ -316,7 +302,7 @@ describe("what members write", () => {
     // A run of no task, then named as the task's, frees nobody's claim and proves nothing.
     expect((await run(cleo, { id: "cleo-own", status: "running" })).status).toBe(200);
     expect((await run(cleo, { id: "cleo-own", taskId: "task", status: "done" })).status).toBe(200);
-    expect((await push(cleo, runFields("done"), 2)).refused[0]?.reason).toContain("only an admin writes there");
+    expect((await push(cleo, runFields("done"), 2)).refused[0]?.reason).toContain("only an admin writes in Team");
     expect((await call("/api/work/task/renew", bob, { method: "POST" })).status).toBe(200);
 
     expect((await push(bob, runFields("doing"), 2)).applied).toHaveLength(1);

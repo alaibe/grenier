@@ -5,7 +5,7 @@ import { type GrenierPaths, withTomlValue } from "@grenier/core/node";
 import type { TeamClient } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { Refusal } from "./io.ts";
-import { ensureBaseTops, ensurePersonalKey } from "./runtime.ts";
+import { ensurePersonalKey } from "./runtime.ts";
 
 /** The team server and this machine's token: the env var named by `[team] token_env`, else the saved token. */
 export function teamClient(config: Config, paths: GrenierPaths, env: NodeJS.ProcessEnv): TeamClient | null {
@@ -40,7 +40,6 @@ export async function enterTeam(
   await store.state.set("team_member", team.member);
   await store.state.set("team_role", team.role);
   if (team.meTop) await store.state.set("team_me_top", team.meTop);
-  await ensureBaseTops(store);
   ensurePersonalKey(paths);
 }
 

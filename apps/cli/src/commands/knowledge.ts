@@ -1,3 +1,4 @@
+import { topName } from "@grenier/core";
 import type {
   Created,
   FileVersions,
@@ -147,7 +148,7 @@ export const FOLDERS: Group = {
       usage: "list",
       summary: "List the top folders, with how many pages each holds",
       call: async ({ admin }) => (await admin<{ tops: Top[] }>("GET", "/tops")).tops,
-      show: (tops: Top[]) => table(tops.map((top) => [top.id, top.kind, top.records, top.root ?? top.name])),
+      show: (tops: Top[]) => table(tops.map((top) => [topName(top.id), top.records])),
     },
     move: {
       usage: "move <top> <from> <to> [--to-top <top>]",

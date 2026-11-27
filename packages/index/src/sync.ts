@@ -121,8 +121,6 @@ export async function teamChange(
     record = { ...record, sealed: null };
     changed = everything();
   }
-  const folder = await deps.store.tops.get(top);
-  if (folder?.kind === "repo") record = { ...record, topName: folder.name };
   return { changed, record };
 }
 
@@ -187,19 +185,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
       records: Remote[];
       next: number;
       version: number;
-      tops: { id: string; name: string; kind: "team" | "repo"; repoId: string | null }[];
     }>(team, `/api/changes?after=${cursor}&limit=500`);
-    for (const top of page.tops) {
-      if (top.id.startsWith("me:")) continue;
-      const local = await store.tops.get(top.id);
-      await store.tops.put({
-        id: top.id,
-        name: local?.name ?? top.name,
-        kind: top.kind,
-        repoId: top.repoId,
-        root: local?.root ?? null,
-      });
-    }
     for (let remote of page.records) {
       if (waiting.has(remote.id)) continue;
       if (remote.top === me.me) {

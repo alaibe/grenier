@@ -42,7 +42,7 @@ describe("the person's skills from the app", () => {
     expect((await route("POST", "/skills/share?id=claude%3Arelease-notes"))?.body).toEqual({
       error: "this machine is in no team: join one first",
     });
-    await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await store.state.set("team_member", "ada");
     expect((await route("POST", "/skills/share?id=claude%3Arelease-notes"))?.body).toMatchObject({
       title: "release-notes",
       updated: false,

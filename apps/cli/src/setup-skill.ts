@@ -12,9 +12,11 @@ Keep only what an agent can't find by reading one repository: the person, what h
 The folders:
 - Me/About: who the person is and how they like to work.
 - Me/Notes: drafts and everything else.
-- <repository>/Runbooks: how to deploy, release and handle an incident.
-- <repository>: what agents work out about its code as they go. The setup writes nothing there.
-- Team/Conventions, Team/Decisions: what the whole team follows and plans. Only the person moves pages there, in Grenier's Knowledge.
+- Me/<repository>: what agents work out about its code as they go. The setup writes nothing there.
+- Team/Conventions, Team/Decisions: what the whole team follows and plans.
+- Team/<repository>/Runbooks: how to deploy, release and handle an incident.
+
+Everything is a path in Me or Team. You write only in Me; the person moves a page to Team, in Grenier's Knowledge.
 
 <repository> is the name of the repository's folder.
 
@@ -23,7 +25,7 @@ The folders:
 - If \`get\` and \`set\` are deferred, load both with ToolSearch first.
 - Ask the scope first: this repository only, or every repository in its parent folder. List the ones you found (each folder with a \`.git\`) with what each is built with, from its build files.
 - For a repository other than the one you run in, pass its path as \`repo\` to \`get\` and \`set\`.
-- Get Me/About, Me/Notes, Team/Conventions and, for each repository in scope, <repository>/Runbooks, with limit 200, to see what is already kept. On a run after the first, propose only what is new or changed, and re-read the files a stale page lists.
+- Get Me/About, Me/Notes, Team/Conventions and, for each repository in scope, Team/<repository>/Runbooks, with limit 200, to see what is already kept. On a run after the first, propose only what is new or changed, and re-read the files a stale page lists.
 - Ask once how to go: show the pages of each step and wait for a yes, or run the steps through and sum up at the end. Then work that way.
 - When showing a step, show all its pages at once, one line each: its title and what it holds. Write what the person accepts, as they edit it.
 - Across several repositories, hand the reading of each repository's files to one subagent per repository or small group, in parallel, each told these rules and its repository's path.
@@ -53,7 +55,7 @@ Set drafts in Me/Notes for Team/Conventions: "Conventions: all projects" for wha
 
 A decision is what the person plans to do, not what the code already shows: never draw decisions from the code, docs or commits. Ask what they have decided to do next, and why. Set each as a draft in Me/Notes, "Decision: <what>", with what, why and when, and tell them to move it to Team/Decisions in Knowledge.
 
-If a repository deploys or releases, set what its files say about it in <repository>/Runbooks, one page each for deploy, release and incident, only those its files support.
+If a repository deploys or releases, set what its files say about it as drafts in Me/<repository>/Runbooks, one page each for deploy, release and incident, only those its files support, for the person to move to Team/<repository>/Runbooks.
 
 ## 4. CLAUDE.md and AGENTS.md
 

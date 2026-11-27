@@ -4,6 +4,7 @@ import type {
   Client,
   Event,
   HistoryEntry,
+  KnownRepo,
   Link,
   NewEvent,
   NewSession,
@@ -13,7 +14,6 @@ import type {
   Run,
   Session,
   ToolUse,
-  Top,
   Usage,
 } from "./schema.ts";
 
@@ -24,7 +24,7 @@ export interface Store {
   usage: UsageStore;
   events: EventStore;
   state: StateStore;
-  tops: TopStore;
+  repos: RepoStore;
   records: RecordStore;
   history: HistoryStore;
   outbox: OutboxStore;
@@ -88,11 +88,11 @@ export interface StateStore {
   set(key: StateKey, value: string): Promise<void>;
 }
 
-export interface TopStore {
-  /** Adds the top folder, or updates its name and root. */
-  put(top: Top): Promise<void>;
-  get(id: string): Promise<Top | undefined>;
-  list(): Promise<Top[]>;
+export interface RepoStore {
+  /** Adds the repository, or updates where it lives. */
+  put(repo: KnownRepo): Promise<void>;
+  get(id: string): Promise<KnownRepo | undefined>;
+  list(): Promise<KnownRepo[]>;
 }
 
 export interface FullRecord extends RecordRow {

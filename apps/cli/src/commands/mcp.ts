@@ -7,13 +7,12 @@ import { version } from "../../package.json";
 import { agentTexts } from "../agent-texts.ts";
 import { CLAUDE_CODE, whereOf } from "../agents/index.ts";
 import { environment, type Io, withStore } from "../io.ts";
-import { embedderLoader, ensureBaseTops, identity, repoResolver } from "../runtime.ts";
+import { embedderLoader, identity, repoResolver } from "../runtime.ts";
 
 /** `grenier mcp serve`: the MCP server over stdio, for an agent that launches it in its working directory. */
 export async function serve(io: Io): Promise<number> {
   const { paths, config } = environment(io);
   const store = openSqliteStore(paths.db);
-  await ensureBaseTops(store);
   const server = createMcpServer({
     store,
     files: gitFiles,

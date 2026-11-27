@@ -55,14 +55,13 @@ export const state = sqliteTable("state", {
   value: text("value").notNull(),
 });
 
-/** The top folders: who reads a record follows its top folder. */
-export const tops = sqliteTable("tops", {
+/** The repositories this machine has seen: a page's files are checked in the one its anchors name. */
+export const repos = sqliteTable("repos", {
+  /** The hash of its first commit, the same on every machine. */
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  kind: text("kind", { enum: ["me", "repo", "team"] }).notNull(),
-  /** For a repository's top folder: its id, the hash of its first commit. */
-  repoId: text("repo_id"),
-  root: text("root"),
+  /** Where it lives on this machine. */
+  root: text("root").notNull(),
 });
 
 /** `seq` is the full-text index's rowid: an implicit rowid can change on VACUUM. */
@@ -237,7 +236,7 @@ export type Usage = typeof usage.$inferSelect;
 export type NewUsage = typeof usage.$inferInsert;
 export type Event = typeof events.$inferSelect;
 export type NewEvent = typeof events.$inferInsert;
-export type Top = typeof tops.$inferSelect;
+export type KnownRepo = typeof repos.$inferSelect;
 export type RecordRow = typeof records.$inferSelect;
 export type Anchor = typeof anchors.$inferSelect;
 export type Link = typeof links.$inferSelect;

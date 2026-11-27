@@ -15,7 +15,6 @@ import { Problem } from "../ui/notice.tsx";
 import { Tree, type TreeDrag, type TreeNode, useFolding, visibleRows } from "../ui/tree.tsx";
 import { Found } from "./KnowledgeFound.tsx";
 import {
-  byName,
   type Folder,
   folderId,
   foldersIn,
@@ -49,18 +48,11 @@ interface Crossing extends Moving {
   name: string;
 }
 
-const ORDER: Record<Top["kind"], number> = { me: 0, team: 1, repo: 2 };
-
-const SAYS: Record<Top["kind"], string> = {
-  me: "only you",
-  team: "everyone",
-  repo: "repository",
-};
+const SAYS: Record<Top["id"], string> = { me: "only you", team: "everyone" };
 
 /** Where a new page goes when nothing says: Me for a member, Team for an admin. */
 function firstFolder(tops: Top[], member: boolean): Target | null {
-  const top =
-    tops.find((entry) => entry.kind === (member ? "me" : "team")) ?? tops.find((entry) => entry.kind === "me");
+  const top = tops.find((entry) => entry.id === (member ? "me" : "team")) ?? tops.find((entry) => entry.id === "me");
   return top ? { top: top.id, folder: "" } : null;
 }
 
@@ -85,22 +77,13 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
 
   const sorted = useMemo(
     () =>
-      [...(tops.data ?? [])]
-        // A repository's folder shows once something is kept in it.
-        .filter(
-          (top) =>
-            top.kind !== "repo" ||
-            (pages.data ?? []).some((page) => page.top === top.id) ||
-            emptyFolders.empty.some((id) => id.startsWith(`${top.id}/`)),
-        )
-        .sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || byName.compare(a.name, b.name))
-        .map((top) => ({
-          top,
-          tree: treeOf(
-            (pages.data ?? []).filter((page) => page.top === top.id),
-            emptyFolders.empty.filter((id) => id.startsWith(`${top.id}/`)).map((id) => id.slice(top.id.length + 1)),
-          ),
-        })),
+      (tops.data ?? []).map((top) => ({
+        top,
+        tree: treeOf(
+          (pages.data ?? []).filter((page) => page.top === top.id),
+          emptyFolders.empty.filter((id) => id.startsWith(`${top.id}/`)).map((id) => id.slice(top.id.length + 1)),
+        ),
+      })),
     [tops.data, pages.data, emptyFolders.empty],
   );
   const folderPaths: FolderPath[] = useMemo(
@@ -109,13 +92,13 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
         ["", ...foldersIn(tree)].map((folder) => ({
           top: top.id,
           folder,
-          label: folderPath(tops.data ?? [], top.id, folder),
+          label: folderPath(top.id, folder),
         })),
       ),
-    [sorted, tops.data],
+    [sorted],
   );
 
-  const writes = (top: Top) => !member || top.kind === "me";
+  const writes = (top: Top) => !member || top.id === "me";
   const moving = useAction(reload);
   const startPage = useCallback(
     (target: Target) => {
@@ -267,9 +250,9 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
 
   const nodes: TreeNode[] = sorted.map(({ top, tree }) => ({
     id: folderId(top.id, ""),
-    name: topName(top),
+    name: topName(top.id),
     group: true,
-    meta: SAYS[top.kind],
+    meta: SAYS[top.id],
     actions: folderActions(top, tree),
     children: nodesOf(top, tree),
   }));
@@ -279,7 +262,7 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
     const out = new Map<string, { top: Top; path: string; name: string }>();
     for (const { top, tree } of sorted) {
       const add = (folder: Folder) => {
-        out.set(folderId(top.id, folder.path), { top, path: folder.path, name: folder.name || topName(top) });
+        out.set(folderId(top.id, folder.path), { top, path: folder.path, name: folder.name || topName(top.id) });
         folder.folders.forEach(add);
       };
       add(tree);
@@ -304,11 +287,11 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
           method: "PUT",
           body: { top: place.top.id, folder: place.path },
         });
-        return `Moved ${page.title} to ${folderPath(tops.data ?? [], place.top.id, place.path)}`;
+        return `Moved ${page.title} to ${folderPath(place.top.id, place.path)}`;
       }
       if (!from) return undefined;
       await moveFolder(from.top.id, from.path, place.top.id, place.path ? `${place.path}/${from.name}` : from.name);
-      return `Moved ${from.name} to ${folderPath(tops.data ?? [], place.top.id, place.path)}`;
+      return `Moved ${from.name} to ${folderPath(place.top.id, place.path)}`;
     });
   };
 
@@ -419,7 +402,7 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
         {!tops.data || !pages.data ? (
           <Skeleton rows={8} />
         ) : searching ? (
-          <Found words={words.trim()} pages={pages.data} tops={tops.data} current={item ?? null} open={open} />
+          <Found words={words.trim()} pages={pages.data} current={item ?? null} open={open} />
         ) : (
           <Tree
             label="Pages"
@@ -441,7 +424,7 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
         )}
         {crossing && (
           <Dialog
-            title={`Move to ${topName(crossing.to)}?`}
+            title={`Move to ${topName(crossing.to.id)}?`}
             action="Move"
             onCancel={() => setCrossing(null)}
             onAction={() => {
@@ -450,8 +433,8 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
             }}
           >
             <p>
-              {crossing.name} moves from {topName(crossing.from)} ({SAYS[crossing.from.kind]}) to {topName(crossing.to)}{" "}
-              ({SAYS[crossing.to.kind]}): who can see it changes.
+              {crossing.name} moves from {topName(crossing.from.id)} ({SAYS[crossing.from.id]}) to{" "}
+              {topName(crossing.to.id)} ({SAYS[crossing.to.id]}): who can see it changes.
             </p>
           </Dialog>
         )}
@@ -466,7 +449,6 @@ export function Knowledge({ item, go, changed, member }: ViewProps) {
           key={"id" in target ? target.id : `new:${target.top}:${target.folder}`}
           target={target}
           folderPaths={folderPaths}
-          tops={tops.data}
           member={member}
           open={open}
           changed={reload}

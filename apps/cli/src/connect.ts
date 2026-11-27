@@ -4,7 +4,6 @@ import { addClient, resolveScopes } from "@grenier/index";
 import type { Store } from "@grenier/store";
 import { isAgent, type McpClient, type Where } from "./agents/index.ts";
 import { Refusal } from "./io.ts";
-import { ensureBaseTops } from "./runtime.ts";
 import { SETUP_SKILL } from "./setup-skill.ts";
 import { writeSkill } from "./skill-files.ts";
 
@@ -56,10 +55,11 @@ export async function connectApp(store: Store, client: McpClient, scopes: string
   });
   // The config must be readable, and the folders known, before the old token goes: a failure leaves the app working.
   client.servers(where);
-  await ensureBaseTops(store);
-  await resolveScopes(store, scopes).catch((error: Error) => {
-    throw new Refusal(error.message);
-  });
+  try {
+    resolveScopes(scopes);
+  } catch (error) {
+    throw new Refusal((error as Error).message);
+  }
   await store.clients.revoke(client.id, Date.now());
   const token = await addClient(store, client.id, scopes);
   client.editServers(where, (servers) => {

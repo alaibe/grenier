@@ -59,8 +59,8 @@ describe("openSqliteStore", () => {
         "records_fts",
         "runs",
         "schema_migrations",
+        "repos",
         "sessions",
-        "tops",
         "usage",
       ]),
     );
@@ -117,11 +117,11 @@ describe("openSqliteStore", () => {
     for (const [id, top, folder] of [
       ["m1", "me", "Health"],
       ["t1", "team", "Ops"],
-      ["r1", "repo:abc", ""],
     ]) {
       expect(await store.records.get(id as string)).toMatchObject({ top, folder });
     }
-    expect((await store.tops.list()).map((top) => top.id).sort()).toEqual(["me", "repo:abc", "team"]);
+    expect(await store.records.get("r1")).toBeUndefined();
+    expect(await store.repos.list()).toEqual([{ id: "abc", name: "app", root: "/work/app" }]);
     const [waiting] = await store.outbox.list();
     expect(waiting?.change).toEqual({ changed: ["top", "title"], record: { id: "m1", top: "me", title: "Dentist" } });
     await store.close();

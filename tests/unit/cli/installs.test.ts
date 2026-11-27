@@ -19,7 +19,7 @@ let where: Where;
 beforeEach(async () => {
   store = openSqliteStore(":memory:");
   deps = await storeDeps(store);
-  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.state.set("team_member", "ada");
   home = mkdtempSync(join(tmpdir(), "grenier-installs-"));
   where = { home, platform: "linux", env: {}, self: [] };
 });

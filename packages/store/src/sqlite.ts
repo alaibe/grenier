@@ -49,7 +49,7 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
     usage,
     events,
     state,
-    tops,
+    repos,
     records,
     anchors,
     links,
@@ -187,18 +187,15 @@ export function openSqliteStore(file: string, options: SqliteStoreOptions = {}):
       },
     },
 
-    tops: {
-      put: async (top) => {
-        db.insert(tops)
-          .values(top)
-          .onConflictDoUpdate({
-            target: tops.id,
-            set: { name: top.name, ...(top.root === null ? {} : { root: top.root }) },
-          })
+    repos: {
+      put: async (repo) => {
+        db.insert(repos)
+          .values(repo)
+          .onConflictDoUpdate({ target: repos.id, set: { root: repo.root } })
           .run();
       },
-      get: async (id) => db.select().from(tops).where(eq(tops.id, id)).get(),
-      list: async () => db.select().from(tops).orderBy(asc(tops.kind), asc(tops.name)).all(),
+      get: async (id) => db.select().from(repos).where(eq(repos.id, id)).get(),
+      list: async () => db.select().from(repos).orderBy(asc(repos.name)).all(),
     },
 
     records: {

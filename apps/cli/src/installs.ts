@@ -109,7 +109,7 @@ export async function rollback(store: Store, where: Where, record: FullRecord): 
 
 /** The team's skills and servers, and where this machine stands with each. */
 export async function sharedList(store: Store): Promise<SharedState[]> {
-  const tops = (await store.tops.list()).filter((top) => top.kind !== "me").map((top) => top.id);
+  const tops = ["team"];
   const out: SharedState[] = [];
   for (const type of ["Skill", "McpServer"] as const) {
     for (const record of await store.records.list({ tops, type })) {
@@ -168,8 +168,7 @@ export async function share(
   deps: StoreDeps,
   input: { type: Shared; title: string; body: string; fields: Record<string, unknown> },
 ): Promise<{ id: string; updated: boolean }> {
-  const tops = (await deps.store.tops.list()).map((top) => top.id);
-  if (!tops.includes("team")) throw new Refusal("this machine is in no team: join one first");
+  if (!(await deps.store.state.get("team_member"))) throw new Refusal("this machine is in no team: join one first");
   const existing = (await deps.store.records.list({ tops: ["team"], type: input.type })).find(
     (record) => slug(record.title) === slug(input.title),
   );

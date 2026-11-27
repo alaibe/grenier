@@ -81,7 +81,7 @@ async function meTop(team: TeamClient): Promise<string> {
 describe("sync between machines", () => {
   it("brings a teammate's team record to another machine, and keeps a me record sealed to its person", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await laptop.state.set("team_member", "ada");
     await remember(adaDeps, PERSON, null, {
       title: "Squash merges only",
       folder: "Engineering/Git",
@@ -118,7 +118,7 @@ describe("sync between machines", () => {
 
   it("shares a me record moved to the team in the clear", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await laptop.state.set("team_member", "ada");
     const kept = await remember(adaDeps, PERSON, null, { title: "Standup moves to ten", top: "me" });
     await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
     await remember(adaDeps, PERSON, null, { id: kept.id, title: "Standup moves to ten", top: "team" });
@@ -166,7 +166,7 @@ describe("sync between machines", () => {
 
   it("keeps changes made offline and sends them at the next round", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await laptop.state.set("team_member", "ada");
     const offline: TeamClient = {
       ...ada,
       fetch: (() => Promise.reject(new Error("offline"))) as unknown as typeof fetch,
@@ -183,7 +183,7 @@ describe("sync between machines", () => {
 
   it("waits for a team store older than this Grenier to be deployed again, and sends nothing to it", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await laptop.state.set("team_member", "ada");
     await remember(adaDeps, PERSON, null, { title: "Squash merges only", top: "team" });
     const older: TeamClient = {
       ...ada,
@@ -223,13 +223,20 @@ describe("sync between machines", () => {
 
   it("drops a change the team store refuses, says why, and sends the others", async () => {
     const adaDeps = await device(laptop, "ada", await meTop(ada));
-    await laptop.tops.put({ id: "top:gone", name: "gone", kind: "team", repoId: null, root: null });
-    await laptop.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
-    await remember(adaDeps, PERSON, null, { title: "Nowhere", top: "top:gone" });
-    await remember(adaDeps, PERSON, null, { title: "Somewhere", top: "team" });
+    await laptop.state.set("team_member", "ada");
+    const sent = await remember(adaDeps, PERSON, null, { title: "Somewhere", top: "team" });
+    const refusedOne = await remember(adaDeps, PERSON, null, { title: "Elsewhere", top: "team" });
+    const [entry] = (await laptop.outbox.list()).filter((change) => change.recordId === refusedOne.id);
+    // A top folder the team store does not have, as a stale outbox from an older Grenier would carry.
+    await laptop.outbox.remove([entry?.id as string]);
+    await laptop.outbox.add({
+      ...(entry as NonNullable<typeof entry>),
+      change: { changed: ["top", "title"], record: { id: refusedOne.id, top: "top:gone", title: "Elsewhere" } },
+    });
     const result = await syncOnce({ store: laptop, team: ada, embedder: null, personalKey: KEY });
     expect(result.pushed).toBe(1);
     expect(result.refused[0]?.reason).toContain("no top folder top:gone");
+    expect(sent.id).toBeDefined();
     expect(await laptop.outbox.list()).toEqual([]);
   });
 });

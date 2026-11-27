@@ -1,5 +1,5 @@
-import { folderName, folderProblem, randomHex, repoTop, sha256, topName } from "@grenier/core";
-import type { RecordInput, Store, Top } from "@grenier/store";
+import { folderName, folderProblem, randomHex, sha256, TOPS, topName } from "@grenier/core";
+import type { RecordInput, Store } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
 
 /** A repository as the store knows it: where it is on this machine, and its id across machines. */
@@ -36,11 +36,11 @@ export interface StoreDeps {
   now?: () => number;
 }
 
-/** A client of the MCP server: its scope says which top folders it may read. */
+/** A client of the MCP server: its scope says whether it reads Me, Team or both. */
 export interface Reader {
   id: string;
   name: string;
-  /** Top folder ids, or "*" for every one. */
+  /** "me", "team", or "*" for both. */
   scopes: readonly string[];
 }
 
@@ -74,41 +74,29 @@ export function newRecord(
   };
 }
 
-/** Every repository's top folder, plus those the reader's scope names; with no reader, repositories only. */
-export async function readable(store: Store, reader: Reader | null): Promise<Top[]> {
-  const all = await store.tops.list();
-  if (reader?.scopes.includes("*")) return all;
-  return all.filter((top) => top.kind === "repo" || reader?.scopes.includes(top.id));
+/** The top folders the reader's scope names: Me, Team or both; nothing without a reader. */
+export function readable(reader: Reader | null): string[] {
+  if (reader?.scopes.includes("*")) return [...TOPS];
+  return TOPS.filter((top) => reader?.scopes.includes(top));
 }
 
-/** The top folder and folder a folder path names, as "Team/Decisions/2026": its first part is Me, or a top folder this reader may read, by name or id. */
-export async function resolveFolderPath(
-  store: Store,
-  reader: Reader | null,
-  folderPath: string,
-): Promise<{ top: string; folder: string }> {
+/** The top folder and folder a path names, as "Team/Decisions/2026": its first part is Me or Team. */
+export function resolveFolderPath(folderPath: string): { top: string; folder: string } {
   const [first = "", ...rest] = folderPath.split("/").map((name) => name.trim());
-  // Me is always there to write in, as `remember` allows; reads still go through the reader's scope.
-  const me: Top = { id: "me", name: "me", kind: "me", repoId: null, root: null };
-  const tops = [me, ...(await readable(store, reader)).filter((top) => top.id !== "me")];
-  const named = tops.filter((top) => top.id === first || topName(top).toLowerCase() === first.toLowerCase());
-  if (named.length === 0) {
-    throw new StoreUseError(`no top folder ${first}: a path starts with one of ${tops.map(topName).join(", ")}`);
-  }
-  if (named.length > 1) throw new StoreUseError(`more than one top folder is named ${first}: start with its id`);
+  const top = TOPS.find((id) => id === first.toLowerCase() || topName(id).toLowerCase() === first.toLowerCase());
+  if (!top) throw new StoreUseError(`no top folder ${first}: a path starts with Me or Team`);
   const folder = rest.join("/");
   const problem = folderProblem(folder);
   if (problem) throw new StoreUseError(problem);
-  return { top: (named[0] as Top).id, folder };
+  return { top, folder };
 }
 
-export async function ensureRepoTop(store: Store, repo: Repo): Promise<string> {
-  const id = repoTop(repo.id);
-  const name = folderName(repo.home ?? repo.root) || repo.id.slice(0, 8);
-  const existing = await store.tops.get(id);
+/** Records where the repository lives on this machine, and gives its name: a page about its code goes under it. */
+export async function ensureRepo(store: Store, repo: Repo): Promise<string> {
   const root = repo.home ?? repo.root;
-  await store.tops.put({ id, name: existing?.name ?? name, kind: "repo", repoId: repo.id, root });
-  return id;
+  const name = (await store.repos.get(repo.id))?.name ?? (folderName(root) || repo.id.slice(0, 8));
+  await store.repos.put({ id: repo.id, name, root });
+  return name;
 }
 
 /** The blob hash of each file, or for a directory a hash over its tracked files' paths and blobs. */

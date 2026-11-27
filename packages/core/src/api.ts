@@ -52,12 +52,9 @@ export interface PausedSession {
   pausedAt: number | null;
 }
 
+/** Me or Team, with how many pages it holds. */
 export interface Top {
-  id: string;
-  name: string;
-  kind: "me" | "repo" | "team";
-  repoId: string | null;
-  root: string | null;
+  id: "me" | "team";
   records: number;
 }
 

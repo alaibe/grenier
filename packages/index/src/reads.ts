@@ -1,4 +1,4 @@
-import { repoTop, searchWords, topName, untrusted } from "@grenier/core";
+import { searchWords, topName, untrusted } from "@grenier/core";
 import type { RecordRow } from "@grenier/core/api";
 import type { FullRecord } from "@grenier/store";
 import { cosine } from "./embeddings.ts";
@@ -40,7 +40,7 @@ export async function check(deps: StoreDeps, record: FullRecord): Promise<Checke
   const byRepo = new Map<string, typeof git>();
   for (const anchor of git) byRepo.set(anchor.repoId ?? "", [...(byRepo.get(anchor.repoId ?? "") ?? []), anchor]);
   for (const [repoId, list] of byRepo) {
-    const root = (await deps.store.tops.get(repoTop(repoId)))?.root;
+    const root = (await deps.store.repos.get(repoId))?.root;
     if (!root) {
       unchecked = true;
       continue;
@@ -104,9 +104,9 @@ export async function recall(
     count?: boolean;
   },
 ): Promise<RecallResult> {
-  let tops = (await readable(deps.store, reader)).map((top) => top.id);
+  let tops = readable(reader);
   if (input.top) tops = tops.filter((top) => top === input.top);
-  const here = input.repo ? repoTop(input.repo.id) : null;
+  const here = input.repo?.id ?? null;
 
   const words = terms(input.query);
   const candidates = new Map<string, number>();
@@ -144,12 +144,14 @@ export async function recall(
     }
   }
 
-  const nearness = (top: string) => (top === here ? 3 : top === "team" ? 1 : top === "me" ? 0.5 : 0);
+  // About the repository the agent is in first, then the team's, then this person's own.
+  const nearness = (record: FullRecord) =>
+    record.anchors.some((anchor) => anchor.repoId === here && here !== null) ? 3 : record.top === "team" ? 1 : 0.5;
   const ranked: { id: string; score: number }[] = [];
   for (const [id, score] of candidates) {
     const record = await load(id);
     if (!record || (input.type && record.type !== input.type) || !inFolder(record, input.folder)) continue;
-    ranked.push({ id, score: score * (1 + nearness(record.top) / 10) });
+    ranked.push({ id, score: score * (1 + nearness(record) / 10) });
   }
   const closeness = (id: string) => similarities.get(id) ?? -1;
   ranked.sort((a, b) => b.score - a.score || closeness(b.id) - closeness(a.id));
@@ -181,7 +183,7 @@ export async function query(
     limit?: number;
   },
 ): Promise<QueryResult> {
-  let tops = (await readable(deps.store, reader)).map((top) => top.id);
+  let tops = readable(reader);
   if (input.top) tops = tops.filter((top) => top === input.top);
   const limit = Math.min(input.limit ?? 50, 200);
 
@@ -212,10 +214,8 @@ export async function query(
 }
 
 /** Every record leaves redacted and marked untrusted, its folder as a folder path, the way agents name where to write. */
-export async function deliver<T extends { records?: Found[]; results?: Found[]; linked?: Found[] }>(
-  deps: StoreDeps,
+export function deliver<T extends { records?: Found[]; results?: Found[]; linked?: Found[] }>(
   result: T,
-): Promise<T & { notice: string }> {
-  const names = new Map((await deps.store.tops.list()).map((top) => [top.id, topName(top)]));
-  return untrusted(result, (top) => names.get(top) ?? (top === "me" ? "Me" : top));
+): T & { notice: string } {
+  return untrusted(result, topName);
 }

@@ -108,7 +108,7 @@ beforeEach(async () => {
   });
   team = { url: "https://team.test", token: SETUP_TOKEN, fetch: workerFetch };
   store = openSqliteStore(":memory:");
-  await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+  await store.state.set("team_member", "ada");
   await store.state.set("team_member", "ada");
   await store.state.set("team_me_top", "me:ada");
   deps = await storeDeps(store);

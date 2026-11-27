@@ -1,4 +1,4 @@
-import type { PageRow, RecordRow, Top } from "@grenier/core/api";
+import type { PageRow, RecordRow } from "@grenier/core/api";
 import { FileText } from "lucide-react";
 import { useCallback, useState } from "react";
 import { searchRecords } from "../api.ts";
@@ -13,13 +13,11 @@ import { folderPath } from "./PageEditor.tsx";
 export function Found({
   words,
   pages,
-  tops,
   current,
   open,
 }: {
   words: string;
   pages: PageRow[];
-  tops: Top[];
   current: string | null;
   open: (id: string) => void;
 }) {
@@ -44,7 +42,7 @@ export function Found({
         id: pageId(page.id),
         name: page.title,
         icon: FileText,
-        preview: folderPath(tops, page.top, page.folder),
+        preview: folderPath(page.top, page.folder),
       }))}
       selected={cursor}
       onSelect={(node) => {

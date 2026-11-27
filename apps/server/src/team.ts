@@ -28,7 +28,7 @@ export class TeamStore extends DurableObject<Env> {
     put: (record, author, device) => putRecord(this.#data, record, author, device),
     version: () => this.#version(),
     nextVersion: () => this.#nextVersion(),
-    topsOf: (member) => [...this.#sql("SELECT id FROM tops").map((top) => top.id as string), meTop(member.id)],
+    topsOf: (member) => ["team", meTop(member.id)],
     authenticate: (request) => this.#authenticate(request),
     notify: () => this.#notify(),
     closeSockets: () => this.#closeSockets(),

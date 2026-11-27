@@ -26,7 +26,6 @@ export {
   type RecordShape,
   ROUTINE_MODES,
   recordProblem,
-  repoTop,
   secretIn,
   type TypeDef,
 } from "./records.ts";
@@ -46,5 +45,5 @@ export {
   taskFor,
 } from "./routines.ts";
 export { ftsMatch, searchWords } from "./search.ts";
-export { RECORD_PARTS, SEALED_PARTS, TEAM_PROTOCOL, topName } from "./team.ts";
+export { RECORD_PARTS, SEALED_PARTS, TEAM_PROTOCOL, TOPS, topName } from "./team.ts";
 export { newVaultKey, open, seal, VaultError } from "./vault.ts";

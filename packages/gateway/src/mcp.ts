@@ -1,7 +1,6 @@
 import {
   deliver,
   type Embedder,
-  ensureRepoTop,
   type Found,
   type Identity,
   query,
@@ -18,12 +17,12 @@ import type { Store } from "@grenier/store";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const INSTRUCTIONS = `Grenier is your team's knowledge: what an agent can't learn by reading the code, as Markdown pages in folders:
+export const INSTRUCTIONS = `Grenier is your team's knowledge: what an agent can't learn by reading the code, as Markdown pages in two folders, Me and Team:
 - Me/About: who the person is and how they like to work.
+- Me/<repository>: what agents worked out about a repository's code that reading it won't tell.
 - Team/Conventions: the rules shared across projects. A repository's own rules are in its CLAUDE.md or AGENTS.md.
 - Team/Decisions: what the team decided to do, and why.
-- <repository>/Runbooks: how to deploy, release and handle an incident.
-- <repository>: what agents worked out about its code that reading it won't tell.
+- Team/<repository>/Runbooks: how to deploy, release and handle an incident.
 <repository> is the name of the repository's folder.
 
 1. Starting a task: get Me/About and Team/Conventions, and work by them.
@@ -38,7 +37,7 @@ const GET_TOOL =
 
 /** What tells an agent when to call set, and where its pages go. */
 const SET_TOOL =
-  "Save, short, what the code doesn't show. About the code: <repository>, with the files it came from; it replaces the page of the same title and turns stale when they change. About the person: Me/About. Anything else: Me/Notes. The person moves a page to Team.";
+  "Save, short, in Me, what the code doesn't show. About the code: with the files it came from, in Me/<repository>; it replaces the page of the same title and turns stale when they change. About the person: Me/About. Anything else: Me/Notes. The person moves a page to Team.";
 
 /** The texts Grenier gives agents, as it ships them: Instructions keeps the person's own version of each. `grenier run` also adds `mcp` to Claude Code's system prompt, where it weighs more. */
 export const AGENT_TEXTS = { mcp: INSTRUCTIONS, get: GET_TOOL, set: SET_TOOL };
@@ -93,7 +92,7 @@ export async function startingPages(
   return Promise.all(
     folders.map(async ([top, folder]) => ({
       folder: `${top}/${folder}`,
-      ...(await deliver(store, await query(store, client, { top: top.toLowerCase(), folder }))),
+      ...deliver(await query(store, client, { top: top.toLowerCase(), folder })),
     })),
   );
 }
@@ -127,14 +126,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       answer(async () => {
         const store = await storeDeps();
         const client = await reader();
-        // A folder not made yet, as a repository's before its first page, holds nothing.
-        const resolved = input.folder
-          ? await resolveFolderPath(store.store, client, input.folder).catch((error: unknown) => {
-              if (error instanceof StoreUseError && /^no top folder/.test(error.message)) return undefined;
-              throw error;
-            })
-          : null;
-        if (resolved === undefined) return deliver(store, { records: [] });
+        const resolved = input.folder ? resolveFolderPath(input.folder) : null;
         const where = resolved ? { top: resolved.top, folder: resolved.folder } : {};
         if (input.query?.trim()) {
           const result = await recall(store, client, {
@@ -143,7 +135,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
             ...where,
             ...(input.limit ? { limit: Math.min(input.limit, 20) } : {}),
           });
-          return deliver(store, result);
+          return deliver(result);
         }
         if (!input.id && !resolved) throw new StoreUseError("give a question, a page's id or a folder");
         const result = await query(store, client, {
@@ -151,7 +143,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           ...where,
           ...(input.limit ? { limit: input.limit } : {}),
         });
-        return deliver(store, result);
+        return deliver(result);
       }),
   );
 
@@ -163,42 +155,31 @@ export function createMcpServer(deps: McpDeps): McpServer {
         title: z.string().min(1),
         body: z.string().optional().describe("Markdown, short: what the code doesn't say"),
         files: z.array(z.string()).optional().describe("Every file it was worked out from, relative to the repository"),
-        folder: z.string().optional().describe('A folder in Me or the repository\'s, as "Me/Notes"'),
-        id: z.string().optional().describe("The page to replace: one in Me or in a repository's folder"),
+        folder: z.string().optional().describe('A folder in Me, as "Me/Notes" or "Me/grenier"'),
+        id: z.string().optional().describe("The page to replace: one in Me"),
         repo,
       },
     },
     async (input) =>
       answer(async () => {
         const client = await reader();
-        const code = (input.files?.length ?? 0) > 0;
-        // A run writes where its approval says; anywhere else, only Me and a repository's folder take a page unasked.
-        const unasked = (top: string) => top === "me" || top.startsWith("repo:") || top === deps.runTop;
-        const repo = await deps.resolveRepo(input.repo);
-        // The repository's folder is there to write in before its first page.
-        if (repo) await ensureRepoTop(deps.store, repo);
-        const resolved = input.folder ? await resolveFolderPath(deps.store, client, input.folder) : null;
+        // A run writes where its approval says; anywhere else, only Me takes a page unasked.
+        const unasked = (top: string) => top === "me" || top === deps.runTop;
+        const resolved = input.folder ? resolveFolderPath(input.folder) : null;
         if (resolved && !unasked(resolved.top)) {
-          throw new StoreUseError(
-            "set keeps a page in Me or a repository's folder: the person moves it to the team in Grenier",
-          );
+          throw new StoreUseError("set keeps a page in Me: the person moves it to Team in Grenier");
         }
         const existing = input.id ? await deps.store.records.get(input.id) : undefined;
         if (existing && !unasked(existing.top)) {
           throw new StoreUseError("that page is the team's: the person changes it in Grenier");
         }
-        const runTop = deps.runTop === "me" || !code ? deps.runTop : undefined;
-        if (!resolved && runTop && runTop !== "me" && (await deps.store.state.get("team_role")) === "member") {
-          throw new StoreUseError(
-            "the page is refused: a routine's run on a member's machine keeps only pages about the code, with the files they come from",
-          );
-        }
-        const top = resolved?.top ?? existing?.top ?? runTop ?? (code ? undefined : "me");
+        const top = resolved?.top ?? existing?.top ?? deps.runTop ?? "me";
+        const repo = await deps.resolveRepo(input.repo);
         return remember(await storeDeps(), client, repo, {
           type: "Doc",
           title: input.title,
           ...(input.body ? { body: input.body } : {}),
-          ...(top ? { top } : {}),
+          top,
           ...(resolved ? { folder: resolved.folder } : {}),
           ...(input.files ? { files: input.files } : {}),
           ...(input.id ? { id: input.id } : {}),

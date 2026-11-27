@@ -12,7 +12,7 @@ export {
   type Status,
 } from "./reads.ts";
 export {
-  ensureRepoTop,
+  ensureRepo,
   type Identity,
   newId,
   newRecord,

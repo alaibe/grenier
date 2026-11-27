@@ -1,3 +1,4 @@
+import { TOPS } from "@grenier/core";
 import type { AppView, ClientMade, Clients } from "@grenier/core/api";
 import { addClient } from "@grenier/index";
 import { Hono } from "hono";
@@ -32,12 +33,11 @@ export function appRoutes(deps: AdminDeps): Hono {
   });
 
   app.get("/clients", async (c) => {
-    const tops = await store.tops.list();
     return c.json({
       clients: (await store.clients.list())
         .filter((client) => client.revokedAt === null)
         .map((client) => ({ name: client.name, scopes: client.scopes, createdAt: client.createdAt })),
-      scopes: ["*", ...tops.map((top) => top.id)],
+      scopes: ["*", ...TOPS],
     } satisfies Clients);
   });
 

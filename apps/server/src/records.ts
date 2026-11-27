@@ -163,15 +163,7 @@ function apply(team: TeamData, change: Change, member: Member, device: Device): 
       team.one("SELECT 1 AS ran FROM runs WHERE task_id = ? AND device_id = ?", current.id, device.id) !== undefined;
     if (!memberMay(current, next, mine, ran)) return { refused: MEMBER_WRITES };
   }
-  if (!tops.includes(next.top)) {
-    if (!next.top.startsWith("repo:")) return { refused: `there is no top folder ${next.top} you may write to` };
-    team.sql(
-      "INSERT OR IGNORE INTO tops (id, name, kind, repo_id) VALUES (?, ?, 'repo', ?)",
-      next.top,
-      typeof incoming.topName === "string" ? incoming.topName : next.top.slice(5, 13),
-      next.top.slice(5),
-    );
-  }
+  if (!tops.includes(next.top)) return { refused: `there is no top folder ${next.top} you may write to` };
   if (next.sealed !== null && !next.top.startsWith("me:")) return { refused: "only a record in me is sealed" };
   if (next.sealed !== null && next.folder !== "") return { refused: "a sealed record keeps its folder sealed" };
   if (next.sealed === null) {
@@ -235,10 +227,6 @@ export function recordRoutes(app: TeamApp, team: TeamData): void {
       records: rows.map(recordFrom).filter((record) => tops.includes(record.top)),
       next: last ?? Math.max(after, 0),
       version: team.version(),
-      tops: team
-        .sql("SELECT id, name, kind, repo_id FROM tops")
-        .filter((top) => tops.includes(top.id as string))
-        .map((top) => ({ id: top.id, name: top.name, kind: top.kind, repoId: top.repo_id })),
     });
   });
 

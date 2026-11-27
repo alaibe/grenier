@@ -151,13 +151,9 @@ interface MemberChange {
 /** The fields of a routine's task the machine that runs it sets. */
 const RUN_FIELDS = new Set(["status", "result", "machine"]);
 
-export const MEMBER_WRITES =
-  "only an admin writes there: a member writes in me, and their agents' answers in a repository's folder";
+export const MEMBER_WRITES = "only an admin writes in Team: a member writes in Me";
 
-/**
- * Whether a member who is not an admin may make this change: anything in their own `me` (`mine`), a page in a
- * repository's folder (what their agents work out about its code), and the run fields of a task their machine ran.
- */
+/** Whether a member who is not an admin may make this change: anything in their own Me, and the run fields of a task their machine ran. */
 export function memberMay(
   before: MemberChange | undefined,
   after: MemberChange,
@@ -165,8 +161,6 @@ export function memberMay(
   ranIt: boolean,
 ): boolean {
   if (after.top === mine && (!before || before.top === mine)) return true;
-  const answer = (record: { top: string; type: string }) => record.type === "Doc" && record.top.startsWith("repo:");
-  if (answer(after) && (!before || answer(before))) return true;
   if (before?.type !== "Task" || after.type !== "Task" || !ranIt) return false;
   const kept = ["top", "title", "folder", "body", "retiredAt"] as const;
   if (kept.some((part) => (before[part] ?? null) !== (after[part] ?? null))) return false;
@@ -205,10 +199,6 @@ export function recordProblem(record: RecordShape, type: TypeDef | undefined): s
     if (field.kind === "list" && !Array.isArray(value)) return `${field.name} takes a list`;
   }
   return null;
-}
-
-export function repoTop(repoId: string): string {
-  return `repo:${repoId}`;
 }
 
 /** The six digits both screens show while a device joins, from the invite secret's hash and the device's nonce. */

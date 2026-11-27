@@ -64,7 +64,7 @@ describe("the person's own skills", () => {
       join(home, ".claude", "plugins", "installed_plugins.json"),
       JSON.stringify({ version: 2, plugins: { "reviewer@market": [{ installPath: join(elsewhere, "plugin") }] } }),
     );
-    await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await store.state.set("team_member", "ada");
     const { id } = await share(deps, {
       type: "Skill",
       title: "team-one",

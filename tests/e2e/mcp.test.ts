@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePaths } from "@grenier/core/node";
+import { addClient } from "@grenier/index";
+import { openSqliteStore } from "@grenier/store/sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -16,6 +18,7 @@ let dir: string;
 let repo: string;
 let home: string;
 let port: number;
+let token: string;
 
 function structured(result: unknown): Record<string, unknown> {
   return (result as { structuredContent: Record<string, unknown> }).structuredContent;
@@ -51,6 +54,10 @@ beforeAll(async () => {
     resolvePaths({ GRENIER_HOME: home }).config,
     `[proxy]\nport = ${port}\n\n[store]\nembeddings = "off"\n`,
   );
+  // The token the app writes into an agent's config when it adds Grenier.
+  const store = openSqliteStore(resolvePaths({ GRENIER_HOME: home }).db);
+  token = await addClient(store, "e2e", ["*"]);
+  await store.close();
 });
 
 afterAll(async () => {
@@ -63,7 +70,7 @@ describe("the MCP server of the built binary", () => {
       command: BINARY,
       args: ["mcp", "serve"],
       cwd: repo,
-      env: { PATH: process.env.PATH ?? "", GRENIER_HOME: home },
+      env: { PATH: process.env.PATH ?? "", GRENIER_HOME: home, GRENIER_CLIENT_TOKEN: token },
       stderr: "pipe",
     });
     const client = new Client({ name: "e2e", version: "1" });

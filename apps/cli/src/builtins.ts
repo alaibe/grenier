@@ -69,11 +69,11 @@ export const BUILTINS: Record<string, Builtin> = {
   refresher: {
     title: "Answer refresher",
     schedule: "daily 06:00",
-    collector: false,
+    collector: true,
     prompt: [
       "Keep the answers Grenier holds about the code current, so get keeps returning hits.",
       "",
-      "For each git repository in the work folder: call get with its folder name as folder and limit 200. For every page whose status is stale, read only the files listed in changed, then call set with the same title, the corrected Markdown, every file you read as files, and repo set to the repository's path. Leave every other page alone.",
+      "For each git repository in the work folder: call get with Me/ and its folder name as folder, as Me/grenier, and limit 200. For every page whose status is stale, read only the files listed in changed, then call set with the same title, the corrected Markdown, every file you read as files, and repo set to the repository's path. Leave every other page alone.",
       "",
       "End with how many answers you refreshed in each repository.",
     ].join("\n"),

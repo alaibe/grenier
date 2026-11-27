@@ -1,4 +1,4 @@
-import { folderProblem, repoTop, TEAM_PROTOCOL } from "@grenier/core";
+import { folderProblem, TEAM_PROTOCOL, TOPS } from "@grenier/core";
 import type {
   Conflict,
   FileVersions,
@@ -67,7 +67,6 @@ export function recordRoutes(deps: AdminDeps): Hono {
   const app = new Hono();
   /** The desktop app is the person: it reads every top folder this machine has. */
   const everything = { id: "desktop", name: "desktop", scopes: ["*"] };
-  const allTops = async () => (await store.tops.list()).map((top) => top.id);
 
   /** With a team, a field changed since `baseVersion` comes back as a conflict; offline, the latest write wins. */
   async function save(
@@ -81,7 +80,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const team = deps.team();
     // Straight to the team store only once a sync found it speaks this Grenier's protocol; else it waits here.
     const current = Number((await store.state.get("team_protocol")) ?? 0) >= TEAM_PROTOCOL;
-    if (team && current && record.top !== "me" && (await store.tops.get(record.top))) {
+    if (team && current && record.top === "team") {
       const sent = await teamChange(
         { store, personalKey: personalKey(deps.paths) },
         { changed: changedFields(before, record), record: { ...record } },
@@ -114,16 +113,16 @@ export function recordRoutes(deps: AdminDeps): Hono {
   app.get("/tops", async (c) => {
     const stats = await store.records.stats();
     return c.json({
-      tops: (await store.tops.list()).map((top) => ({
-        ...top,
-        records: stats.filter((row) => row.top === top.id).reduce((total, row) => total + row.records, 0),
+      tops: TOPS.map((id) => ({
+        id,
+        records: stats.filter((row) => row.top === id).reduce((total, row) => total + row.records, 0),
       })) satisfies Top[],
     });
   });
 
   /** Knowledge's tree: every page but the records other screens manage. */
   app.get("/pages", async (c) => {
-    const records = await store.records.list({ tops: await allTops(), limit: ALL });
+    const records = await store.records.list({ tops: [...TOPS], limit: ALL });
     return c.json({
       pages: records
         .filter((record) => !MANAGED_ELSEWHERE.has(record.type))
@@ -151,7 +150,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
     if (toTop === top && (to === from || to.startsWith(`${from}/`))) {
       return c.json({ error: "a folder cannot move into itself" }, 400);
     }
-    if (toTop !== "me" && !(await store.tops.get(toTop))) {
+    if (!(TOPS as readonly string[]).includes(toTop)) {
       return c.json({ error: `there is no top folder ${toTop}` }, 400);
     }
     const inside = (await store.records.list({ tops: [top], limit: ALL })).filter(
@@ -171,7 +170,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
   app.get("/records", async (c) => {
     const storeDeps = await deps.storeDeps();
     const { top, type, q: words, retired } = c.req.query();
-    const tops = top ? [top] : await allTops();
+    const tops = top ? [top] : [...TOPS];
     const filter = { ...(type ? { type } : {}), ...(top ? { top } : {}) };
     const records: Found[] = words?.trim()
       ? (await recall(storeDeps, everything, { query: words.trim(), repo: null, limit: 20, count: false, ...filter }))
@@ -185,7 +184,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const storeDeps = await deps.storeDeps();
     const record = await store.records.get(c.req.param("id"));
     if (!record) return c.json({ error: "no such record" }, 404);
-    return c.json(await shown(storeDeps, record, await allTops()));
+    return c.json(await shown(storeDeps, record, [...TOPS]));
   });
 
   app.get("/records/:id/history", async (c) => {
@@ -210,7 +209,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const record = await store.records.get(c.req.param("id"));
     const anchor = record?.anchors.find((entry) => entry.kind === "git" && entry.ref === file);
     if (!record || !anchor?.repoId) return c.json({ error: "no such file among the record's anchors" }, 404);
-    const root = (await store.tops.get(repoTop(anchor.repoId)))?.root;
+    const root = (await store.repos.get(anchor.repoId))?.root;
     if (!root) return c.json({ error: "this repository is not on this machine" }, 404);
     return c.json({
       path: file,
@@ -223,7 +222,7 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const storeDeps = await deps.storeDeps();
     const body = (await bodyOf(c)) as Partial<RecordInput>;
     const top = typeof body.top === "string" ? body.top : "team";
-    if (top !== "me" && !(await store.tops.get(top))) return c.json({ error: `there is no top folder ${top}` }, 400);
+    if (!(TOPS as readonly string[]).includes(top)) return c.json({ error: `there is no top folder ${top}` }, 400);
     const record = newRecord(storeDeps.me, {
       top,
       type: typeof body.type === "string" ? body.type : "Doc",

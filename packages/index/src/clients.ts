@@ -1,4 +1,4 @@
-import { MEMBER_NAME, sha256, toBase64Url } from "@grenier/core";
+import { MEMBER_NAME, sha256, TOPS, toBase64Url, topName } from "@grenier/core";
 import type { Store } from "@grenier/store";
 import { type Reader, StoreUseError } from "./records.ts";
 
@@ -8,19 +8,14 @@ async function newClientToken(): Promise<{ token: string; hash: string }> {
   return { token, hash: await sha256(token) };
 }
 
-/** "*" for every top folder, or top folder ids and names, kept as ids. */
-export async function resolveScopes(store: Store, scopes: readonly string[]): Promise<string[]> {
+/** "*" for both, or Me and Team by id or name, kept as ids. */
+export function resolveScopes(scopes: readonly string[]): string[] {
   if (scopes.includes("*")) return ["*"];
-  const tops = await store.tops.list();
   const kept: string[] = [];
   for (const scope of scopes) {
-    const top = tops.find((candidate) => candidate.id === scope || candidate.name === scope);
-    if (!top) {
-      throw new StoreUseError(
-        `unknown top folder ${scope}: use * for every one, or ${tops.map((candidate) => candidate.id).join(", ")}`,
-      );
-    }
-    if (!kept.includes(top.id)) kept.push(top.id);
+    const top = TOPS.find((id) => id === scope.toLowerCase() || topName(id).toLowerCase() === scope.toLowerCase());
+    if (!top) throw new StoreUseError(`unknown top folder ${scope}: use *, me or team`);
+    if (!kept.includes(top)) kept.push(top);
   }
   return kept;
 }
@@ -31,7 +26,7 @@ export async function addClient(store: Store, name: string, scopes: string[]): P
   if ((await store.clients.list()).some((client) => client.name === name)) {
     throw new StoreUseError(`there is already an app named ${name}: revoke it first`);
   }
-  const kept = await resolveScopes(store, scopes);
+  const kept = resolveScopes(scopes);
   const { token, hash } = await newClientToken();
   await store.clients.add({ id: crypto.randomUUID(), name, tokenHash: hash, scopes: kept, createdAt: Date.now() });
   return token;

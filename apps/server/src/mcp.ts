@@ -51,12 +51,6 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
     error: { code, message },
   });
   if (request.id === undefined) return null;
-  const names = new Map(
-    team
-      .sql("SELECT id, name, kind FROM tops")
-      .map((row) => [row.id as string, topName({ kind: row.kind as string, name: row.name as string })]),
-  );
-  const nameOf = (top: string) => (top.startsWith("me:") ? "Me" : (names.get(top) ?? top));
   const shown = (record: StoredRecord) => ({
     id: record.id,
     type: record.type,
@@ -98,7 +92,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
           Math.min(Number(args.limit ?? 5), 20),
         );
         return reply(
-          text(untrusted({ status: found.length ? "unchecked" : "miss", results: found.map(shown) }, nameOf)),
+          text(untrusted({ status: found.length ? "unchecked" : "miss", results: found.map(shown) }, topName)),
         );
       }
       if (params.name === "get") {
@@ -114,7 +108,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
               )
               .map(recordFrom),
           ].filter((record): record is StoredRecord => record !== undefined && tops.includes(record.top));
-          return reply(text(untrusted({ records: [shown(one)], linked: linked.map(shown) }, nameOf)));
+          return reply(text(untrusted({ records: [shown(one)], linked: linked.map(shown) }, topName)));
         }
         const rows = team
           .sql(
@@ -125,7 +119,7 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
           .map(recordFrom)
           .filter((record) => tops.includes(record.top));
         return reply(
-          text(untrusted({ records: rows.slice(0, Math.min(Number(args.limit ?? 50), 200)).map(shown) }, nameOf)),
+          text(untrusted({ records: rows.slice(0, Math.min(Number(args.limit ?? 50), 200)).map(shown) }, topName)),
         );
       }
       return fail(-32602, `no tool ${String(params.name)}`);

@@ -68,8 +68,7 @@ describe("the client tokens", () => {
   const call = (path: string, init?: RequestInit) => testAdmin(store, home).call(path, init);
 
   beforeEach(async () => {
-    await store.tops.put({ id: "me", name: "me", kind: "me", repoId: null, root: null });
-    await store.tops.put({ id: "team", name: "team", kind: "team", repoId: null, root: null });
+    await store.state.set("team_member", "ada");
   });
 
   it("creates, lists and revokes clients, with known scopes only", async () => {
