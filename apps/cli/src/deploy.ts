@@ -146,7 +146,7 @@ export async function deployTeamStore(
     } catch (error) {
       if (error instanceof TeamError && error.status === 409) return { url, team: null };
       // Cloudflare serves the version before for a few seconds, with the setup hash before: wait it out.
-      if (attempt >= 15) {
+      if (attempt >= 60) {
         const said = error instanceof TeamError ? ` (it answered ${error.status}: ${error.detail})` : "";
         throw new Refusal(`deployed at ${url}, but it does not answer yet${said}: try again in a minute`);
       }

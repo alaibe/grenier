@@ -58,11 +58,13 @@ const Invite = z.object({
   role: z.enum(["admin", "member"]).catch("member"),
 });
 
-export function entryRoutes(app: TeamApp, team: TeamData, setupHash: string | undefined): void {
+export function entryRoutes(app: TeamApp, team: TeamData, setupHash: () => string | undefined): void {
   // Setting up the first admin, with the token the deploy made: once, while the team has no member.
   app.post("/api/setup", async (c) => {
     const token = bearer(c.req.header("authorization"));
-    if (!token || !setupHash || (await sha256(token)) !== setupHash) {
+    // Read at each request: a running instance outlives the deploy that set a new hash.
+    const expected = setupHash();
+    if (!token || !expected || (await sha256(token)) !== expected) {
       return problem(401, "setting up needs the token the deploy made");
     }
     if (team.db.select({ id: members.id }).from(members).limit(1).get()) {

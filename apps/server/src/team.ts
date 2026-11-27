@@ -164,7 +164,7 @@ export class TeamStore extends DurableObject<Env> {
   #routes(): TeamApp {
     const app = new Hono<{ Variables: Vars }>();
     app.onError((error) => problem(500, error.message));
-    entryRoutes(app, this.#data, this.env.SETUP_HASH);
+    entryRoutes(app, this.#data, () => this.env.SETUP_HASH);
     mcpRoutes(app, this.#data);
 
     // Every other route needs a device's token; a revoked one fails on its next call.
