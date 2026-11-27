@@ -12,7 +12,7 @@
   path: /demo#team
   scale: 1.25
 - name: routines
-  path: /demo#routines/7b1d4e2a9c3f5a8e0d6b2c4f
+  path: /demo#routines/routine%3A7b1d4e2a9c3f5a8e0d6b2c4f
   scale: 1.25
 - name: skills
   path: /demo#skills/me%3Aclaude%3Achangelog
