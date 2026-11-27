@@ -10,6 +10,7 @@ import type {
   Top,
 } from "@grenier/core/api";
 import { hunks, lineDiff } from "@grenier/core/diff";
+import { UsageError } from "../io.ts";
 import { editedUnless, type Group, q, table, textFrom, UNCHANGED, when } from "./client.ts";
 
 const path = (row: { top: string; folder: string; title: string }) =>
@@ -130,6 +131,16 @@ export const PAGES: Group = {
         });
       },
       show: saved,
+    },
+    decide: {
+      usage: "decide <id> accept|dismiss",
+      summary: "Answer a librarian's suggestion: accepting one that says so retires its page",
+      takes: [2, 2],
+      call: ({ admin, args }) => {
+        if (args[1] !== "accept" && args[1] !== "dismiss") throw new UsageError("decide takes accept or dismiss");
+        return admin("POST", `/records/${q(args[0] as string)}/decide`, { accept: args[1] === "accept" });
+      },
+      show: () => "Done",
     },
     rm: {
       usage: "rm <id>",

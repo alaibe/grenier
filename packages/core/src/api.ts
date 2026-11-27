@@ -1,5 +1,6 @@
 import type { Config } from "./config.ts";
 import type { RoutineMode } from "./routines.ts";
+import type { StoredRecord } from "./team.ts";
 
 // What the daemon's admin API answers the desktop app: the daemon checks what it sends against these.
 
@@ -118,7 +119,6 @@ export interface RecordFull extends RecordRow {
 }
 
 /** A record as the team store keeps it, which a conflict sends back. */
-export type TeamRecord = Omit<RecordFull, "status" | "changed" | "similarity" | "hits" | "linksTo" | "linkedFrom">;
 
 export interface HistoryEntry {
   version: number;
@@ -141,7 +141,7 @@ export interface Created extends Saved {
 
 /** Someone saved the page since the version the editor started from: theirs. */
 export interface Conflict {
-  conflict: TeamRecord;
+  conflict: StoredRecord;
 }
 
 /** A stale anchor's file: the version the record was written from, and the one there is now; null when gone. */

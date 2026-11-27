@@ -9,11 +9,11 @@ import {
   toBase64,
   VaultError,
 } from "@grenier/core";
-import type { StoredRecord } from "@grenier/core/team";
-import { type OutboxEntry, type Store, toInput } from "@grenier/store";
+import type { Change, ChangesAnswer, StoredRecord } from "@grenier/core/team";
+import { type FullRecord, type OutboxEntry, type RecordInput, type Store, toInput } from "@grenier/store";
 import type { Embedder } from "./embeddings.ts";
-import { newId } from "./records.ts";
-import { embedding } from "./writes.ts";
+import { newId, type StoreDeps, StoreUseError } from "./records.ts";
+import { changedFields, embedding, refusal, write } from "./writes.ts";
 
 export interface TeamClient {
   url: string;
@@ -57,8 +57,6 @@ export async function teamApi<T>(
   return body as T;
 }
 
-type Remote = StoredRecord;
-
 /** A `me` record as it leaves: everything but its id and dates encrypted with the person's own key. */
 async function sealRecord(key: string, record: Record<string, unknown>): Promise<Record<string, unknown>> {
   const secret = Object.fromEntries(SEALED_PARTS.map((part) => [part, record[part] ?? null]));
@@ -76,9 +74,9 @@ async function sealRecord(key: string, record: Record<string, unknown>): Promise
   };
 }
 
-async function openRecord(key: string, remote: Remote): Promise<Remote> {
+async function openRecord(key: string, remote: StoredRecord): Promise<StoredRecord> {
   const plaintext = await open(key, remote.id, fromBase64(remote.sealed as string));
-  return { ...remote, ...(JSON.parse(new TextDecoder().decode(plaintext)) as Partial<Remote>), sealed: null };
+  return { ...remote, ...(JSON.parse(new TextDecoder().decode(plaintext)) as Partial<StoredRecord>), sealed: null };
 }
 
 export interface SyncDeps {
@@ -125,10 +123,19 @@ export async function teamChange(
 }
 
 async function outgoing(deps: SyncDeps, entries: readonly OutboxEntry[]) {
-  const changes: { id: string; recordId: string; baseVersion: number; changed: string[]; record: unknown }[] = [];
+  const changes: Change[] = [];
   for (const entry of entries) {
     const sent = await teamChange(deps, entry.change as { changed: string[]; record: Record<string, unknown> });
-    if (sent) changes.push({ id: entry.id, recordId: entry.recordId, baseVersion: entry.baseVersion, ...sent });
+    if (sent) {
+      const record = { ...sent.record, id: entry.recordId } as Change["record"];
+      changes.push({
+        id: entry.id,
+        recordId: entry.recordId,
+        baseVersion: entry.baseVersion,
+        changed: sent.changed,
+        record,
+      });
+    }
   }
   return changes;
 }
@@ -158,10 +165,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
     const entries = await store.outbox.pending(200, !deps.personalKey);
     const changes = await outgoing(deps, entries);
     if (changes.length === 0) break;
-    const answer = await teamApi<{
-      applied: { id: string; recordId: string; version: number }[];
-      refused: { id: string; reason: string }[];
-    }>(team, "/api/changes", { body: { changes } });
+    const answer = await teamApi<ChangesAnswer>(team, "/api/changes", { body: { changes } });
     for (const applied of answer.applied) {
       const local = await store.records.get(applied.recordId);
       if (local && local.version < applied.version) await store.records.setVersion(applied.recordId, applied.version);
@@ -182,7 +186,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
   const unopened = new Set(await unopenedIds(store));
   for (;;) {
     const page = await teamApi<{
-      records: Remote[];
+      records: StoredRecord[];
       next: number;
       version: number;
     }>(team, `/api/changes?after=${cursor}&limit=500`);
@@ -307,4 +311,37 @@ async function pushUsage(deps: SyncDeps): Promise<void> {
   }
   if (totals.size === 0) return;
   await teamApi(deps.team, "/api/usage", { method: "PUT", body: { rows: [...totals.values()] } });
+}
+
+/**
+ * A person's save from the editor: a Team page goes straight to the team store once it speaks this Grenier's
+ * protocol, where a field changed since `baseVersion` comes back as a conflict; anything else, or offline, waits here.
+ */
+export async function save(
+  deps: StoreDeps & { team: TeamClient | null; personalKey: string | null },
+  record: RecordInput,
+  before: FullRecord | undefined,
+  baseVersion: number,
+): Promise<{ saved: string; waiting: boolean } | { conflict: StoredRecord }> {
+  const why = await refusal(deps.store, record, before);
+  if (why) throw new StoreUseError(`the record is refused: ${why}`);
+  const current = Number((await deps.store.state.get("team_protocol")) ?? 0) >= TEAM_PROTOCOL;
+  if (deps.team && current && record.top === "team") {
+    const sent = await teamChange(deps, { changed: changedFields(before, record), record: { ...record } });
+    try {
+      const answer = await teamApi<ChangesAnswer>(deps.team, "/api/changes", {
+        body: { changes: [{ id: newId(), recordId: record.id, baseVersion, ...sent, check: true }] },
+      });
+      if (answer.conflicts[0]) return { conflict: answer.conflicts[0].current };
+      if (answer.refused[0]) throw new StoreUseError(`the team store refused it: ${answer.refused[0].reason}`);
+      const version = answer.applied[0]?.version ?? record.version;
+      await deps.store.records.put({ ...record, version }, await embedding(deps.embedder, record));
+      return { saved: record.id, waiting: false };
+    } catch (error) {
+      if (error instanceof StoreUseError) throw error;
+      if (error instanceof TeamError && error.status < 500) throw new StoreUseError(error.detail);
+    }
+  }
+  await write(deps, record, before);
+  return { saved: record.id, waiting: true };
 }

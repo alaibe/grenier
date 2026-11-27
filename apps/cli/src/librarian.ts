@@ -1,5 +1,5 @@
 import { builtinType, recordProblem } from "@grenier/core";
-import { check, newRecord, type StoreDeps, write } from "@grenier/index";
+import { check, newRecord, retire, type StoreDeps, write } from "@grenier/index";
 import type { FullRecord } from "@grenier/store";
 
 const normal = (title: string) =>
@@ -78,4 +78,13 @@ export async function librarian(deps: StoreDeps): Promise<{ suggested: number; l
     lines.push(`${finding.target.title}: ${finding.reason}`);
   }
   return { suggested, lines };
+}
+
+/** A person's answer to a suggestion: accepting one that says so retires its record; either way the suggestion goes. */
+export async function decide(deps: StoreDeps, id: string, accept: boolean): Promise<boolean> {
+  const suggestion = await deps.store.records.get(id);
+  if (suggestion?.type !== "Suggestion" || suggestion.retiredAt !== null) return false;
+  const change = suggestion.fields.change as { retire?: boolean };
+  if (accept && change.retire) await retire(deps, String(suggestion.fields.target));
+  return retire(deps, id);
 }

@@ -78,12 +78,11 @@ export async function remember(
   const repoName = repo ? await ensureRepo(deps.store, repo) : null;
   const readableTops = readable(reader);
   const top = input.top ?? "me";
-  const member = (await deps.store.state.get("team_role")) === "member";
+  const _member = (await deps.store.state.get("team_role")) === "member";
   if (!(TOPS as readonly string[]).includes(top)) throw new StoreUseError(`there is no top folder ${top}`);
   if (reader && top !== "me" && !readableTops.includes(top))
     throw new StoreUseError(`this client may not write to ${top}`);
 
-  const typeDef = builtinType(type);
   let existing = input.id ? await deps.store.records.get(input.id) : undefined;
   if (input.id && (!existing || (reader && existing.top !== "me" && !readableTops.includes(existing.top))))
     throw new StoreUseError(`there is no record ${input.id}`);
@@ -98,8 +97,6 @@ export async function remember(
 
   // A page about a repository's code goes under its name, as Me/grenier.
   const folder = input.folder ?? existing?.folder ?? (repoName && aboutCode({ anchors }) ? repoName : "");
-  const problem = recordProblem({ type, title, folder, body, fields }, typeDef);
-  if (problem) throw new StoreUseError(`the record is refused: ${problem}`);
 
   const links = [...(input.links ?? [])];
   if (
@@ -108,11 +105,6 @@ export async function remember(
     anchors.some((a) => a.kind === "git")
   ) {
     links.push({ kind: "repo", ref: repo.id });
-  }
-
-  // Refused here: the team store would refuse it too.
-  if (member && !memberMay(existing, { top, type, title, folder, body, fields }, "me", true)) {
-    throw new StoreUseError(`the record is refused: ${MEMBER_WRITES}`);
   }
 
   const record: RecordInput = {

@@ -212,6 +212,33 @@ describe("the editor's records", () => {
   });
 });
 
+describe("a librarian's suggestion", () => {
+  it("retires its page when accepted, and goes either way", async () => {
+    const deps = await storeDeps(store);
+    const person = { id: "p", name: "p", scopes: ["*"] };
+    const page = await remember(deps, person, null, { title: "Old runbook", top: "team" });
+    const suggest = async () =>
+      (
+        await remember(deps, person, null, {
+          type: "Suggestion",
+          title: "Old runbook: stale",
+          top: "team",
+          fields: { target: page.id, change: { retire: true }, reason: "Stale." },
+        })
+      ).id;
+    const dismissed = await suggest();
+    await call(`/records/${dismissed}/decide`, { method: "POST", body: JSON.stringify({ accept: false }) });
+    expect((await store.records.get(page.id))?.retiredAt).toBeNull();
+    expect((await store.records.get(dismissed))?.retiredAt).not.toBeNull();
+    const accepted = await suggest();
+    expect(
+      (await call(`/records/${accepted}/decide`, { method: "POST", body: JSON.stringify({ accept: true }) })).status,
+    ).toBe(200);
+    expect((await store.records.get(page.id))?.retiredAt).not.toBeNull();
+    expect((await call(`/records/${accepted}/decide`, { method: "POST", body: "{}" })).status).toBe(404);
+  });
+});
+
 describe("the change to a file a record was written from", () => {
   it("shows the version it was written from and the one there is now", async () => {
     const repo = new TestRepo({ "router.ts": "export function route() {}\n" });

@@ -1,8 +1,7 @@
-import { ftsMatch, searchWords } from "@grenier/core";
 import { untrusted } from "@grenier/core/policy";
 import { topName } from "@grenier/core/team";
 import { type Member, problem, type StoredRecord, type TeamApp, type TeamData } from "./data.ts";
-import { recordFrom } from "./records.ts";
+import { recordFrom, searchRecords } from "./records.ts";
 
 /** The remote MCP server, as JSON-RPC over POST: one message or a batch. */
 export function mcpRoutes(app: TeamApp, team: TeamData): void {
@@ -19,27 +18,6 @@ export function mcpRoutes(app: TeamApp, team: TeamData): void {
     const single = await answer(message);
     return single ? c.json(single) : new Response(null, { status: 202 });
   });
-}
-
-/** Records a member may read that match the words, best first, without sealed or retired ones. */
-function search(
-  team: TeamData,
-  member: Member,
-  query: string,
-  type: string | undefined,
-  limit: number,
-): StoredRecord[] {
-  const tops = team.topsOf(member);
-  const words = searchWords(query);
-  if (words.length === 0) return [];
-  return team
-    .sql(
-      "SELECT r.* FROM records_fts f JOIN records r ON r.id = f.id WHERE records_fts MATCH ? ORDER BY bm25(records_fts) LIMIT 100",
-      ftsMatch(words),
-    )
-    .map(recordFrom)
-    .filter((record) => tops.includes(record.top) && record.retiredAt === null && (!type || record.type === type))
-    .slice(0, limit);
 }
 
 /** The remote MCP server: it can't check files or ask a person, so code records come back unchecked. */
@@ -84,13 +62,12 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
       const params = (request.params ?? {}) as { name?: string; arguments?: Record<string, unknown> };
       const args = params.arguments ?? {};
       if (params.name === "get" && typeof args.query === "string" && args.query.trim()) {
-        const found = search(
-          team,
-          member,
-          String(args.query ?? ""),
-          typeof args.type === "string" ? args.type : undefined,
-          Math.min(Number(args.limit ?? 5), 20),
-        );
+        const found = searchRecords(team, member, {
+          query: args.query,
+          type: typeof args.type === "string" ? args.type : "",
+          top: "",
+          limit: Math.min(Number(args.limit ?? 5), 20),
+        });
         return reply(
           text(untrusted({ status: found.length ? "unchecked" : "miss", results: found.map(shown) }, topName)),
         );
@@ -110,17 +87,13 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
           ].filter((record): record is StoredRecord => record !== undefined && tops.includes(record.top));
           return reply(text(untrusted({ records: [shown(one)], linked: linked.map(shown) }, topName)));
         }
-        const rows = team
-          .sql(
-            "SELECT * FROM records WHERE retired_at IS NULL AND sealed IS NULL AND (? IS NULL OR type = ?) ORDER BY updated_at DESC LIMIT 200",
-            (args.type as string) ?? null,
-            (args.type as string) ?? null,
-          )
-          .map(recordFrom)
-          .filter((record) => tops.includes(record.top));
-        return reply(
-          text(untrusted({ records: rows.slice(0, Math.min(Number(args.limit ?? 50), 200)).map(shown) }, topName)),
-        );
+        const rows = searchRecords(team, member, {
+          query: "",
+          type: typeof args.type === "string" ? args.type : "",
+          top: "",
+          limit: Math.min(Number(args.limit ?? 50), 200),
+        });
+        return reply(text(untrusted({ records: rows.map(shown) }, topName)));
       }
       return fail(-32602, `no tool ${String(params.name)}`);
     }

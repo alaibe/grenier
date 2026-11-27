@@ -52,3 +52,21 @@ export interface StoredRecord {
 
 /** A member's own top folder in the team store. */
 export const meTop = (memberId: string) => `me:${memberId}`;
+
+/** One change a machine sends the team store: the parts it touched, over the version it started from. */
+export interface Change {
+  id: string;
+  recordId: string;
+  baseVersion: number;
+  changed: string[];
+  record: Partial<StoredRecord> & { id: string };
+  /** Refuse instead of overwriting a field someone else changed since `baseVersion`: the editor's save. */
+  check?: boolean;
+}
+
+/** The team store's answer to a batch of changes. */
+export interface ChangesAnswer {
+  applied: { id: string; recordId: string; version: number }[];
+  refused: { id: string; reason: string }[];
+  conflicts: { id: string; current: StoredRecord }[];
+}

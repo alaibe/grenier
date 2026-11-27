@@ -67,7 +67,11 @@ export function serverToShare(input: { config?: unknown; credentials?: unknown }
     throw new Refusal("a server has a URL, or a command to run");
   }
   if (secretIn(JSON.stringify(config))) throw new Refusal("its configuration holds what looks like a key or a token");
-  return { config, credentials };
+  // A `{name}` in a header or the environment is a key each teammate enters, as are the names given.
+  const templated = Object.values({ ...(config.headers as object), ...(config.env as object) }).flatMap((value) =>
+    templateNames(String(value)),
+  );
+  return { config, credentials: [...new Set([...templated, ...credentials])] };
 }
 
 const credentialsOf = (record: Pick<FullRecord, "fields">) =>

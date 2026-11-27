@@ -1,6 +1,6 @@
 import { ftsMatch, searchWords } from "@grenier/core";
 import { builtinType, MEMBER_WRITES, memberMay, recordProblem } from "@grenier/core/records";
-import { meTop, RECORD_PARTS } from "@grenier/core/team";
+import { type ChangesAnswer, meTop, RECORD_PARTS } from "@grenier/core/team";
 import {
   type Applied,
   type Change,
@@ -112,6 +112,32 @@ function collides(team: TeamData, change: Change, changed: string[]): boolean {
   return changed.some((name) => touched.has(name));
 }
 
+/** The records a member reads that match the words, best first, else the latest; none sealed or retired. */
+export function searchRecords(
+  team: Pick<TeamData, "sql" | "topsOf">,
+  member: Pick<Member, "id">,
+  input: { query: string; type: string; top: string; limit: number },
+): StoredRecord[] {
+  const tops = team.topsOf(member);
+  const words = searchWords(input.query.trim());
+  // Filtered before the LIMIT, so a type or top folder with older records still gets them.
+  const where = [
+    `r.top IN (${tops.map(() => "?").join(", ")})`,
+    "r.retired_at IS NULL AND r.sealed IS NULL",
+    "(? = '' OR r.type = ?) AND (? = '' OR r.top = ?)",
+  ].join(" AND ");
+  const bindings = [...tops, input.type, input.type, input.top, input.top];
+  const rows = words.length
+    ? team.sql(
+        `SELECT r.* FROM records_fts f JOIN records r ON r.id = f.id WHERE records_fts MATCH ? AND ${where} ORDER BY bm25(records_fts) LIMIT ?`,
+        ftsMatch(words),
+        ...bindings,
+        input.limit,
+      )
+    : team.sql(`SELECT r.* FROM records r WHERE ${where} ORDER BY r.updated_at DESC LIMIT ?`, ...bindings, input.limit);
+  return rows.map(recordFrom);
+}
+
 /** Applies one change, field by field over what the store has; the store's order decides between two writers. */
 function apply(team: TeamData, change: Change, member: Member, device: Device): Applied {
   const done = team.one("SELECT version FROM applied WHERE change_id = ?", change.id);
@@ -197,9 +223,7 @@ export function recordRoutes(app: TeamApp, team: TeamData): void {
     const body = await jsonBody<{ changes?: Change[] }>(c);
     const changes = Array.isArray(body.changes) ? body.changes : [];
     if (changes.length > MAX_BATCH) return problem(400, `send at most ${MAX_BATCH} changes at once`);
-    const applied: { id: string; recordId: string; version: number }[] = [];
-    const refused: { id: string; reason: string }[] = [];
-    const conflicts: { id: string; current: StoredRecord }[] = [];
+    const { applied, refused, conflicts }: ChangesAnswer = { applied: [], refused: [], conflicts: [] };
     for (const change of changes) {
       if (typeof change?.id !== "string" || typeof change.recordId !== "string" || !Array.isArray(change.changed)) {
         refused.push({ id: String(change?.id ?? ""), reason: "a change needs id, recordId, changed and record" });
@@ -244,24 +268,8 @@ export function recordRoutes(app: TeamApp, team: TeamData): void {
   });
 
   app.get("/api/records", (c) => {
-    const tops = team.topsOf(c.get("member"));
     const { q = "", type = "", top = "" } = c.req.query();
-    const words = searchWords(q.trim());
-    // Filtered before the LIMIT, so a type or top folder with older records still gets them.
-    const where = [
-      `r.top IN (${tops.map(() => "?").join(", ")})`,
-      "r.retired_at IS NULL AND r.sealed IS NULL",
-      "(? = '' OR r.type = ?) AND (? = '' OR r.top = ?)",
-    ].join(" AND ");
-    const bindings = [...tops, type, type, top, top];
-    const rows = words.length
-      ? team.sql(
-          `SELECT r.* FROM records_fts f JOIN records r ON r.id = f.id WHERE records_fts MATCH ? AND ${where} ORDER BY bm25(records_fts) LIMIT 200`,
-          ftsMatch(words),
-          ...bindings,
-        )
-      : team.sql(`SELECT r.* FROM records r WHERE ${where} ORDER BY r.updated_at DESC LIMIT 500`, ...bindings);
-    return c.json({ records: rows.map(recordFrom) });
+    return c.json({ records: searchRecords(team, c.get("member"), { query: q, type, top, limit: 500 }) });
   });
 
   // The editor says every few seconds that it has a record open, and hears who else has.

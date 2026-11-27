@@ -1,36 +1,20 @@
-import { folderProblem, TEAM_PROTOCOL, TOPS } from "@grenier/core";
-import type {
-  Conflict,
-  FileVersions,
-  HistoryEntry,
-  PageRow,
-  RecordFull,
-  RecordRow,
-  Saved,
-  TeamRecord,
-  Top,
-} from "@grenier/core/api";
+import { folderProblem, TOPS } from "@grenier/core";
+import type { FileVersions, HistoryEntry, PageRow, RecordFull, RecordRow, Top } from "@grenier/core/api";
 import { blobText, repoText } from "@grenier/git";
 import {
-  changedFields,
   check,
-  embedding,
   type Found,
-  newId,
   newRecord,
   query,
   recall,
-  refusal,
   retire,
   type StoreDeps,
-  StoreUseError,
-  TeamError,
+  save as saveRecord,
   teamApi,
-  teamChange,
-  write,
 } from "@grenier/index";
 import { type FullRecord, type RecordInput, toInput } from "@grenier/store";
 import { Hono } from "hono";
+import { decide } from "../librarian.ts";
 import { personalKey } from "../runtime.ts";
 import type { AdminDeps } from "./admin.ts";
 import { bodyOf } from "./request.ts";
@@ -68,46 +52,21 @@ export function recordRoutes(deps: AdminDeps): Hono {
   /** The desktop app is the person: it reads every top folder this machine has. */
   const everything = { id: "desktop", name: "desktop", scopes: ["*"] };
 
-  /** With a team, a field changed since `baseVersion` comes back as a conflict; offline, the latest write wins. */
-  async function save(
-    record: RecordInput,
-    before: FullRecord | undefined,
-    baseVersion: number,
-  ): Promise<Saved | Conflict> {
-    const storeDeps = await deps.storeDeps();
-    const why = await refusal(store, record, before);
-    if (why) throw new StoreUseError(`the record is refused: ${why}`);
+  /** Saves through the team store when it can, and syncs at once after: the editor shows what everyone sees. */
+  async function save(record: RecordInput, before: FullRecord | undefined, baseVersion: number) {
     const team = deps.team();
-    // Straight to the team store only once a sync found it speaks this Grenier's protocol; else it waits here.
-    const current = Number((await store.state.get("team_protocol")) ?? 0) >= TEAM_PROTOCOL;
-    if (team && current && record.top === "team") {
-      const sent = await teamChange(
-        { store, personalKey: personalKey(deps.paths) },
-        { changed: changedFields(before, record), record: { ...record } },
-      );
-      try {
-        const answer = await teamApi<{
-          applied: { version: number }[];
-          refused: { reason: string }[];
-          conflicts: { current: TeamRecord }[];
-        }>(team, "/api/changes", {
-          body: { changes: [{ id: newId(), recordId: record.id, baseVersion, ...sent, check: true }] },
-        });
-        if (answer.conflicts[0]) return { conflict: answer.conflicts[0].current };
-        if (answer.refused[0]) throw new StoreUseError(`the team store refused it: ${answer.refused[0].reason}`);
-        await store.records.put(
-          { ...record, version: answer.applied[0]?.version ?? record.version },
-          await embedding(storeDeps.embedder, record),
-        );
-        await deps.sync().catch(() => undefined);
-        return { saved: record.id };
-      } catch (error) {
-        if (error instanceof StoreUseError) throw error;
-        if (error instanceof TeamError && error.status < 500) throw new StoreUseError(error.detail);
-      }
+    const result = await saveRecord(
+      { ...(await deps.storeDeps()), team, personalKey: personalKey(deps.paths) },
+      record,
+      before,
+      baseVersion,
+    );
+    if (!("saved" in result)) return result;
+    if (!result.waiting) {
+      await deps.sync().catch(() => undefined);
+      return { saved: result.saved };
     }
-    await write(storeDeps, record, before);
-    return { saved: record.id, waiting: true, team: Boolean(team) };
+    return { saved: result.saved, waiting: true, team: Boolean(team) };
   }
 
   app.get("/tops", async (c) => {
@@ -254,6 +213,12 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const result = await save(record, before, typeof body.baseVersion === "number" ? body.baseVersion : before.version);
     return "conflict" in result ? c.json(result, 409) : c.json(result);
   });
+
+  app.post("/records/:id/decide", async (c) =>
+    (await decide(await deps.storeDeps(), c.req.param("id"), (await bodyOf(c)).accept === true))
+      ? c.json({ decided: c.req.param("id") })
+      : c.json({ error: "no such suggestion, or decided already" }, 404),
+  );
 
   app.delete("/records/:id", async (c) =>
     (await retire(await deps.storeDeps(), c.req.param("id")))

@@ -42,11 +42,6 @@ function pairsOf(text: string): Record<string, string> {
   return values;
 }
 
-/** The {names} in templates: the keys each teammate enters. */
-const templateNames = (values: Record<string, string>) => [
-  ...new Set(Object.values(values).flatMap((value) => [...value.matchAll(/\{(\w+)\}/g)].map((m) => m[1] as string))),
-];
-
 /**
  * An MCP server added from the MCP Registry or by hand: into the person's agents, with their own keys, or shared
  * with the team, where `{name}` marks a key each teammate enters.
@@ -139,7 +134,7 @@ function AddServer({ to, added, cancel }: { to: Group; added: (id: string) => vo
           title: name,
           description: String(form.get("description") ?? ""),
           config,
-          credentials: [...new Set([...templateNames(pairs), ...plain])],
+          credentials: plain,
         });
       }}
     >

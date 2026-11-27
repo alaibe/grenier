@@ -1,5 +1,5 @@
 import { randomHex } from "@grenier/core";
-import type { StoredRecord } from "@grenier/core/team";
+import type { Change, StoredRecord } from "@grenier/core/team";
 import type { Hono } from "hono";
 
 export interface Member {
@@ -19,17 +19,7 @@ export interface Vars {
   device: Device;
 }
 
-export type { StoredRecord };
-
-export interface Change {
-  id: string;
-  recordId: string;
-  baseVersion: number;
-  changed: string[];
-  record: Partial<StoredRecord> & { id: string };
-  /** Refuse instead of overwriting a field someone else changed since `baseVersion`: the editor's save. */
-  check?: boolean;
-}
+export type { Change, StoredRecord };
 
 export type Row = Record<string, SqlStorageValue>;
 

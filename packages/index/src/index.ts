@@ -28,6 +28,7 @@ export {
   rekeyed,
   type SyncDeps,
   type SyncResult,
+  save,
   syncOnce,
   type TeamClient,
   TeamError,

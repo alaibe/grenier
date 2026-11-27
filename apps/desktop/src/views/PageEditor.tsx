@@ -8,9 +8,9 @@ import type {
   LinkedRecord,
   RecordFull,
   Saved,
-  TeamRecord,
 } from "@grenier/core/api";
 import { hunks, lineDiff } from "@grenier/core/diff";
+import type { StoredRecord } from "@grenier/core/team";
 import { topName } from "@grenier/core/team";
 import {
   Archive,
@@ -92,7 +92,7 @@ export function PageEditor({
   const record = useLoad(load);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [base, setBase] = useState(0);
-  const [conflict, setConflict] = useState<TeamRecord | null>(null);
+  const [conflict, setConflict] = useState<StoredRecord | null>(null);
   const [history, setHistory] = useState(false);
   const [moving, setMoving] = useState(false);
   const text = useRef<{ focus: () => void }>(null);
@@ -336,7 +336,7 @@ export function PageEditor({
     </div>
   );
 
-  function take(theirs: TeamRecord) {
+  function take(theirs: StoredRecord) {
     setDraft({ top: theirs.top, folder: theirs.folder, title: theirs.title, body: theirs.body, links: theirs.links });
     setBase(theirs.version);
     setConflict(null);
@@ -560,24 +560,9 @@ function Presence({ id }: { id: string }) {
 /** A suggestion of the librarian: accepted, its change goes into the record it names; either way it is retired. */
 function Suggestion({ record, back }: { record: RecordFull; back: () => void }) {
   const action = useAction();
-  const target = String(record.fields.target ?? "");
-  const change = (record.fields.change ?? {}) as Record<string, unknown>;
   const decide = (accept: boolean) =>
     void action.run(accept ? "accept" : "dismiss", async () => {
-      if (accept && change.retire === true) {
-        await api(`/records/${encodeURIComponent(target)}`, { method: "DELETE" });
-      } else if (accept) {
-        const current = await api<RecordFull>(`/records/${encodeURIComponent(target)}`);
-        await api(`/records/${encodeURIComponent(target)}`, {
-          method: "PUT",
-          body: {
-            ...change,
-            ...(change.fields ? { fields: { ...current.fields, ...(change.fields as object) } } : {}),
-            baseVersion: current.version,
-          },
-        });
-      }
-      await api(`/records/${encodeURIComponent(record.id)}`, { method: "DELETE" });
+      await api(`/records/${encodeURIComponent(record.id)}/decide`, { body: { accept } });
       back();
       return accept ? "Accepted the suggestion" : "Dismissed the suggestion";
     });
@@ -601,9 +586,11 @@ function Suggestion({ record, back }: { record: RecordFull; back: () => void }) 
       >
         {String(record.fields.reason ?? "The librarian suggests a change.")}
       </Notice>
-      <pre className="diff">
-        <div>{JSON.stringify(change, null, 2)}</div>
-      </pre>
+      <p className="mt-2 text-muted">
+        {(record.fields.change as { retire?: boolean }).retire
+          ? "Accepting retires the page it names."
+          : "Nothing changes on its own: fix the page, then dismiss this."}
+      </p>
       <Problem error={action.problem} />
     </>
   );
