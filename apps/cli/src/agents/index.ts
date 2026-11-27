@@ -1,8 +1,18 @@
+import { homedir } from "node:os";
+import type { Io } from "../io.ts";
 import { ClaudeCode, ClaudeDesktop, Codex, Cursor } from "./clients.ts";
 import type { Agent, McpClient, Where } from "./types.ts";
 
 export { readJson, serversIn } from "./clients.ts";
 export type { Agent, AgentCommand, McpClient, ServerEntry, Where } from "./types.ts";
+
+/** Where this process finds the agents' configs. */
+export const whereOf = (io: Pick<Io, "env" | "self">): Where => ({
+  home: io.env.HOME || homedir(),
+  platform: process.platform,
+  env: io.env,
+  self: io.self,
+});
 
 export const CLAUDE_CODE = new ClaudeCode();
 export const CODEX = new Codex();

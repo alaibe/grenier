@@ -1,29 +1,36 @@
 /** The skill Grenier installs with its MCP server in Claude Code: a guided setup of the knowledge base. */
 export const SETUP_SKILL = `---
 name: grenier-setup
-description: "Set up Grenier's knowledge base for this person and this repository: who they are, the repository's conventions, a map of its code, drafts of its decisions and design, and lean CLAUDE.md and AGENTS.md. Use when the person runs /grenier-setup, or asks to set up, organise or refresh what Grenier knows."
+description: "Set up Grenier's knowledge base for this person and their repositories, this one or every one beside it: who they are, the conventions shared by each kind of project, the plans they have decided, and runbooks. Use when the person runs /grenier-setup, or asks to set up, organise or refresh what Grenier knows."
 ---
 # Set up Grenier
 
-Grenier keeps Markdown pages your agents read with \`get\` and write with \`set\` (mcp__grenier__get and mcp__grenier__set). This setup fills its folders from a short interview and the repository's own files, so the next agent finds what it needs instead of exploring.
+Grenier keeps Markdown pages your agents read with \`get\` and write with \`set\` (mcp__grenier__get and mcp__grenier__set). This setup fills it from a short interview and the repositories' own files.
+
+Keep only what an agent can't find by reading one repository: the person, what holds across their projects, the plans and how to ship. Never map or describe the code, and never copy a repository's own rules: those stay in its CLAUDE.md or AGENTS.md.
 
 The folders:
 - Me/About: who the person is and how they like to work.
 - Me/Notes: drafts and everything else.
-- <repository>/Conventions: the repository's rules, one page per topic.
-- <repository>: how its code works, each page with the files it came from.
 - <repository>/Runbooks: how to deploy, release and handle an incident.
-- Team/Conventions, Team/Decisions, Team/Design: what the whole team follows. Only the person moves pages there, in Grenier's Knowledge.
+- <repository>: what agents work out about its code as they go. The setup writes nothing there.
+- Team/Conventions, Team/Decisions: what the whole team follows and plans. Only the person moves pages there, in Grenier's Knowledge.
 
 <repository> is the name of the repository's folder.
 
 ## How to work
 
-- First, get the folders Me/About, <repository>/Conventions and <repository> with limit 200, to see what is already kept. On a run after the first, propose only what is new or changed, and the pages gone stale.
-- Do the steps in order. Before each step's writes, show the person the pages you would write, each title with a line on what it says, and ask. Write only what they accept, as they edit it.
-- A page holds one topic, in plain Markdown, short. Write only what the files or the person say; put a guess in a "To confirm" list at the end of the page instead.
-- Every page about the code gets files: every file you read for it.
-- Never write a key, a token, a password or personal data into a page.
+- If \`get\` and \`set\` are deferred, load both with ToolSearch first.
+- Ask the scope first: this repository only, or every repository in its parent folder. List the ones you found (each folder with a \`.git\`) with what each is built with, from its build files.
+- For a repository other than the one you run in, pass its path as \`repo\` to \`get\` and \`set\`.
+- Get Me/About, Me/Notes, Team/Conventions and, for each repository in scope, <repository>/Runbooks, with limit 200, to see what is already kept. On a run after the first, propose only what is new or changed, and re-read the files a stale page lists.
+- Ask once how to go: show the pages of each step and wait for a yes, or run the steps through and sum up at the end. Then work that way.
+- When showing a step, show all its pages at once, one line each: its title and what it holds. Write what the person accepts, as they edit it.
+- Across several repositories, hand the reading of each repository's files to one subagent per repository or small group, in parallel, each told these rules and its repository's path.
+- Keep it small. A page holds one topic in at most ten short lines: one fact a line, no restating another page. Write only what the files or the person say; put a guess in a "To confirm" list at the end of the page instead.
+- Keep what you tell the person small too: counts per folder and what needs them, not lists of every page.
+- Every page drawn from files gets files: every file you read for it.
+- Never read a \`.env\` file or a script that holds secrets, and never write a key, a token, a password, an address or personal data into a page.
 
 ## 1. About the person
 
@@ -31,40 +38,28 @@ Ask, a few at a time, and keep their own words:
 - Their role, and what they work on most.
 - How they like answers: short or detailed, which language.
 - How they like to work: tests first or not, commit and branch style, what to ask before doing.
-- Anything an agent should always or never do for them.
+- How much an agent should do on its own, and anything it should always or never do for them.
+- Principles they apply to every project. Keep them as they give them, translated to the language they want pages in.
 
-Set one page in Me/About, titled with their name.
+Set one page in Me/About, titled with their name. Set their principles as a draft in Me/Notes, "Engineering principles", for Team/Conventions.
 
-## 2. The repository's conventions
+## 2. Conventions by kind of project
 
-Read the evidence, not opinions: CLAUDE.md and AGENTS.md, the README, the package or build files and their scripts, the linter, formatter and editor config, CI workflows, the test setup, and the last 50 commit messages.
+Read each repository's CLAUDE.md and AGENTS.md, README, build files, linter and formatter config, and CI workflows, to find what several repositories share.
 
-Set one page per topic in <repository>/Conventions, each with the files it came from:
-- Commands: install, build, test, lint, run, release.
-- Code style: what the formatter and linter enforce, and what the code shows beyond them.
-- Testing: where tests live, how they are named, what they must not touch.
-- Git and review: branch names, commit messages, what a change must pass.
-- Any other topic the files clearly show, such as dependencies, migrations or translations.
+Set drafts in Me/Notes for Team/Conventions: "Conventions: all projects" for what every repository shares, then one page per kind (for instance desktop apps, mobile apps, web apps, games), each naming its stack and languages, the rules its repositories share and the repositories it covers. A rule only one repository has stays in its own CLAUDE.md or AGENTS.md. Ask which kinds the person's projects fall into and which stack each uses, when the files leave it unclear.
 
-## 3. A map of the code
+## 3. Plans and runbooks
 
-For each top-level folder of the code, and each folder one level down that holds a distinct part, read enough to say what it holds, where its main pieces are and what calls what.
+A decision is what the person plans to do, not what the code already shows: never draw decisions from the code, docs or commits. Ask what they have decided to do next, and why. Set each as a draft in Me/Notes, "Decision: <what>", with what, why and when, and tell them to move it to Team/Decisions in Knowledge.
 
-Set one page per folder in <repository>, titled with the folder's path, two to six lines, with files set to the files you read. These turn stale when those files change, and the next get says so.
+If a repository deploys or releases, set what its files say about it in <repository>/Runbooks, one page each for deploy, release and incident, only those its files support.
 
-## 4. Decisions and design
+## 4. CLAUDE.md and AGENTS.md
 
-Look for what the team decided and how it designs: architecture decision records, docs/, design tokens, component docs, a design system's README, and commit messages that state a choice ("use", "switch to", "drop", "instead of").
-
-Set each as a draft in Me/Notes, titled "Decision: <what>" or "Design: <what>", with what was decided, why, when, and the files or commits it comes from. Tell the person the ones worth moving to Team/Decisions or Team/Design, in Knowledge.
-
-If the repository deploys or releases, set what the files say about it in <repository>/Runbooks, one page each for deploy, release and incident.
-
-## 5. CLAUDE.md and AGENTS.md
-
-These load in every session, so they should hold only what must always be there. Propose, as a diff, keeping the rules that apply to every change and the commands, and replacing longer explanations now kept in Grenier with one line: "The rest is in Grenier: get <repository>/Conventions and ask before exploring." Edit the files only once the person says yes to the diff.
+A repository's own rules stay there. Once the person has moved the shared drafts to Team, propose, as a diff per repository, removing only the lines that repeat a Team/Conventions page, with one line in their place: "The conventions shared across projects are in Grenier: get Team/Conventions." Edit the files only once the person says yes to the diff.
 
 ## At the end
 
-Sum up what you wrote, folder by folder, the drafts waiting in Me/Notes, and what to confirm. Tell the person to run /grenier-setup again when the repository changes a lot.
+Sum up in a few lines: how many pages per folder, the drafts to move to Team, and what to confirm. Tell the person to run /grenier-setup again when their projects change a lot.
 `;

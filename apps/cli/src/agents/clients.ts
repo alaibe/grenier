@@ -6,6 +6,17 @@ import { Refusal } from "../io.ts";
 import { readServers, writeServers } from "./toml.ts";
 import type { Agent, AgentCommand, McpClient, ServerEntry, Where } from "./types.ts";
 
+/** Grenier's SessionStart hook's arguments, which also tell it from the person's own hooks. */
+const CONTEXT_COMMAND = ["mcp", "context"];
+
+interface HookGroup {
+  matcher?: string;
+  hooks?: { type?: string; command?: unknown; timeout?: number }[];
+}
+
+/** A word as a POSIX shell reads it back. */
+const quoted = (word: string) => (/^[\w./:=@-]+$/.test(word) ? word : `'${word.replace(/'/g, "'\\''")}'`);
+
 /** Claude Code's built-in tools that only read. */
 const CLAUDE_READS = ["Read", "Grep", "Glob"];
 
@@ -139,6 +150,27 @@ export class ClaudeCode extends JsonClient implements Agent {
     if (!settings) throw new Refusal(`Claude Code knows no project ${project}`);
     settings.mcpServers = this.changed(serversIn(settings), change);
     this.write(where, config);
+  }
+
+  /** A SessionStart hook running `grenier mcp context`, in place of any Grenier wrote before; other hooks stay. */
+  startHook(where: Where, program: string[], env: Record<string, string>): void {
+    const path = join(where.home, ".claude", "settings.json");
+    const tail = ` ${CONTEXT_COMMAND.join(" ")}`;
+    const command = [
+      ...Object.entries(env).map(([name, value]) => `${name}=${quoted(value)}`),
+      ...[...program, ...CONTEXT_COMMAND].map(quoted),
+    ].join(" ");
+    const settings = readJson(path);
+    const hooks = (settings.hooks ?? {}) as Record<string, HookGroup[]>;
+    const ours = (group: HookGroup) =>
+      (group.hooks ?? []).some((hook) => typeof hook.command === "string" && hook.command.endsWith(tail));
+    hooks.SessionStart = [
+      ...(hooks.SessionStart ?? []).filter((group) => !ours(group)),
+      // A resumed session keeps the context it was given.
+      { matcher: "startup|clear|compact", hooks: [{ type: "command", command, timeout: 10 }] },
+    ];
+    settings.hooks = hooks;
+    writeAtomically(path, `${JSON.stringify(settings, null, 2)}\n`);
   }
 
   present(where: Where): boolean {

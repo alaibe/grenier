@@ -78,18 +78,6 @@ export const BUILTINS: Record<string, Builtin> = {
       "End with how many answers you refreshed in each repository.",
     ].join("\n"),
   },
-  summaries: {
-    title: "Repository summaries",
-    schedule: "mon 07:00",
-    collector: false,
-    prompt: [
-      "Give Grenier a short page on each part of the code, so a question about where something is finds one instead of exploring.",
-      "",
-      "For each git repository in the work folder, and each of its top-level folders: call get with the folder's path as the question. Unless a page on it is a hit, read enough of the folder to say what it holds and where its main pieces are, then call set with the folder's path as title, two to four lines of Markdown, files set to [its path], and repo set to the repository's path.",
-      "",
-      "End with the summaries you wrote or rewrote.",
-    ].join("\n"),
-  },
   keeper: {
     title: "Instructions keeper",
     schedule: "fri 16:00",

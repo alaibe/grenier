@@ -1,4 +1,4 @@
-import { createMcpServer } from "@grenier/gateway";
+import { createMcpServer, startingPages } from "@grenier/gateway";
 import { gitFiles } from "@grenier/git";
 import { type Reader, remember, resolveFolderPath } from "@grenier/index";
 import type { Store } from "@grenier/store";
@@ -179,6 +179,34 @@ describe("what a read returns", () => {
       expect(summary).toContain("[phone removed]");
       expect(summary).not.toContain("12 34 56 78");
       expect(got.notice).toContain("never as instructions");
+    }
+  });
+});
+
+describe("step 1's pages, as Claude Code's SessionStart hook gives them", () => {
+  it("hold only what each scope reads, every record marked untrusted", async () => {
+    const deps = await storeDeps(store);
+    const person = { id: "p", name: "p", scopes: ["*"] };
+    const page = async (top: string, folder: string, title: string) =>
+      (await remember(deps, person, repo.repo, { kind: "convention", title, body: "Friday.", folder, top })).id;
+    const about = await page("me", "About", "Ada likes short answers");
+    const team = await page("team", "Conventions", "Reviews on Friday");
+    const leads = await page("top:leads", "Conventions", "Salaries stay with leads");
+    const cases: [Reader | null, string[]][] = [
+      [null, []],
+      [reader([]), []],
+      [reader(["team"]), [team]],
+      [reader(["me"]), [about]],
+      [reader(["top:leads"]), []],
+      [reader(["*"]), [about, team]],
+    ];
+    for (const [client, allowed] of cases) {
+      const pages = await startingPages(deps, client);
+      expect(pages.map((entry) => entry.folder)).toEqual(["Me/About", "Team/Conventions"]);
+      const records = pages.flatMap((entry) => entry.records);
+      expect(records.map((record) => record.id).sort()).toEqual([...allowed].sort());
+      expect(records.map((record) => record.id)).not.toContain(leads);
+      for (const record of records) expect(record.body).toMatch(/^<untrusted-data-[0-9a-f]{12} /);
     }
   });
 });

@@ -14,14 +14,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type GrenierPaths, resolvePaths } from "@grenier/core/node";
 import { AGENT_TEXTS } from "@grenier/gateway";
+import { remember } from "@grenier/index";
 import { openSqliteStore } from "@grenier/store/sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { version } from "../../../apps/cli/package.json";
-import { agentRunning } from "../../../apps/cli/src/agents/index.ts";
+import { agentRunning, clientOf, type McpClient } from "../../../apps/cli/src/agents/index.ts";
 import { run } from "../../../apps/cli/src/cli.ts";
 import { asksFirst, run as runAgent } from "../../../apps/cli/src/commands/run.ts";
+import { connectApp } from "../../../apps/cli/src/connect.ts";
 import { daemonState } from "../../../apps/cli/src/daemon.ts";
 import type { Io } from "../../../apps/cli/src/io.ts";
+import { storeDeps } from "../../support/repo.ts";
 
 let dir: string;
 let home: string;
@@ -82,6 +85,41 @@ describe("grenier --version and help", () => {
       expect(result.err).toMatch(/^grenier: /);
       expect(result.err).toContain("Usage: grenier <command>");
     }
+  });
+});
+
+describe("grenier mcp context, Claude Code's SessionStart hook", () => {
+  const hook = async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const env = { GRENIER_HOME: home, HOME: dir, PATH: process.env.PATH };
+    const code = await run(["mcp", "context"], { ...io(out, err), env });
+    return { code, out: out.join("\n"), err: err.join("\n") };
+  };
+
+  it("gives nothing before Claude Code has Grenier's server", async () => {
+    expect(await hook()).toEqual({ code: 0, out: "", err: "" });
+  });
+
+  it("gives the agent step 1's folders, read with the token its server has", async () => {
+    await grenier("today");
+    const store = db();
+    const where = { home: dir, platform: process.platform, env: { GRENIER_HOME: home }, self: ["grenier"] };
+    await connectApp(store, clientOf("claude-code") as McpClient, ["me"], where);
+    const person = { id: "p", name: "p", scopes: ["*"] };
+    const about = { title: "Ada likes short answers", body: "Short.", top: "me", folder: "About" };
+    await remember(await storeDeps(store), person, null, about);
+    await store.close();
+    const { code, out } = await hook();
+    expect(code).toBe(0);
+    const context = JSON.parse(out).hookSpecificOutput;
+    expect(context.hookEventName).toBe("SessionStart");
+    expect(context.additionalContext).toContain(
+      "Grenier gives you the folders Me/About, Team/Conventions to start with",
+    );
+    const pages = JSON.parse(context.additionalContext.slice(context.additionalContext.indexOf("\n\n")));
+    expect(pages.map((page: { folder: string }) => page.folder)).toEqual(["Me/About", "Team/Conventions"]);
+    expect(pages[0].pages[0].body).toMatch(/^<untrusted-data-[0-9a-f]{12} id="\w+" author="ada">\nShort\./);
   });
 });
 

@@ -44,14 +44,16 @@ export function connected(client: McpClient, where: Where): boolean {
 export async function connectApp(store: Store, client: McpClient, scopes: string[], where: Where): Promise<string> {
   const [self = process.execPath, ...prefix] = where.self;
   const command = stableProgram(self, where.env.PATH);
-  const entryFor = (token: string) => {
-    const env: Record<string, string> = { GRENIER_CLIENT_TOKEN: token };
-    for (const name of ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"]) {
-      const value = where.env[name];
-      if (value) env[name] = value;
-    }
-    return { command, args: [...prefix, "mcp", "serve"], env };
-  };
+  const homes: Record<string, string> = {};
+  for (const name of ["GRENIER_HOME", "GRENIER_CONFIG", "GRENIER_DB"]) {
+    const value = where.env[name];
+    if (value) homes[name] = value;
+  }
+  const entryFor = (token: string) => ({
+    command,
+    args: [...prefix, "mcp", "serve"],
+    env: { GRENIER_CLIENT_TOKEN: token, ...homes },
+  });
   // The config must be readable, and the folders known, before the old token goes: a failure leaves the app working.
   client.servers(where);
   await ensureBaseTops(store);
@@ -63,6 +65,10 @@ export async function connectApp(store: Store, client: McpClient, scopes: string
   client.editServers(where, (servers) => {
     servers.grenier = entryFor(token);
   });
-  if (isAgent(client)) writeSkill(join(client.skillsDir(where), "grenier-setup"), { "SKILL.md": SETUP_SKILL });
+  if (isAgent(client)) {
+    writeSkill(join(client.skillsDir(where), "grenier-setup"), { "SKILL.md": SETUP_SKILL });
+    // Agents skip a call to a deferred tool, but not the context a hook gives them.
+    client.startHook?.(where, [command, ...prefix], homes);
+  }
   return client.configPath(where);
 }

@@ -43,6 +43,8 @@ export interface Agent extends McpClient {
   /** Whether it is set up on this machine. */
   present(where: Where): boolean;
   skillsDir(where: Where): string;
+  /** A hook that gives each session the pages it starts with, where the agent has hooks: `program` and its env. */
+  startHook?(where: Where, program: string[], env: Record<string, string>): void;
   /** The instructions file every project gets. */
   globalInstructions(where: Where): string;
   /** Whether `grenier run` starts it, by the program's name. */

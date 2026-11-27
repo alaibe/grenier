@@ -45,7 +45,7 @@ export function routineRoutes(deps: AdminDeps): Hono {
     }),
   );
 
-  /** One of the routines Grenier ships: the librarian, the answer refresher, the summaries, the keeper, the digest. */
+  /** One of the routines Grenier ships: the librarian, the answer refresher, the keeper, the digest. */
   app.post("/routines/builtin/:id", async (c) => {
     if (!deps.team()) return c.json(noTeam, 409);
     return c.json(await addBuiltin(await deps.storeDeps(), c.req.param("id")));

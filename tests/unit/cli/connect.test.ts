@@ -54,6 +54,34 @@ describe("adding Grenier's MCP server to an app's config", () => {
     expect(config.mcpServers.grenier).toEqual({ type: "stdio", ...expected });
   });
 
+  it("gives Claude Code a SessionStart hook for step 1, keeping the person's own and replacing its earlier one", async () => {
+    const own = { matcher: "startup", hooks: [{ type: "command", command: "echo hi" }] };
+    const old = { hooks: [{ type: "command", command: "/old/grenier mcp context" }] };
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      JSON.stringify({ model: "opus", hooks: { SessionStart: [own, old], Stop: [own] } }),
+    );
+    await connectApp(store, clientOf("claude-code") as McpClient, ["*"], where);
+    await connectApp(store, clientOf("claude-code") as McpClient, ["*"], where);
+    const settings = JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"));
+    expect(settings.model).toBe("opus");
+    expect(settings.hooks.Stop).toEqual([own]);
+    expect(settings.hooks.SessionStart).toEqual([
+      own,
+      {
+        matcher: "startup|clear|compact",
+        hooks: [
+          {
+            type: "command",
+            command: `GRENIER_HOME=${join(home, ".grenier")} /usr/local/bin/node /opt/grenier/grenier.js mcp context`,
+            timeout: 10,
+          },
+        ],
+      },
+    ]);
+  });
+
   it("writes Cursor's mcp.json, creating it, and Claude Desktop's config where each system keeps it", async () => {
     await connectApp(store, clientOf("cursor") as McpClient, ["*"], where);
     expect(JSON.parse(readFileSync(join(home, ".cursor", "mcp.json"), "utf8"))).toEqual({

@@ -62,21 +62,21 @@ describe("the MCP server", () => {
     expect(own.getInstructions()).toBe("Our store.");
     const tools = (await own.listTools()).tools;
     expect(tools.find((tool) => tool.name === "get")?.description).toBe("Ask it first.");
-    expect(tools.find((tool) => tool.name === "set")?.description).toContain("Save a page");
+    expect(tools.find((tool) => tool.name === "set")?.description).toContain("Save, short");
   });
 
-  it("follows the protocol's folders: a repository's Conventions before its first page, and Me/About", async () => {
+  it("follows the protocol's folders: a repository's Runbooks before its first page, and Me/About", async () => {
     const client = await connect();
     const name = repo.dir.split("/").at(-1) as string;
-    expect(
-      structured(await client.callTool({ name: "get", arguments: { folder: `${name}/Conventions` } })),
-    ).toMatchObject({
-      records: [],
-    });
+    expect(structured(await client.callTool({ name: "get", arguments: { folder: `${name}/Runbooks` } }))).toMatchObject(
+      {
+        records: [],
+      },
+    );
     const rule = structured(
       await client.callTool({
         name: "set",
-        arguments: { title: "Tabs", body: "Indent with tabs.", folder: `${name}/Conventions` },
+        arguments: { title: "Release", body: "Tag it; the nightly ships it.", folder: `${name}/Runbooks` },
       }),
     );
     expect(rule).toMatchObject({ top: `repo:${repo.repo.id}` });

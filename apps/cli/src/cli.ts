@@ -2,7 +2,7 @@ import { version } from "../package.json";
 import { type Admin, daemonAdmin, type Group, runGroup } from "./commands/client.ts";
 import { SERVERS, SKILLS } from "./commands/extensions.ts";
 import { FOLDERS, PAGES } from "./commands/knowledge.ts";
-import { serve } from "./commands/mcp.ts";
+import { context, serve } from "./commands/mcp.ts";
 import { ROUTINES } from "./commands/routines.ts";
 import { run as runAgent } from "./commands/run.ts";
 import { APPS, INSTRUCTIONS, KEY, MACHINE, SESSIONS, STATUS } from "./commands/settings.ts";
@@ -31,6 +31,7 @@ const USAGE = `Usage: grenier <command>
 Commands:
   run -- <command>           Run an agent through Grenier, which counts what it costs
   mcp serve                  Grenier's MCP server over stdio, as the apps it is added to start it
+  mcp context                The pages an agent starts with, as Claude Code's SessionStart hook runs it
   status                     ${STATUS.summary}
 ${Object.entries(GROUPS)
   .map(([name, group]) => `  ${name.padEnd(27)}${group.summary}`)
@@ -71,7 +72,8 @@ export async function run(argv: string[], io: Io, admin: Admin = daemonAdmin(io)
         return await runAgent(rest, io);
       case "mcp":
         if (rest[0] === "serve" && rest.length === 1) return await serve(io);
-        throw new UsageError("mcp takes: serve");
+        if (rest[0] === "context" && rest.length === 1) return await context(io);
+        throw new UsageError("mcp takes: serve, context");
       // The app's own: it starts and stops the daemon, and its menu bar shows today's spend.
       case "daemon":
         noArguments(command, rest);

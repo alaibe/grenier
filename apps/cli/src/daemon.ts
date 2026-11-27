@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type GrenierPaths, writeAtomically } from "@grenier/core/node";
 import { createGateway } from "@grenier/gateway";
@@ -13,6 +12,7 @@ import { serve } from "@hono/node-server";
 import { version } from "../package.json";
 import { createAdmin } from "./admin/admin.ts";
 import { agentTexts } from "./agent-texts.ts";
+import { whereOf } from "./agents/index.ts";
 import { removeRetired } from "./installs.ts";
 import { environment, type Io, Refusal } from "./io.ts";
 import { TeamLink } from "./link.ts";
@@ -110,7 +110,7 @@ export async function runDaemon(io: Io): Promise<number> {
 
   const store = openSqliteStore(paths.db);
   await ensureBaseTops(store);
-  const where = { home: homedir(), platform: process.platform, env: io.env, self: io.self };
+  const where = whereOf(io);
   const port = config.proxy.port;
   const prices = loadPrices(config.prices);
   const embedder = embedderLoader(config, paths, io.err);
