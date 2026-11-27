@@ -79,7 +79,6 @@ describe("records", () => {
     id,
     top: "team",
     type: "Doc",
-    kind: null,
     title: "Deploys on Friday",
     folder: "",
     body: "Only before noon.",

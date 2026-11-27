@@ -1,13 +1,12 @@
 import type { Anchor, Link } from "./api.ts";
 
-/** What a machine and the team store built from this tree speak, checked before a sync: 2 added folders, 3 named top folders, 4 one text per routine, 5 claimed runs and removable machines, 6 no more member-only folders. */
-export const TEAM_PROTOCOL = 6;
+/** What a machine and the team store built from this tree speak, checked before a sync: 2 added folders, 3 named top folders, 4 one text per routine, 5 claimed runs and removable machines, 6 no more member-only folders, 7 no record kind. */
+export const TEAM_PROTOCOL = 7;
 
 /** The parts of a record a change carries, which the team store applies over what it has. */
 export const RECORD_PARTS = [
   "top",
   "type",
-  "kind",
   "title",
   "folder",
   "body",
@@ -18,7 +17,7 @@ export const RECORD_PARTS = [
 ] as const;
 
 /** What a `me` record's seal holds: every part but its top folder and when it was retired. */
-export const SEALED_PARTS = ["type", "kind", "title", "folder", "body", "fields", "anchors", "links"] as const;
+export const SEALED_PARTS = ["type", "title", "folder", "body", "fields", "anchors", "links"] as const;
 
 /** A top folder's name as people and agents write it: Me, Team, or a repository's folder name. */
 export function topName(top: { kind: string; name: string }): string {
@@ -36,7 +35,6 @@ export interface StoredRecord {
   id: string;
   top: string;
   type: string;
-  kind: string | null;
   title: string;
   folder: string;
   body: string;

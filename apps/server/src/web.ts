@@ -294,7 +294,7 @@ async function store() {
       el("span", { class: "row-lead" }, icon("file")),
       el("span", { class: "row-title", text: record.title }),
       el("span", { class: "row-meta" }, time(record.updatedAt)),
-      el("span", { class: "row-preview", text: record.type + (record.kind ? " · " + record.kind : "") + " · " + record.top + " · " + record.author }))));
+      el("span", { class: "row-preview", text: record.type + " · " + record.top + " · " + record.author }))));
     list.replaceChildren(el("div", { class: "list-head" }, el("div", { class: "search" }, icon("search"), q, kbd("/")), type),
       records.length ? rows : (q.value || type.value ? empty("no match", "Nothing in the store matches. Try fewer words, or every type.", false) : empty("store empty", "What the team's people and agents learn lands here.")));
   };

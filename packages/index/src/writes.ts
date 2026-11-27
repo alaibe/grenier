@@ -23,7 +23,6 @@ import {
 
 export interface RememberInput {
   type?: string;
-  kind?: string;
   title: string;
   /** Where it sits in its top folder; a replaced record keeps its own. */
   folder?: string;
@@ -55,7 +54,6 @@ export async function remember(
 ): Promise<{ id: string; top: string }> {
   const now = (deps.now ?? Date.now)();
   const type = input.type ?? "Doc";
-  const kind = input.kind ?? null;
   const fields: Record<string, unknown> = { ...(input.fields ?? {}) };
   const body = (input.body ?? "").trim();
   const title = input.title.trim();
@@ -101,7 +99,7 @@ export async function remember(
   }
 
   const folder = input.folder ?? existing?.folder ?? "";
-  const problem = recordProblem({ type, kind, title, folder, body, fields }, typeDef);
+  const problem = recordProblem({ type, title, folder, body, fields }, typeDef);
   if (problem) throw new StoreUseError(`the record is refused: ${problem}`);
 
   const links = [...(input.links ?? [])];
@@ -122,7 +120,6 @@ export async function remember(
     id: existing?.id ?? newId(),
     top,
     type,
-    kind,
     title,
     folder,
     body,

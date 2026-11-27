@@ -221,7 +221,6 @@ function file(team: TeamData, routine: StoredRecord, title: string): void {
   const now = Date.now();
   const task: StoredRecord = {
     id: randomId(),
-    kind: null,
     folder: "",
     author: "schedule",
     device: "schedule",

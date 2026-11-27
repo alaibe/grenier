@@ -115,7 +115,6 @@ export function secretIn(text: string): string | null {
 
 export interface RecordShape {
   type: string;
-  kind?: string | null;
   title: string;
   folder?: string;
   body: string;

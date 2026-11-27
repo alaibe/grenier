@@ -84,4 +84,8 @@ export const SCHEMA_STEPS: readonly string[] = [
   ALTER TABLE tops DROP COLUMN members;
   UPDATE meta SET value = '8' WHERE key = 'schema';
 `,
+  `
+  ALTER TABLE records DROP COLUMN kind;
+  UPDATE meta SET value = '9' WHERE key = 'schema';
+`,
 ];

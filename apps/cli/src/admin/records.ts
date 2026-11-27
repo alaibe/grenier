@@ -227,7 +227,6 @@ export function recordRoutes(deps: AdminDeps): Hono {
     const record = newRecord(storeDeps.me, {
       top,
       type: typeof body.type === "string" ? body.type : "Doc",
-      kind: null,
       title: String(body.title ?? "").trim(),
       folder: typeof body.folder === "string" ? body.folder : "",
       body: String(body.body ?? ""),

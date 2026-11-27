@@ -220,8 +220,7 @@ await record({
 });
 const retryAnswer = await record({
   top: `repo:${repoIdentity}`,
-  type: "Memory",
-  kind: "answer",
+  type: "Doc",
   title: "Where are failed payments retried?",
   folder: "Payments",
   author: "sam",
@@ -233,8 +232,7 @@ const retryAnswer = await record({
 });
 const routing = await record({
   top: `repo:${repoIdentity}`,
-  type: "Memory",
-  kind: "answer",
+  type: "Doc",
   title: "How are requests routed?",
   author: "lea",
   device: "lea-pc",
@@ -244,8 +242,7 @@ const routing = await record({
   links: [{ kind: "repo", ref: repoIdentity }],
 });
 const cents = await record({
-  type: "Memory",
-  kind: "convention",
+  type: "Doc",
   title: "Money is always in cents",
   folder: "Conventions",
   fields: { kind: "convention" },
@@ -253,8 +250,7 @@ const cents = await record({
 });
 await record({
   top: "me",
-  type: "Memory",
-  kind: "fact",
+  type: "Doc",
   title: "Review Léa's Apple Pay PR before Friday",
   fields: { kind: "fact" },
 });

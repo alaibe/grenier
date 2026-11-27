@@ -78,7 +78,6 @@ export interface RecordRow {
   id: string;
   top: string;
   type: string;
-  kind: string | null;
   title: string;
   /** Where it sits in its top folder, as "Decisions/2026"; empty at the top. */
   folder: string;

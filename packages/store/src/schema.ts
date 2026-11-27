@@ -73,8 +73,6 @@ export const records = sqliteTable(
     id: text("id").notNull().unique(),
     top: text("top").notNull(),
     type: text("type").notNull(),
-    /** A memory's kind: answer, summary, convention or fact. */
-    kind: text("kind"),
     title: text("title").notNull(),
     /** Where the record sits in its top folder, as "Decisions/2026"; empty at the top. */
     folder: text("folder").notNull().default(""),

@@ -24,7 +24,6 @@ export function recordFrom(row: Row): StoredRecord {
     id: row.id as string,
     top: row.top as string,
     type: row.type as string,
-    kind: (row.kind as string | null) ?? null,
     title: row.title as string,
     folder: (row.folder as string | null) ?? "",
     body: row.body as string,
@@ -50,9 +49,9 @@ export function getRecord(team: Pick<TeamData, "one">, id: string): StoredRecord
 export function putRecord(team: Pick<TeamData, "sql">, record: StoredRecord, author: string, device: string): void {
   team.sql("DELETE FROM records_fts WHERE id = ?", record.id);
   team.sql(
-    `INSERT INTO records (id, top, type, kind, title, folder, body, fields, author, device, session_id, created_at,
-      updated_at, retired_at, version, anchors, links, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET top = excluded.top, type = excluded.type, kind = excluded.kind,
+    `INSERT INTO records (id, top, type, title, folder, body, fields, author, device, session_id, created_at,
+      updated_at, retired_at, version, anchors, links, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET top = excluded.top, type = excluded.type,
       title = excluded.title, folder = excluded.folder, body = excluded.body, fields = excluded.fields, author = excluded.author,
       device = excluded.device, session_id = excluded.session_id, updated_at = excluded.updated_at,
       retired_at = excluded.retired_at, version = excluded.version, anchors = excluded.anchors,
@@ -60,7 +59,6 @@ export function putRecord(team: Pick<TeamData, "sql">, record: StoredRecord, aut
     record.id,
     record.top,
     record.type,
-    record.kind,
     record.title,
     record.folder,
     record.body,
@@ -134,7 +132,6 @@ function apply(team: TeamData, change: Change, member: Member, device: Device): 
       id: change.recordId,
       top: "team",
       type: "Doc",
-      kind: null,
       title: "",
       folder: "",
       body: "",

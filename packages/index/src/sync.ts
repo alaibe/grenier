@@ -66,7 +66,6 @@ async function sealRecord(key: string, record: Record<string, unknown>): Promise
   return {
     ...record,
     type: "Sealed",
-    kind: null,
     title: "",
     folder: "",
     body: "",

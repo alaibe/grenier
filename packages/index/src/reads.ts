@@ -64,7 +64,6 @@ async function found(deps: StoreDeps, record: FullRecord, similarity?: number): 
   return {
     id: record.id,
     type: record.type,
-    kind: record.kind,
     title: record.title,
     body: record.body,
     fields: record.fields,

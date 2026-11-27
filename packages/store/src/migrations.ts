@@ -6,6 +6,7 @@ import tops from "../migrations/0004_tops.sql";
 import simpler from "../migrations/0005_simpler.sql";
 import noMemberFolders from "../migrations/0006_no_member_folders.sql";
 import toolUses from "../migrations/0007_tool_uses.sql";
+import noRecordKind from "../migrations/0008_no_record_kind.sql";
 
 export interface Migration {
   /** 1 for the first migration: the schema version a database has once it is applied. */
@@ -24,4 +25,5 @@ export const migrations: readonly Migration[] = [
   { version: 6, name: "0005_simpler", sql: simpler },
   { version: 7, name: "0006_no_member_folders", sql: noMemberFolders },
   { version: 8, name: "0007_tool_uses", sql: toolUses },
+  { version: 9, name: "0008_no_record_kind", sql: noRecordKind },
 ];

@@ -58,7 +58,6 @@ export function newRecord(
   const now = Date.now();
   return {
     id: newId(),
-    kind: null,
     folder: "",
     body: "",
     fields: {},

@@ -60,7 +60,6 @@ async function mcp(team: TeamData, request: JsonRpc, member: Member): Promise<ob
   const shown = (record: StoredRecord) => ({
     id: record.id,
     type: record.type,
-    kind: record.kind,
     title: record.title,
     top: record.top,
     folder: record.folder,
