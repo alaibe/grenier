@@ -66,6 +66,8 @@ const HOLD_LIMIT = 10 * 60 * 1000;
 const LEASE_RENEW = 2 * 60 * 1000;
 const CHECK_EVERY = 60 * 1000;
 const CLAIM_EVERY = 5 * 60 * 1000;
+/** The team store counts a machine offline 3 minutes after its last word: it says its state again well before. */
+const TELL_EVERY = 60 * 1000;
 const MAX_RESULT = 20_000;
 
 /** Spawns an agent at the lowest priority and collects what it prints. */
@@ -107,6 +109,7 @@ export class Runner {
   #last: Availability | null = null;
   #timer: ReturnType<typeof setInterval> | undefined;
   #lastClaim = 0;
+  #toldAt = 0;
   readonly probes: Probes;
   readonly spawner: Spawner;
   readonly now: () => number;
@@ -143,8 +146,9 @@ export class Runner {
     if (!this.deps.team()) return;
     const now = await this.state();
     const changed = !this.#last || this.#last.state !== now.state || Math.abs(this.#last.room - now.room) > 0.2;
-    if (changed) {
+    if (changed || this.now() - this.#toldAt >= TELL_EVERY) {
       this.#last = now;
+      this.#toldAt = this.now();
       await this.deps.tell({
         state: now.state,
         room: now.room,

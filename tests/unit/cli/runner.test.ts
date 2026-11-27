@@ -119,6 +119,20 @@ afterEach(async () => {
 });
 
 describe("a machine that takes the team's routine runs", () => {
+  it("says its state again every minute, not only when it changes, so the team never sees it go offline", async () => {
+    let clock = 0;
+    const told: unknown[] = [];
+    const base = newRunner();
+    const runner = new Runner({ ...base.deps, now: () => clock, tell: async (state) => void told.push(state) });
+    await runner.tick();
+    clock += 30_000;
+    await runner.tick();
+    expect(told).toHaveLength(1);
+    clock += 30_000;
+    await runner.tick();
+    expect(told).toHaveLength(2);
+  });
+
   it("never runs outside a team: no routine exists there", async () => {
     const runner = newRunner();
     const told: unknown[] = [];
