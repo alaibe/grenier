@@ -202,7 +202,7 @@ export function addServer(
 ): LocalServer["id"] {
   const name = input.name.trim();
   if (!SERVER_NAME.test(name)) throw new Refusal(BAD_SERVER_NAME);
-  if (name === "grenier" || name.startsWith("grenier-")) throw new Refusal("names starting with grenier are Grenier's");
+  if (name === "grenier") throw new Refusal("the name grenier is Grenier's own");
   const taken = () => {
     throw new Refusal(`there is a server named ${name} there already`);
   };

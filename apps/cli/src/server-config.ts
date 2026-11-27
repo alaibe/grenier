@@ -3,7 +3,7 @@ import type { FullRecord } from "@grenier/store";
 import type { ServerEntry } from "./agents/index.ts";
 import { Refusal } from "./io.ts";
 
-/** A server's name: letters, digits, `.`, `_` and `-`; `grenier` and `grenier-…` are Grenier's own. */
+/** A server's name: letters, digits, `.`, `_` and `-`; `grenier` is Grenier's own. */
 export const SERVER_NAME = /^[\w.-]{1,60}$/;
 export const BAD_SERVER_NAME = "a server's name takes letters, digits, ., _ and -";
 

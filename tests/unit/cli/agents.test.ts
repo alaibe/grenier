@@ -96,17 +96,17 @@ describe("Claude Code and Codex, each its own strategy", () => {
       fields: { config: { type: "http", url: "https://mcp.linear.app/mcp" }, credentials: [] },
     });
     for (const { id } of [skill, server]) await install(store, where, (await store.records.get(id)) as FullRecord);
-    expect(existsSync(join(home, ".claude", "skills", "grenier-notes", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(home, ".codex", "skills", "grenier-notes", "SKILL.md"))).toBe(true);
-    expect(claudeConfig().mcpServers["grenier-linear"]).toMatchObject({ url: "https://mcp.linear.app/mcp" });
-    expect(codexConfig().mcp_servers).toMatchObject({ "grenier-linear": { url: "https://mcp.linear.app/mcp" } });
+    expect(existsSync(join(home, ".claude", "skills", "notes", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(home, ".codex", "skills", "notes", "SKILL.md"))).toBe(true);
+    expect(claudeConfig().mcpServers.linear).toMatchObject({ url: "https://mcp.linear.app/mcp" });
+    expect(codexConfig().mcp_servers).toMatchObject({ linear: { url: "https://mcp.linear.app/mcp" } });
     expect(await localSkills(store, where)).toEqual([]);
 
     for (const { id } of [skill, server]) {
       await uninstall(store, where, id, ((await store.records.get(id)) as FullRecord).type as "Skill" | "McpServer");
     }
-    expect(existsSync(join(home, ".codex", "skills", "grenier-notes"))).toBe(false);
-    expect(claudeConfig().mcpServers["grenier-linear"]).toBeUndefined();
+    expect(existsSync(join(home, ".codex", "skills", "notes"))).toBe(false);
+    expect(claudeConfig().mcpServers.linear).toBeUndefined();
     expect(codexConfig().mcp_servers).toBeUndefined();
   });
 

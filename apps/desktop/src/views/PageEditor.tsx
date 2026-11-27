@@ -179,7 +179,7 @@ export function PageEditor({
   const choices = allowed.some((path) => pathKey(path) === pathKey(here))
     ? allowed
     : [...allowed, { ...here, label: folderPath(tops, draft.top, draft.folder) }];
-  const type = record.data && record.data.type !== "Doc" ? record.data.type : null;
+  const suggestion = record.data?.type === "Suggestion";
 
   const dirty =
     !record.data ||
@@ -260,7 +260,7 @@ export function PageEditor({
           />
           {record.data && (
             <p className="mt-2 font-mono text-xs text-muted tabular-nums">
-              {type && `${type} · `}by {record.data.author} on {record.data.device} ·{" "}
+              {suggestion && "Suggestion · "}by {record.data.author} on {record.data.device} ·{" "}
               <time title={exact(record.data.updatedAt)}>changed {ago(record.data.updatedAt)}</time>
               {record.data.hits > 0 && ` · used ${record.data.hits} times`}
             </p>

@@ -50,7 +50,7 @@ beforeEach(() => {
         },
         sentry: { type: "http", url: "https://mcp.sentry.dev/mcp", headers: { Authorization: "Bearer s3cr3t" } },
         grenier: { type: "stdio", command: "grenier", args: ["mcp", "serve"], env: { GRENIER_CLIENT_TOKEN: "gc_x" } },
-        "grenier-linear": { type: "http", url: "https://mcp.linear.app/mcp" },
+        linear: { type: "http", url: "https://mcp.linear.app/mcp" },
       },
       projects: { [project]: { mcpServers: { docs: { type: "http", url: "https://docs.test/mcp?apiKey=abc" } } } },
     }),
@@ -79,7 +79,7 @@ describe("the person's MCP servers", () => {
       kind: "mcp",
       hash: "h",
       approvedAt: 1,
-      settings: { name: "grenier-linear" },
+      settings: { name: "linear" },
       installedPath: join(home, ".claude.json"),
       previousHash: null,
     });
@@ -139,7 +139,7 @@ describe("the person's MCP servers", () => {
     const added = addServer(where, { name: "slack", entry: { type: "http", url: "https://slack.test/mcp" } });
     expect(claude().mcpServers.slack).toEqual({ type: "http", url: "https://slack.test/mcp" });
     expect(() => addServer(where, { name: "slack", entry: {} })).toThrow("already");
-    expect(() => addServer(where, { name: "grenier-x", entry: {} })).toThrow("Grenier's");
+    expect(() => addServer(where, { name: "grenier", entry: {} })).toThrow("Grenier's");
     addServer(where, { project: join(home, "checkout"), name: "local", entry: { command: "run" } });
     expect(claude().projects[join(home, "checkout")].mcpServers.local).toEqual({ type: "stdio", command: "run" });
     removeServer(where, added);

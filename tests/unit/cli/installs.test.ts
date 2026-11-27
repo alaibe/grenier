@@ -43,8 +43,8 @@ describe("a shared skill", () => {
     expect(await store.outbox.list()).toHaveLength(1);
 
     const approval = await install(store, where, await shared(id));
-    const folder = join(home, ".claude", "skills", "grenier-release-notes");
-    expect(approval.settings.name).toBe("grenier-release-notes");
+    const folder = join(home, ".claude", "skills", "release-notes");
+    expect(approval.settings.name).toBe("release-notes");
     expect(readFileSync(join(folder, "SKILL.md"), "utf8")).toBe(SKILL);
     expect(statSync(join(folder, "scripts", "notes.sh")).mode & 0o111).not.toBe(0);
     expect((await sharedList(store))[0]).toMatchObject({ title: "release-notes", state: "installed" });
@@ -89,7 +89,7 @@ describe("a shared skill", () => {
     });
     await expect(install(store, where, await shared(windows.id))).rejects.toThrow("outside its folder");
 
-    mkdirSync(join(home, ".claude", "skills", "grenier-mine"), { recursive: true });
+    mkdirSync(join(home, ".claude", "skills", "mine"), { recursive: true });
     const mine = await share(deps, { type: "Skill", title: "mine", body: "", fields: { files: { "SKILL.md": "x" } } });
     await expect(install(store, where, await shared(mine.id))).rejects.toThrow("not one Grenier installed");
   });
@@ -117,7 +117,7 @@ describe("a shared skill", () => {
     const { seq: _seq, hits: _hits, ...record } = await shared(id);
     await store.records.put({ ...record, retiredAt: 5 });
     expect(await removeRetired(store, where)).toEqual(["removed review, which the team retired"]);
-    expect(existsSync(join(home, ".claude", "skills", "grenier-review"))).toBe(false);
+    expect(existsSync(join(home, ".claude", "skills", "review"))).toBe(false);
   });
 });
 
@@ -145,7 +145,7 @@ describe("a shared MCP server", () => {
     await install(store, where, await shared(id), { keys: { SENTRY_TOKEN: "sntrys_mine" } });
     const config = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"));
     expect(config).toMatchObject({ theme: "dark", mcpServers: { mine: { command: "a" } } });
-    expect(config.mcpServers["grenier-sentry"]).toEqual({
+    expect(config.mcpServers.sentry).toEqual({
       type: "stdio",
       command: "npx",
       args: ["-y", "@sentry/mcp@1.2.0"],
@@ -160,14 +160,14 @@ describe("a shared MCP server", () => {
       fields: { config: { command: "npx", args: ["-y", "@sentry/mcp@1.3.0"] }, credentials: ["SENTRY_TOKEN"] },
     });
     await install(store, where, await shared(id));
-    const updated = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers["grenier-sentry"];
+    const updated = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers.sentry;
     expect(updated).toMatchObject({ args: ["-y", "@sentry/mcp@1.3.0"], env: { SENTRY_TOKEN: "sntrys_mine" } });
     await uninstall(store, where, id, "McpServer");
     expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers).toEqual({ mine: { command: "a" } });
 
     writeFileSync(
       join(home, ".claude.json"),
-      JSON.stringify({ mcpServers: { mine: { command: "a" }, "grenier-other": { command: "b" } } }),
+      JSON.stringify({ mcpServers: { mine: { command: "a" }, other: { command: "b" } } }),
     );
     const clash = await share(deps, {
       type: "McpServer",
@@ -200,7 +200,7 @@ describe("a shared MCP server", () => {
       },
     });
     await install(store, where, await shared(id), { keys: { api_key: "lin_mine" } });
-    const read = () => JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers["grenier-linear"];
+    const read = () => JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers.linear;
     expect(read()).toEqual({
       type: "http",
       url: "https://mcp.linear.app/mcp",
